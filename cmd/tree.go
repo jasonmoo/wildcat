@@ -8,7 +8,6 @@ import (
 
 	"github.com/jasonmoo/wildcat/internal/errors"
 	"github.com/jasonmoo/wildcat/internal/lsp"
-	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/jasonmoo/wildcat/internal/symbols"
 	"github.com/jasonmoo/wildcat/internal/traverse"
 	"github.com/spf13/cobra"
@@ -48,7 +47,10 @@ func init() {
 
 func runTree(cmd *cobra.Command, args []string) error {
 	symbolArg := args[0]
-	writer := output.NewWriter(os.Stdout, true)
+	writer, err := GetWriter(os.Stdout)
+	if err != nil {
+		return fmt.Errorf("invalid output format: %w", err)
+	}
 
 	// Parse symbol
 	query, err := symbols.Parse(symbolArg)

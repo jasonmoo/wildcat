@@ -7,25 +7,48 @@ import (
 
 // Writer handles output formatting.
 type Writer struct {
-	w      io.Writer
-	pretty bool
+	w         io.Writer
+	pretty    bool
+	formatter Formatter
 }
 
-// NewWriter creates a new output writer.
+// NewWriter creates a new output writer with JSON formatter.
 func NewWriter(w io.Writer, pretty bool) *Writer {
 	return &Writer{
-		w:      w,
-		pretty: pretty,
+		w:         w,
+		pretty:    pretty,
+		formatter: &JSONFormatter{Pretty: pretty},
 	}
 }
 
-// Write writes any value as JSON.
-func (w *Writer) Write(v any) error {
-	enc := json.NewEncoder(w.w)
-	if w.pretty {
-		enc.SetIndent("", "  ")
+// NewWriterWithFormat creates a new output writer with a specific formatter.
+func NewWriterWithFormat(w io.Writer, formatName string) (*Writer, error) {
+	formatter, err := DefaultRegistry.Get(formatName)
+	if err != nil {
+		return nil, err
 	}
-	return enc.Encode(v)
+	return &Writer{
+		w:         w,
+		pretty:    true,
+		formatter: formatter,
+	}, nil
+}
+
+// Write writes any value using the configured formatter.
+func (w *Writer) Write(v any) error {
+	output, err := w.formatter.Format(v)
+	if err != nil {
+		return err
+	}
+	_, err = w.w.Write(output)
+	if err != nil {
+		return err
+	}
+	// Add newline if not present
+	if len(output) > 0 && output[len(output)-1] != '\n' {
+		w.w.Write([]byte{'\n'})
+	}
+	return nil
 }
 
 // WriteError writes an error response.

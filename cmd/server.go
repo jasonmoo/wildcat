@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/jasonmoo/wildcat/internal/lsp"
+	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/jasonmoo/wildcat/internal/servers"
 )
 
@@ -13,6 +15,14 @@ var (
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&globalLanguage, "language", "l", "", "Language (go, python, typescript, rust, c)")
+}
+
+// GetWriter returns an output writer with the configured format.
+func GetWriter(w io.Writer) (*output.Writer, error) {
+	if globalOutput == "" || globalOutput == "json" {
+		return output.NewWriter(w, true), nil
+	}
+	return output.NewWriterWithFormat(w, globalOutput)
 }
 
 // GetServerConfig returns the LSP server configuration for the specified or detected language.

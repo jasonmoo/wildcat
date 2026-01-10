@@ -1,0 +1,452 @@
+package output
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"text/template"
+)
+
+// Formatter transforms output into a specific format.
+type Formatter interface {
+	// Format transforms the result into the desired output format
+	Format(result any) ([]byte, error)
+
+	// Name returns the formatter name (e.g., "json", "yaml")
+	Name() string
+
+	// Description returns help text for --help
+	Description() string
+}
+
+// Registry manages available formatters.
+type Registry struct {
+	mu         sync.RWMutex
+	formatters map[string]Formatter
+}
+
+// NewRegistry creates a new formatter registry with built-in formatters.
+func NewRegistry() *Registry {
+	r := &Registry{
+		formatters: make(map[string]Formatter),
+	}
+	// Register built-in formatters
+	r.Register(&JSONFormatter{Pretty: true})
+	r.Register(&YAMLFormatter{})
+	r.Register(&DotFormatter{})
+	r.Register(&MarkdownFormatter{})
+	return r
+}
+
+// Register adds a formatter to the registry.
+func (r *Registry) Register(f Formatter) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.formatters[f.Name()] = f
+}
+
+// Get returns a formatter by name.
+func (r *Registry) Get(name string) (Formatter, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Check for built-in formatter
+	if f, ok := r.formatters[name]; ok {
+		return f, nil
+	}
+
+	// Check for template: prefix
+	if strings.HasPrefix(name, "template:") {
+		tmplPath := strings.TrimPrefix(name, "template:")
+		return NewTemplateFormatter(tmplPath)
+	}
+
+	// Check for plugin: prefix
+	if strings.HasPrefix(name, "plugin:") {
+		pluginName := strings.TrimPrefix(name, "plugin:")
+		return NewPluginFormatter(pluginName)
+	}
+
+	// Try to find as external plugin
+	if cmd := findPlugin(name); cmd != "" {
+		return &PluginFormatter{Command: cmd}, nil
+	}
+
+	return nil, fmt.Errorf("formatter %q not found", name)
+}
+
+// List returns all registered formatter names.
+func (r *Registry) List() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	names := make([]string, 0, len(r.formatters))
+	for name := range r.formatters {
+		names = append(names, name)
+	}
+	return names
+}
+
+// All returns all formatters with descriptions.
+func (r *Registry) All() []Formatter {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	formatters := make([]Formatter, 0, len(r.formatters))
+	for _, f := range r.formatters {
+		formatters = append(formatters, f)
+	}
+	return formatters
+}
+
+// JSONFormatter outputs JSON.
+type JSONFormatter struct {
+	Pretty bool
+}
+
+func (f *JSONFormatter) Name() string        { return "json" }
+func (f *JSONFormatter) Description() string { return "JSON output (default)" }
+
+func (f *JSONFormatter) Format(result any) ([]byte, error) {
+	if f.Pretty {
+		return json.MarshalIndent(result, "", "  ")
+	}
+	return json.Marshal(result)
+}
+
+// YAMLFormatter outputs YAML.
+type YAMLFormatter struct{}
+
+func (f *YAMLFormatter) Name() string        { return "yaml" }
+func (f *YAMLFormatter) Description() string { return "YAML output" }
+
+func (f *YAMLFormatter) Format(result any) ([]byte, error) {
+	// Simple YAML conversion from JSON - not full YAML but good enough
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	// Convert to simple YAML-like format
+	return jsonToYAML(jsonBytes)
+}
+
+// jsonToYAML converts JSON to simple YAML format.
+func jsonToYAML(jsonBytes []byte) ([]byte, error) {
+	var data any
+	if err := json.Unmarshal(jsonBytes, &data); err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	writeYAML(&buf, data, 0)
+	return buf.Bytes(), nil
+}
+
+func writeYAML(buf *bytes.Buffer, data any, indent int) {
+	prefix := strings.Repeat("  ", indent)
+
+	switch v := data.(type) {
+	case map[string]any:
+		for key, val := range v {
+			switch child := val.(type) {
+			case map[string]any, []any:
+				buf.WriteString(prefix + key + ":\n")
+				writeYAML(buf, child, indent+1)
+			default:
+				buf.WriteString(fmt.Sprintf("%s%s: %v\n", prefix, key, formatYAMLValue(val)))
+			}
+		}
+	case []any:
+		for _, item := range v {
+			switch child := item.(type) {
+			case map[string]any, []any:
+				buf.WriteString(prefix + "-\n")
+				writeYAML(buf, child, indent+1)
+			default:
+				buf.WriteString(fmt.Sprintf("%s- %v\n", prefix, formatYAMLValue(item)))
+			}
+		}
+	default:
+		buf.WriteString(fmt.Sprintf("%s%v\n", prefix, formatYAMLValue(v)))
+	}
+}
+
+func formatYAMLValue(v any) string {
+	switch val := v.(type) {
+	case string:
+		if strings.Contains(val, "\n") || strings.Contains(val, ":") {
+			return fmt.Sprintf("%q", val)
+		}
+		return val
+	case nil:
+		return "null"
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	default:
+		return fmt.Sprintf("%v", val)
+	}
+}
+
+// DotFormatter outputs Graphviz DOT format for tree structures.
+type DotFormatter struct{}
+
+func (f *DotFormatter) Name() string        { return "dot" }
+func (f *DotFormatter) Description() string { return "Graphviz DOT format (for call trees)" }
+
+func (f *DotFormatter) Format(result any) ([]byte, error) {
+	// Convert to JSON and back to map for consistent access
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]any
+	if err := json.Unmarshal(jsonBytes, &data); err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("digraph callgraph {\n")
+	buf.WriteString("  rankdir=LR;\n")
+	buf.WriteString("  node [shape=box, fontname=\"Courier\"];\n")
+
+	// Extract edges from tree response
+	if edges, ok := data["edges"].([]any); ok {
+		for _, edge := range edges {
+			if e, ok := edge.(map[string]any); ok {
+				from, _ := e["from"].(string)
+				to, _ := e["to"].(string)
+				if from != "" && to != "" {
+					safeFrom := strings.ReplaceAll(from, "\"", "\\\"")
+					safeTo := strings.ReplaceAll(to, "\"", "\\\"")
+					buf.WriteString(fmt.Sprintf("  \"%s\" -> \"%s\";\n", safeFrom, safeTo))
+				}
+			}
+		}
+	}
+
+	// Also handle callers/callees results as simple node lists
+	if results, ok := data["results"].([]any); ok {
+		targetName := ""
+		if target, ok := data["target"].(map[string]any); ok {
+			targetName, _ = target["symbol"].(string)
+		}
+		for _, r := range results {
+			if result, ok := r.(map[string]any); ok {
+				symbol, _ := result["symbol"].(string)
+				if symbol != "" && targetName != "" {
+					safeSymbol := strings.ReplaceAll(symbol, "\"", "\\\"")
+					safeTarget := strings.ReplaceAll(targetName, "\"", "\\\"")
+					// For callers, the symbol calls the target
+					// For callees, the target calls the symbol
+					if query, ok := data["query"].(map[string]any); ok {
+						cmd, _ := query["command"].(string)
+						if cmd == "callees" {
+							buf.WriteString(fmt.Sprintf("  \"%s\" -> \"%s\";\n", safeTarget, safeSymbol))
+						} else {
+							buf.WriteString(fmt.Sprintf("  \"%s\" -> \"%s\";\n", safeSymbol, safeTarget))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	buf.WriteString("}\n")
+	return buf.Bytes(), nil
+}
+
+// MarkdownFormatter outputs Markdown tables and lists.
+type MarkdownFormatter struct{}
+
+func (f *MarkdownFormatter) Name() string        { return "markdown" }
+func (f *MarkdownFormatter) Description() string { return "Markdown tables and lists" }
+
+func (f *MarkdownFormatter) Format(result any) ([]byte, error) {
+	var buf bytes.Buffer
+
+	data, ok := result.(map[string]any)
+	if !ok {
+		// Try JSON marshal and convert to map
+		jsonBytes, _ := json.Marshal(result)
+		json.Unmarshal(jsonBytes, &data)
+	}
+
+	// Get query info for title
+	if query, ok := data["query"].(map[string]any); ok {
+		cmd, _ := query["command"].(string)
+		target, _ := query["target"].(string)
+		buf.WriteString(fmt.Sprintf("# %s: %s\n\n", strings.Title(cmd), target))
+	}
+
+	// Format results as table
+	if results, ok := data["results"].([]any); ok && len(results) > 0 {
+		buf.WriteString("| Symbol | File | Line |\n")
+		buf.WriteString("|--------|------|------|\n")
+
+		for _, r := range results {
+			if row, ok := r.(map[string]any); ok {
+				symbol, _ := row["symbol"].(string)
+				file, _ := row["file"].(string)
+				line, _ := row["line"].(float64)
+
+				// Shorten file path
+				if len(file) > 40 {
+					file = "..." + file[len(file)-37:]
+				}
+
+				buf.WriteString(fmt.Sprintf("| %s | %s | %.0f |\n", symbol, file, line))
+			}
+		}
+		buf.WriteString("\n")
+	}
+
+	// Format tree if present
+	if tree, ok := data["tree"].(map[string]any); ok {
+		buf.WriteString("## Call Tree\n\n")
+		writeMarkdownTree(&buf, tree, 0)
+		buf.WriteString("\n")
+	}
+
+	// Summary
+	if summary, ok := data["summary"].(map[string]any); ok {
+		buf.WriteString("## Summary\n\n")
+		for key, val := range summary {
+			buf.WriteString(fmt.Sprintf("- **%s**: %v\n", key, val))
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
+func writeMarkdownTree(buf *bytes.Buffer, node map[string]any, depth int) {
+	name, _ := node["name"].(string)
+	file, _ := node["file"].(string)
+	line, _ := node["line"].(float64)
+
+	indent := strings.Repeat("  ", depth)
+	if file != "" && line > 0 {
+		buf.WriteString(fmt.Sprintf("%s- `%s` (%s:%.0f)\n", indent, name, filepath.Base(file), line))
+	} else if name != "" {
+		buf.WriteString(fmt.Sprintf("%s- `%s`\n", indent, name))
+	}
+
+	if children, ok := node["children"].([]any); ok {
+		for _, child := range children {
+			if childMap, ok := child.(map[string]any); ok {
+				writeMarkdownTree(buf, childMap, depth+1)
+			}
+		}
+	}
+}
+
+// TemplateFormatter uses Go templates.
+type TemplateFormatter struct {
+	path string
+	tmpl *template.Template
+}
+
+func NewTemplateFormatter(path string) (*TemplateFormatter, error) {
+	tmpl, err := template.ParseFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("parsing template %s: %w", path, err)
+	}
+	return &TemplateFormatter{path: path, tmpl: tmpl}, nil
+}
+
+func (f *TemplateFormatter) Name() string        { return "template:" + f.path }
+func (f *TemplateFormatter) Description() string { return "Custom Go template" }
+
+func (f *TemplateFormatter) Format(result any) ([]byte, error) {
+	// Convert to map for template access
+	var data map[string]any
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(jsonBytes, &data); err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	if err := f.tmpl.Execute(&buf, data); err != nil {
+		return nil, fmt.Errorf("executing template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// PluginFormatter runs an external plugin.
+type PluginFormatter struct {
+	Command string
+	Args    []string
+}
+
+func NewPluginFormatter(name string) (*PluginFormatter, error) {
+	cmd := findPlugin(name)
+	if cmd == "" {
+		return nil, fmt.Errorf("plugin %q not found", name)
+	}
+	return &PluginFormatter{Command: cmd}, nil
+}
+
+func (f *PluginFormatter) Name() string        { return "plugin:" + filepath.Base(f.Command) }
+func (f *PluginFormatter) Description() string { return "External plugin" }
+
+func (f *PluginFormatter) Format(result any) ([]byte, error) {
+	// Marshal result to JSON
+	input, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+
+	// Run plugin
+	cmd := exec.Command(f.Command, f.Args...)
+	cmd.Stdin = bytes.NewReader(input)
+
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("plugin failed: %s", string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("running plugin: %w", err)
+	}
+
+	return output, nil
+}
+
+// findPlugin searches for a plugin binary.
+func findPlugin(name string) string {
+	// Full name with prefix
+	binName := "wildcat-format-" + name
+
+	// Check PATH
+	if path, err := exec.LookPath(binName); err == nil {
+		return path
+	}
+
+	// Check ~/.config/wildcat/plugins/
+	if home, err := os.UserHomeDir(); err == nil {
+		pluginPath := filepath.Join(home, ".config", "wildcat", "plugins", binName)
+		if _, err := os.Stat(pluginPath); err == nil {
+			return pluginPath
+		}
+	}
+
+	// Check ./plugins/
+	localPath := filepath.Join("plugins", binName)
+	if _, err := os.Stat(localPath); err == nil {
+		return localPath
+	}
+
+	return ""
+}
+
+// DefaultRegistry is the global formatter registry.
+var DefaultRegistry = NewRegistry()

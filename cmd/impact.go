@@ -46,7 +46,10 @@ func init() {
 
 func runImpact(cmd *cobra.Command, args []string) error {
 	symbolArg := args[0]
-	writer := output.NewWriter(os.Stdout, true)
+	writer, err := GetWriter(os.Stdout)
+	if err != nil {
+		return fmt.Errorf("invalid output format: %w", err)
+	}
 
 	// Parse symbol
 	query, err := symbols.Parse(symbolArg)
