@@ -18,20 +18,41 @@
 
 ### 1. Find all callers
 ```bash
-./bin/wildcat callers lsp.NewClient --compact
+./bin/wildcat callers lsp.NewClient
 ```
-> "Every function that calls NewClient - with file paths and line numbers."
+> "Every function that calls NewClient - with resolved symbols, file paths, line numbers, and code snippets."
 
 ```json
 {
+  "query": {
+    "command": "callers",
+    "target": "lsp.NewClient",
+    "resolved": "github.com/jasonmoo/wildcat/internal/lsp.NewClient"
+  },
+  "target": {
+    "symbol": "github.com/jasonmoo/wildcat/internal/lsp.NewClient",
+    "file": "/home/jason/.../internal/lsp/client.go",
+    "line": 18
+  },
   "results": [
-    {"symbol": "runCallees", "file": ".../cmd/callees.go", "line": 56},
-    {"symbol": "runCallers", "file": ".../cmd/callers.go", "line": 57},
-    {"symbol": "runImpact",  "file": ".../cmd/impact.go",  "line": 47},
-    {"symbol": "runRefs",    "file": ".../cmd/refs.go",    "line": 56},
-    {"symbol": "runTree",    "file": ".../cmd/tree.go",    "line": 48}
+    {
+      "symbol": "runCallees",
+      "file": "/home/jason/.../cmd/callees.go",
+      "line": 56,
+      "snippet": "\tclient, err := lsp.NewClient(ctx, config)\n\tif err != nil {\n\t\treturn writer.WriteError(",
+      "call_expr": "NewClient",
+      "in_test": false
+    },
+    {
+      "symbol": "runCallers",
+      "file": "/home/jason/.../cmd/callers.go",
+      "line": 57,
+      "snippet": "...",
+      "in_test": false
+    },
+    // ... 6 more callers
   ],
-  "summary": {"count": 5}
+  "summary": {"count": 8, "in_tests": 0}
 }
 ```
 
@@ -41,19 +62,35 @@
 ```bash
 ./bin/wildcat impact output.Formatter
 ```
-> "What breaks if I change this interface? Callers, references, implementations - one query."
+> "What breaks if I change this interface? References AND implementations - one query."
 
 ```json
 {
-  "target": {"symbol": "output.Formatter", "kind": "interface"},
+  "query": {
+    "command": "impact",
+    "target": "output.Formatter",
+    "resolved": "github.com/jasonmoo/wildcat/internal/output.Formatter"
+  },
+  "target": {
+    "symbol": "github.com/jasonmoo/wildcat/internal/output.Formatter",
+    "kind": "interface",
+    "file": "/home/jason/.../internal/output/formatter.go",
+    "line": 16
+  },
   "impact": {
     "references": [
       {"file": ".../formatter.go", "line": 30, "reason": "references this symbol"},
       {"file": ".../formatter.go", "line": 36, "reason": "references this symbol"},
-      {"file": ".../json.go",      "line": 12, "reason": "references this symbol"}
+      {"file": ".../json.go", "line": 12, "reason": "references this symbol"},
+      // ... 4 more references
+    ],
+    "implementations": [
+      {"file": ".../formatter.go", "line": 108},
+      {"file": ".../formatter.go", "line": 123},
+      // ... 4 more implementations
     ]
   },
-  "summary": {"total_locations": 15, "references": 15}
+  "summary": {"total_locations": 13, "references": 7, "implementations": 6}
 }
 ```
 
@@ -67,16 +104,26 @@
 
 ```json
 {
-  "interface": {"symbol": "output.Formatter", "kind": "interface"},
+  "query": {
+    "command": "implements",
+    "target": "output.Formatter",
+    "resolved": "github.com/jasonmoo/wildcat/internal/output.Formatter"
+  },
+  "interface": {
+    "symbol": "github.com/jasonmoo/wildcat/internal/output.Formatter",
+    "kind": "interface",
+    "file": "/home/jason/.../internal/output/formatter.go",
+    "line": 16
+  },
   "implementations": [
-    {"file": ".../formatter.go", "line": 108},  // JSONFormatter
-    {"file": ".../formatter.go", "line": 123},  // YAMLFormatter
-    {"file": ".../formatter.go", "line": 199},  // DotFormatter
-    {"file": ".../formatter.go", "line": 267},  // MarkdownFormatter
-    {"file": ".../formatter.go", "line": 351},  // TemplateFormatter
-    {"file": ".../formatter.go", "line": 386}   // PluginFormatter
+    {"file": ".../formatter.go", "line": 108, "in_test": false},
+    {"file": ".../formatter.go", "line": 123, "in_test": false},
+    {"file": ".../formatter.go", "line": 199, "in_test": false},
+    {"file": ".../formatter.go", "line": 267, "in_test": false},
+    {"file": ".../formatter.go", "line": 351, "in_test": false},
+    {"file": ".../formatter.go", "line": 386, "in_test": false}
   ],
-  "summary": {"count": 6}
+  "summary": {"count": 6, "in_tests": 0, "truncated": false}
 }
 ```
 
@@ -91,13 +138,15 @@
 ```markdown
 # Callers: output.NewWriter
 
-| Symbol              | File                  | Line |
-|---------------------|----------------------|------|
-| GetWriter           | .../cmd/server.go    | 21   |
-| TestWriter_Write    | .../json_test.go     | 9    |
-| TestWriter_WriteError | .../json_test.go   | 61   |
+| Symbol | File | Line |
+|--------|------|------|
+| GetWriter | .../cmd/server.go | 21 |
+| TestWriter_Write | .../internal/output/json_test.go | 9 |
+| TestWriter_WriteError | .../internal/output/json_test.go | 61 |
+| TestWriter_PrettyPrint | .../internal/output/json_test.go | 88 |
 
 ## Summary
+
 - **count**: 4
 - **in_tests**: 3
 ```
