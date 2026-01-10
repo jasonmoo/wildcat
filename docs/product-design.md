@@ -165,6 +165,88 @@ Find all references to a symbol (not just calls).
 
 ---
 
+#### `wildcat impact <symbol>`
+
+Comprehensive impact analysis: everything affected by changing a symbol.
+
+**Purpose**: Answer "What breaks if I change this?" in one query.
+
+**What it includes**:
+- All callers (transitive, not just direct)
+- All references (type usage, not just calls)
+- Interface implementations (if changing an interface)
+- Implementing types (if changing a method signature)
+- Dependent packages
+
+**Output**:
+```json
+{
+  "query": {
+    "command": "impact",
+    "target": "config.Config",
+    "resolved": "github.com/user/proj/internal/config.Config"
+  },
+  "target": {
+    "symbol": "config.Config",
+    "kind": "type",
+    "file": "/path/to/config/config.go",
+    "line": 10
+  },
+  "impact": {
+    "callers": [
+      {
+        "symbol": "server.New",
+        "file": "/path/to/server/server.go",
+        "line": 25,
+        "snippet": "func New(cfg *config.Config) *Server {",
+        "reason": "parameter type"
+      }
+    ],
+    "references": [
+      {
+        "symbol": "handler.Setup",
+        "file": "/path/to/handler/handler.go",
+        "line": 15,
+        "snippet": "var cfg config.Config",
+        "reason": "variable declaration"
+      }
+    ],
+    "implementations": [],
+    "dependents": [
+      {
+        "package": "github.com/user/proj/internal/server",
+        "import_line": 8,
+        "file": "/path/to/server/server.go"
+      },
+      {
+        "package": "github.com/user/proj/internal/handler",
+        "import_line": 5,
+        "file": "/path/to/handler/handler.go"
+      }
+    ]
+  },
+  "summary": {
+    "total_locations": 12,
+    "callers": 5,
+    "references": 4,
+    "implementations": 0,
+    "dependent_packages": 3,
+    "in_tests": 2
+  }
+}
+```
+
+**Flags**:
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--exclude-tests` | Exclude test files | false |
+| `--depth <n>` | Max depth for transitive callers | unlimited |
+| `--include-deps` | Include impact in dependencies | false |
+
+**Use case**: Before any refactoring, run `impact` to understand the full scope of changes needed.
+
+---
+
 ### Future Commands
 
 #### `wildcat implements <interface>`

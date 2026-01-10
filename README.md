@@ -126,6 +126,7 @@ Self-correcting suggestions:
 | `wildcat callees <symbol>` | What does this function call? |
 | `wildcat tree <symbol>` | Full call tree with depth control |
 | `wildcat refs <symbol>` | All references to symbol |
+| `wildcat impact <symbol>` | What breaks if I change this? |
 | `wildcat implements <type>` | What implements this interface? |
 | `wildcat deps <package>` | Package dependency graph |
 
@@ -143,6 +144,9 @@ wildcat callers config.Load
 
 # Show call tree from main, 4 levels deep
 wildcat tree main.main --depth 4
+
+# What breaks if I change this type?
+wildcat impact config.Config
 
 # Find what implements an interface
 wildcat implements io.Reader
