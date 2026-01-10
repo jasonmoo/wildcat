@@ -1,0 +1,38 @@
+{
+    "permissions": {
+        "allow": [
+            "Bash(bd:*)",
+            "Bash(go build:*)",
+            "Bash(go test:*)",
+            "Bash(go doc:*)",
+            "Bash(gopls:*)",
+            "Bash(jq:*)",
+
+            "Bash(git status:*)",
+            "Bash(git add:*)",
+            "Bash(git commit:*)",
+            "Bash(git log:*)",
+            "Bash(git diff:*)",
+            "Bash(git show:*)",
+
+            "Bash(git submodule:*)",
+            "Bash(git lfs:*)",
+            "Bash(git checkout:*)",
+            "Bash(git branch:*)",
+            "Bash(git remote:*)",
+            "Bash(git fetch:*)",
+            "Bash(git pull:*)",
+            "Bash(git merge:*)",
+            "Bash(git tag:*)",
+            "Bash(git rev-parse:*)",
+
+            "WebFetch(domain:github.com)",
+
+            "Bash(tree:*)",
+            "Bash(find:*)",
+            "Bash(dirname:*)"
+        ],
+        "ask": ["Bash(curl:*)", "Bash(git push:*)", "Bash(gh pr:*)"],
+        "deny": ["Read(.env*)"]
+    }
+}

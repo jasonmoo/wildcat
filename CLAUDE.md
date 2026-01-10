@@ -46,6 +46,11 @@ go build -o wildcat .
 - Agent-optimized: JSON output, ready work detection, discovered-from links
 - Prevents duplicate tracking systems and confusion
 
+IMPORTANT: bd is the only way for Claude to persist memory across sessions.
+It is important to populate tickets with all information required for any Claude
+to do the work.  And it should document the work in such a way that it can be used
+in forensics to understand the decisions.
+
 ### Quick Start
 
 **Check for ready work:**
