@@ -1,31 +1,32 @@
 # Wildcat
 
-Go static analysis built for AI agents.
+Code analysis built for AI agents. Language-agnostic via LSP.
 
 ## The Problem
 
-AI coding assistants need to understand code relationships when refactoring Go. The standard tool is `gopls`, but it's designed for IDEs, not AI agents.
+AI coding assistants need to understand code relationships when refactoring. Language servers (gopls, rust-analyzer, pyright) exist, but they're designed for IDEs, not AI agents.
 
-**gopls friction for AI:**
+**LSP friction for AI:**
 
 ```bash
 # AI wants: "Who calls config.Load?"
-# gopls requires:
-gopls workspace_symbol "Load"              # Step 1: Find position
-# ... parse text output ...
-gopls references config/config.go:15:6     # Step 2: Query by position
-# ... parse more text output ...
+# LSP requires:
+workspace/symbol("Load")                      # Step 1: Find position
+textDocument/prepareCallHierarchy(position)   # Step 2: Prepare hierarchy
+callHierarchy/incomingCalls(item)             # Step 3: Get direct callers
+# Repeat for transitive callers...
+# Read files to extract snippets...
 ```
 
 - **Position-based API**: Requires `file:line:col`, not symbol names
-- **Text output**: Most commands lack JSON, require parsing
-- **Single-level only**: `call_hierarchy` shows direct callers, not full trees
-- **No batch queries**: One symbol at a time
+- **Single-level only**: Call hierarchy shows direct callers, not full trees
+- **No snippets**: Returns positions, not code context
+- **Multiple round-trips**: Simple queries require many LSP calls
 - **IDE-centric**: Designed for incremental, stateful sessions
 
 ## The Solution
 
-Wildcat is purpose-built for AI agents. One query, actionable results.
+Wildcat is purpose-built for AI agents. One query, actionable results. Works with any language that has an LSP server.
 
 ```bash
 wildcat callers config.Load
@@ -117,6 +118,21 @@ Self-correcting suggestions:
   }
 }
 ```
+
+### Multi-Language Support
+
+Wildcat works with any language that has an LSP server supporting call hierarchy (LSP 3.16+):
+
+| Language | Server | Status |
+|----------|--------|--------|
+| Go | gopls | ✅ Full support |
+| Python | pyright | ✅ Full support |
+| TypeScript/JavaScript | typescript-language-server | ✅ Full support |
+| Rust | rust-analyzer | ✅ Full support |
+| C/C++ | clangd | ✅ Full support |
+| Java | jdtls | ✅ Full support |
+
+Wildcat auto-detects the language and starts the appropriate server.
 
 ## Commands
 
