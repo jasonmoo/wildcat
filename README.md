@@ -129,6 +129,7 @@ Self-correcting suggestions:
 | `wildcat impact <symbol>` | What breaks if I change this? |
 | `wildcat implements <type>` | What implements this interface? |
 | `wildcat deps <package>` | Package dependency graph |
+| `wildcat readme` | AI onboarding instructions |
 
 ## Installation
 

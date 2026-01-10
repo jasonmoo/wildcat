@@ -280,6 +280,26 @@ wildcat deps ./internal/server              # What does server import?
 wildcat deps ./internal/server --reverse    # What imports server?
 ```
 
+#### `wildcat readme`
+
+Output AI onboarding instructions. Designed to be included in system prompts, CLAUDE.md, or MCP server context.
+
+**Purpose**: Teach AI agents when and how to use Wildcat as their primary Go code analysis tool.
+
+**Content includes**:
+- When to use Wildcat vs grep vs gopls
+- Command quick reference with examples
+- Workflow patterns (refactoring, understanding new code)
+- Output format overview
+
+**Usage**:
+```bash
+wildcat readme                # Full instructions
+wildcat readme --compact      # Quick reference only
+```
+
+**Why this matters**: AI agents need guidance on tool selection. This command positions Wildcat as the first choice for Go semantic queries, with fallback to grep (text patterns) and gopls (diagnostics, formatting, rename).
+
 ---
 
 ## Output Format Specification

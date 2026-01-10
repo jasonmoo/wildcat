@@ -2,6 +2,26 @@
 
 Research for optimal CLI output formats for call trees, code graphs, and related information optimized for LLM/AI consumption.
 
+## TL;DR - Final Recommendation
+
+**Use plain indented text, not JSON.**
+
+LLMs don't need machine-parseable formats - they understand natural structure extremely well. Indented text is 3-5x more token efficient than JSON and equally "parseable" by AI.
+
+```
+main.main main.go:10
+  pkg.Init init.go:5
+    db.Connect db.go:20
+  pkg.Handler handler.go:42 impl:http.Handler
+    h.validate :45
+    db.Query db.go:30
+    log.Error :55 conditional
+```
+
+See "Final Recommendation: Indented Text Format" section below for full specification.
+
+---
+
 ## Problem Statement
 
 We need a CLI output format that:
