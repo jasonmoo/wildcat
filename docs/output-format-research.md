@@ -240,6 +240,175 @@ Proposed CLI flags:
 --no-stdlib        # Exclude standard library
 ```
 
+---
+
+## Final Recommendation: Indented Text Format
+
+### Key Insight
+
+LLMs are trained on code (Python, YAML, outlines, markdown). They don't need machine-parseable formats - they understand natural hierarchical structure extremely well.
+
+**The overhead of structured formats is wasted on AI:**
+- JSON quotes, braces, colons: ~2x token overhead
+- JSONL still has per-line JSON overhead
+- Even TOON has key-value syntax overhead
+
+**Indentation is free hierarchy.** Two spaces = one level deeper. Zero tokens for structure.
+
+### The Format
+
+#### Basic Structure
+
+```
+<function> <file>:<line> [annotations...]
+  <child> <file>:<line> [annotations...]
+    <grandchild> ...
+```
+
+- **Indentation** = call depth (2 spaces per level)
+- **Function name** = fully qualified (`pkg.Function` or `pkg.Type.Method`)
+- **Location** = `file.go:line` or `:line` if same file as parent
+- **Annotations** = inline metadata after location
+
+#### Call Tree Example
+
+```
+main.main main.go:10
+  pkg.Init init.go:5
+    db.Connect db.go:20
+      sql.Open (stdlib)
+  pkg.Handler handler.go:42 impl:http.Handler
+    h.validate :45
+    h.parseBody :48
+      json.Unmarshal (stdlib)
+    db.Query db.go:30
+    log.Error :55 conditional
+```
+
+#### Bidirectional Graph Example
+
+Use arrows for direction when showing both callers and callees:
+
+```
+pkg.Handler.ServeHTTP handler.go:42
+  → h.validate :45
+  → h.parseBody :48
+  → db.Query db.go:30
+  → log.Error :55 conditional
+  ← main.main main.go:30
+  ← TestHandler handler_test.go:15
+```
+
+- `→` = outgoing call (this function calls that)
+- `←` = incoming call (that function calls this)
+
+#### With Signatures
+
+When signatures add value:
+
+```
+pkg.Handler.ServeHTTP(w ResponseWriter, r *Request) handler.go:42
+  → h.validate(r) error :45
+  → db.Query(ctx, sql) (Row, error) db.go:30
+  ← main.main main.go:30 via:http.ListenAndServe
+```
+
+#### Interface Implementations
+
+```
+pkg.Handler handler.go:42
+  impl: http.Handler.ServeHTTP
+  impl: io.Closer.Close
+```
+
+Or inline: `pkg.Handler handler.go:42 impl:http.Handler,io.Closer`
+
+### Annotation Conventions
+
+| Annotation | Meaning |
+|------------|---------|
+| `impl:X` | Implements interface X |
+| `(stdlib)` | Standard library function |
+| `conditional` | Called conditionally (in if/switch) |
+| `deferred` | Called via defer |
+| `goroutine` | Called via go keyword |
+| `via:X` | Called indirectly through X |
+| `dynamic` | Dynamic dispatch (interface/func value) |
+| `test` | Test function |
+| `generated` | Generated code |
+
+### Position Shortcuts
+
+- `file.go:42` - Full path (relative to module root)
+- `:42` - Same file as parent node
+- `(stdlib)` - Standard library, no position needed
+- `(external)` - External dependency
+
+### Why This Beats JSON
+
+**Token count comparison for the same call tree:**
+
+JSON (87 tokens):
+```json
+{"fn":"main.main","loc":"main.go:10","calls":[{"fn":"pkg.Init","loc":"init.go:5","calls":[{"fn":"db.Connect","loc":"db.go:20"}]},{"fn":"pkg.Handler","loc":"handler.go:42"}]}
+```
+
+Indented text (31 tokens):
+```
+main.main main.go:10
+  pkg.Init init.go:5
+    db.Connect db.go:20
+  pkg.Handler handler.go:42
+```
+
+**~3x fewer tokens** for the same information.
+
+### Expressiveness
+
+The indented format supports everything JSON does:
+
+| Concept | JSON | Indented Text |
+|---------|------|---------------|
+| Hierarchy | Nesting `{}` | Indentation |
+| Relationships | `"calls":[]` | Child lines |
+| Metadata | `"kind":"impl"` | `impl:X` annotation |
+| Positions | `"line":42` | `:42` suffix |
+| Optional data | `"sig":"..."` | Inline after location |
+| Bidirectional | Two arrays | `→` and `←` prefixes |
+
+### Implementation Notes
+
+1. **Streaming:** One line per node, depth indicated by leading spaces
+2. **Parsing:** Count leading spaces / 2 = depth level
+3. **Filtering:** `grep` works naturally on this format
+4. **Sorting:** Lexicographic sort groups by file
+
+### CLI Output Example
+
+```
+$ wildcat callers pkg.Handler.ServeHTTP
+
+pkg.Handler.ServeHTTP handler.go:42
+  ← main.main main.go:30
+  ← main.setupRoutes main.go:45
+  ← TestHandler handler_test.go:15 test
+  ← BenchmarkHandler handler_test.go:50 test
+
+$ wildcat callees pkg.Handler.ServeHTTP --depth 2
+
+pkg.Handler.ServeHTTP handler.go:42
+  → h.validate :45
+  → h.parseBody :48
+    → json.Unmarshal (stdlib)
+    → ioutil.ReadAll (stdlib)
+  → h.db.Query db.go:30
+    → sql.QueryContext (stdlib)
+  → h.respond :60
+  → log.Error :55 conditional
+```
+
+---
+
 ## Sources
 
 - [LSP 3.17 Specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/)
