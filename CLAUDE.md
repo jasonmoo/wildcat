@@ -36,81 +36,175 @@ go build -o wildcat .
 ```
 
 
-## Issue Tracking with bd (beads)
+NOTE: bd has been provided as a mechanism of memory for you. Track your
+work and insights and communicate with future Claudes here. Please be
+aware your context may not be available to you in future sessions and
+bd is your only means of persisting information over time.
 
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+bd - Dependency-Aware Issue Tracker
 
-### Why bd?
+Issues chained together like beads.
 
-- Dependency-aware: Track blockers and relationships between issues
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
+CREATING ISSUES
+  bd create "Fix login bug"
+  bd create "Add auth" -p 0 -t feature
+  bd create "Write tests" -d "Unit tests for auth" --assignee alice
 
-IMPORTANT: bd is the only way for Claude to persist memory across sessions.
-It is important to populate tickets with all information required for any Claude
-to do the work.  And it should document the work in such a way that it can be used
-in forensics to understand the decisions.
+VIEWING ISSUES
+  bd list       List all issues
+  bd list --status open  List by status
+  bd list --priority 0  List by priority (0-4, 0=highest)
+  bd show bd-1       Show issue details
 
-### Quick Start
+MANAGING DEPENDENCIES
+  bd dep add bd-1 bd-2     Add dependency (bd-2 blocks bd-1)
+  bd dep tree bd-1  Visualize dependency tree
+  bd dep cycles      Detect circular dependencies
 
-**Check for ready work:**
+DEPENDENCY TYPES
+  blocks  Task B must complete before task A
+  related  Soft connection, doesn't block progress
+  parent-child  Epic/subtask hierarchical relationship
+  discovered-from  Auto-created when AI discovers related work
+
+READY WORK
+  bd ready       Show issues ready to work on
+            Ready = status is 'open' AND no blocking dependencies
+            Perfect for agents to claim next work!
+
+UPDATING ISSUES
+  bd update bd-1 --status in_progress
+  bd update bd-1 --priority 0
+  bd update bd-1 --assignee bob
+
+CLOSING ISSUES
+  bd close bd-1
+  bd close bd-2 bd-3 --reason "Fixed in PR #42"
+
+AGENT INTEGRATION
+  bd is designed for AI-supervised workflows:
+    • Agents create issues when discovering new work
+    • bd ready shows unblocked work ready to claim
+    • Use --json flags for programmatic parsing
+    • Dependencies prevent agents from duplicating effort
+
+## bd Command Reference
+
+Quick reference for commonly-used flags. For basic usage, see the bd section above.
+
+### `bd create` - Create Issues
+
 ```bash
-bd ready --json
+bd create "Title"                              # Basic (type=task, priority=2)
+bd create "Title" -t feature -p 1              # High-priority feature
+bd create "Title" -d "Description here"        # With description
+bd create "Title" --deps "blocks:bd-5"         # With dependency
+bd create "Title" --deps "bd-5,bd-6"           # Multiple deps (default: blocks)
+bd create "Title" --parent bd-10               # Child of epic bd-10
+bd create -f issues.md                         # Bulk create from markdown
 ```
 
-**Create new issues:**
+**Types:** `bug`, `feature`, `task`, `epic`, `chore`
+**Priority:** `0`=critical, `1`=high, `2`=medium (default), `3`=low, `4`=backlog
+
+### `bd list` - Query Issues
+
 ```bash
-bd create "Issue title" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" -p 1 --deps discovered-from:bd-123 --json
+bd list                                        # All issues
+bd list -s open                                # By status
+bd list -p 0                                   # Critical priority only
+bd list -t bug -s open                         # Open bugs
+bd list --title "login"                        # Title contains "login"
+bd list --id "bd-1,bd-5,bd-10"                 # Specific IDs
+bd list -n 10                                  # Limit to 10 results
+bd list --json | jq '.[] | .id'                # JSON for scripting
+bd list --format dot > deps.dot                # Graphviz output
 ```
 
-**Claim and update:**
+**Status:** `open`, `in_progress`, `blocked`, `closed`
+
+### `bd close` / `bd reopen`
+
 ```bash
-bd update bd-42 --status in_progress --json
-bd update bd-42 --priority 1 --json
+bd close bd-1                                  # Close single
+bd close bd-1 bd-2 bd-3                        # Close multiple
+bd close bd-1 -r "Fixed in commit abc123"      # With reason (recommended)
+bd reopen bd-1                                 # Reopen closed issue
+bd reopen bd-1 -r "Needs more work"            # With reason
 ```
 
-**Complete work:**
+### `bd dep` - Dependencies
+
 ```bash
-bd close bd-42 --reason "Completed" --json
+# Add dependency (bd-2 blocks bd-1, i.e., bd-1 depends on bd-2)
+bd dep add bd-1 bd-2                           # Default type: blocks
+bd dep add bd-1 bd-2 -t related                # Soft relationship
+bd dep add bd-1 bd-2 -t discovered-from        # Tracking origin
+
+bd dep remove bd-1 bd-2                        # Remove dependency
+bd dep tree bd-1                               # What blocks bd-1
+bd dep tree bd-1 --reverse                     # What depends on bd-1
+bd dep tree bd-1 --format mermaid              # Mermaid.js output
+bd dep cycles                                  # Detect circular deps
 ```
 
-### Issue Types
+**Types:** `blocks` (hard), `related` (soft), `parent-child`, `discovered-from`
 
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
+### `bd comments`
 
-### Priorities
+```bash
+bd comments bd-1                               # List comments
+bd comments bd-1 --json                        # JSON format
+bd comments add bd-1 "Comment text"            # Add comment
+bd comments add bd-1 -f notes.txt              # From file
+```
 
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
+### Common Patterns
 
-### Workflow for AI Agents
+```bash
+# Find ready work (open + no blockers)
+bd ready
 
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task**: `bd update <id> --status in_progress`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-6. **Commit together**: Always commit the `.beads/issues.jsonl` file together with the code changes so issue state stays in sync with code state
+# Find in progress work
+bd list -s in_progress
 
-Normal workflow is to commit .beads/issues.jsonl when a new ticket is created,
-and also when a ticket is closed.  Commit the related code with the ticket changes
-to ensure association is avilable for future inspection.
+# Close with context for future reference
+bd close bd-5 -r "Implemented in src/handler.go, tested with go test ./..."
 
-### Important Rules
+# Track discovered work during implementation
+bd create "Edge case: empty input" --deps "discovered-from:bd-5"
+```
 
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
+## bd Workflow Lifecycle
+
+**IMPORTANT:** bd is not just for tracking—it's the first step in any work.
+
+### The Complete Flow
+
+```
+User requests work
+       ↓
+   bd create         ← BEFORE starting work
+       ↓
+   git commit        ← Commit ticket creation immediately
+       ↓
+   bd update --status in_progress
+       ↓
+   ... do the work ...
+       ↓
+   bd close          ← Close FIRST (updates .beads/)
+       ↓
+   git add && git commit   ← Commit code + .beads/ together
+```
+
+### Rules
+
+1. **Commit ticket creation immediately**: After `bd create`, always commit `.beads/` right away
+2. **Ticket updates are case-by-case**: Status changes, priority updates, etc. don't require immediate commits
+3. **Commit closure with the work**: Close the issue, then commit code AND `.beads/` together
+
+### Why This Order Matters
+
+- **Create commits preserve intent**: Ticket exists in git even if work is interrupted
+- **Updates are transient**: Status changes during work don't need individual commits
+- **Closure is atomic with work**: Code changes + issue closure in one commit for traceability
