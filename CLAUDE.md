@@ -208,3 +208,46 @@ User requests work
 - **Create commits preserve intent**: Ticket exists in git even if work is interrupted
 - **Updates are transient**: Status changes during work don't need individual commits
 - **Closure is atomic with work**: Code changes + issue closure in one commit for traceability
+
+# Notes
+
+When executing commands the following guidance enalbes smoother workflow withour requiring
+approval for commands.
+
+The following commands do not require user approval:
+
+- Bash(bd:*)
+- Bash(go build:*)
+- Bash(go test:*)
+- Bash(go doc:*)
+- Bash(gopls:*)
+- Bash(jq:*)
+
+- Bash(git status:*)
+- Bash(git add:*)
+- Bash(git commit:*)
+- Bash(git log:*)
+- Bash(git diff:*)
+- Bash(git show:*)
+
+- Bash(git submodule:*)
+- Bash(git lfs:*)
+- Bash(git checkout:*)
+- Bash(git branch:*)
+- Bash(git remote:*)
+- Bash(git fetch:*)
+- Bash(git pull:*)
+- Bash(git merge:*)
+- Bash(git tag:*)
+- Bash(git rev-parse:*)
+
+- WebSearch
+- WebFetch(domain:github.com)
+- WebFetch(domain:github.io)
+
+- Bash(tree:*)
+- Bash(find:*)
+- Bash(dirname:*)
+
+When executing commands that take a -C <dir>, avoid that pattern and instead
+cd into the target dir.  This will enable the command to be used without approval.
