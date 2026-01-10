@@ -26,7 +26,9 @@
             "Bash(git tag:*)",
             "Bash(git rev-parse:*)",
 
+            "WebSearch",
             "WebFetch(domain:github.com)",
+            "WebFetch(domain:github.io)",
 
             "Bash(tree:*)",
             "Bash(find:*)",
