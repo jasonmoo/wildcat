@@ -132,6 +132,33 @@ type ImplementationParams struct {
 	TextDocumentPositionParams
 }
 
+// TypeHierarchyPrepareParams is the parameter for textDocument/prepareTypeHierarchy.
+type TypeHierarchyPrepareParams struct {
+	TextDocumentPositionParams
+}
+
+// TypeHierarchyItem represents an item in the type hierarchy.
+type TypeHierarchyItem struct {
+	Name           string   `json:"name"`
+	Kind           SymbolKind `json:"kind"`
+	Tags           []int    `json:"tags,omitempty"`
+	Detail         string   `json:"detail,omitempty"`
+	URI            string   `json:"uri"`
+	Range          Range    `json:"range"`
+	SelectionRange Range    `json:"selectionRange"`
+	Data           any      `json:"data,omitempty"`
+}
+
+// TypeHierarchySupertypesParams is the parameter for typeHierarchy/supertypes.
+type TypeHierarchySupertypesParams struct {
+	Item TypeHierarchyItem `json:"item"`
+}
+
+// TypeHierarchySubtypesParams is the parameter for typeHierarchy/subtypes.
+type TypeHierarchySubtypesParams struct {
+	Item TypeHierarchyItem `json:"item"`
+}
+
 // InitializeParams is the parameter for the initialize request.
 type InitializeParams struct {
 	ProcessID    int          `json:"processId"`

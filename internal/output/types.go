@@ -145,6 +145,46 @@ type ImpactResponse struct {
 	Summary ImpactSummary `json:"summary"`
 }
 
+// ImplementsResponse is the output for the implements command.
+type ImplementsResponse struct {
+	Query           QueryInfo  `json:"query"`
+	Interface       TargetInfo `json:"interface"`
+	Implementations []Result   `json:"implementations"`
+	Summary         Summary    `json:"summary"`
+}
+
+// SatisfiesResponse is the output for the satisfies command.
+type SatisfiesResponse struct {
+	Query      QueryInfo         `json:"query"`
+	Type       TargetInfo        `json:"type"`
+	Interfaces []InterfaceResult `json:"interfaces"`
+	Summary    Summary           `json:"summary"`
+}
+
+// InterfaceResult represents an interface that a type satisfies.
+type InterfaceResult struct {
+	Symbol  string   `json:"symbol"`
+	File    string   `json:"file"`
+	Line    int      `json:"line"`
+	Methods []string `json:"methods,omitempty"`
+}
+
+// DepsResponse is the output for the deps command.
+type DepsResponse struct {
+	Query        QueryInfo    `json:"query"`
+	Package      string       `json:"package"`
+	Direction    string       `json:"direction"`
+	Dependencies []DepResult  `json:"dependencies"`
+	Summary      Summary      `json:"summary"`
+}
+
+// DepResult represents a package dependency.
+type DepResult struct {
+	Package    string `json:"package"`
+	ImportFile string `json:"import_file"`
+	ImportLine int    `json:"import_line"`
+}
+
 // ErrorResponse is the output when an error occurs.
 type ErrorResponse struct {
 	Error ErrorDetail `json:"error"`

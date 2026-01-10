@@ -189,6 +189,51 @@ func (c *Client) Implementation(ctx context.Context, uri string, pos Position) (
 	return result, nil
 }
 
+// PrepareTypeHierarchy prepares type hierarchy information at a position.
+func (c *Client) PrepareTypeHierarchy(ctx context.Context, uri string, pos Position) ([]TypeHierarchyItem, error) {
+	params := TypeHierarchyPrepareParams{
+		TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: uri},
+			Position:     pos,
+		},
+	}
+
+	var result []TypeHierarchyItem
+	if err := c.server.Conn().Call("textDocument/prepareTypeHierarchy", params, &result); err != nil {
+		return nil, fmt.Errorf("textDocument/prepareTypeHierarchy: %w", err)
+	}
+
+	return result, nil
+}
+
+// Supertypes returns the supertypes (implemented interfaces) of a type.
+func (c *Client) Supertypes(ctx context.Context, item TypeHierarchyItem) ([]TypeHierarchyItem, error) {
+	params := TypeHierarchySupertypesParams{
+		Item: item,
+	}
+
+	var result []TypeHierarchyItem
+	if err := c.server.Conn().Call("typeHierarchy/supertypes", params, &result); err != nil {
+		return nil, fmt.Errorf("typeHierarchy/supertypes: %w", err)
+	}
+
+	return result, nil
+}
+
+// Subtypes returns the subtypes (implementing types) of a type or interface.
+func (c *Client) Subtypes(ctx context.Context, item TypeHierarchyItem) ([]TypeHierarchyItem, error) {
+	params := TypeHierarchySubtypesParams{
+		Item: item,
+	}
+
+	var result []TypeHierarchyItem
+	if err := c.server.Conn().Call("typeHierarchy/subtypes", params, &result); err != nil {
+		return nil, fmt.Errorf("typeHierarchy/subtypes: %w", err)
+	}
+
+	return result, nil
+}
+
 // DidOpen notifies the server that a document was opened.
 func (c *Client) DidOpen(ctx context.Context, uri, languageID, text string) error {
 	params := DidOpenTextDocumentParams{
