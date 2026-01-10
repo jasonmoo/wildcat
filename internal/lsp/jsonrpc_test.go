@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestConn_SendReceive(t *testing.T) {
@@ -15,14 +16,24 @@ func TestConn_SendReceive(t *testing.T) {
 	serverReader, clientWriter := io.Pipe()
 	clientReader, serverWriter := io.Pipe()
 
+	defer serverReader.Close()
+	defer clientWriter.Close()
+	defer clientReader.Close()
+	defer serverWriter.Close()
+
 	// Client connection
 	conn := NewConn(clientReader, clientWriter)
 
 	// Start read loop
 	go conn.ReadLoop()
 
+	// Channel to signal server completion
+	serverDone := make(chan struct{})
+
 	// Mock server: read request, send response
 	go func() {
+		defer close(serverDone)
+
 		// Use bufio to properly read the LSP message
 		reader := bufio.NewReader(serverReader)
 
@@ -31,6 +42,7 @@ func TestConn_SendReceive(t *testing.T) {
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
+				t.Logf("server: error reading header: %v", err)
 				return
 			}
 			line = strings.TrimSpace(line)
@@ -42,15 +54,22 @@ func TestConn_SendReceive(t *testing.T) {
 			}
 		}
 
+		if contentLength == 0 {
+			t.Log("server: no content length found")
+			return
+		}
+
 		// Read body
 		body := make([]byte, contentLength)
 		_, err := io.ReadFull(reader, body)
 		if err != nil {
+			t.Logf("server: error reading body: %v", err)
 			return
 		}
 
 		var req Request
 		if err := json.Unmarshal(body, &req); err != nil {
+			t.Logf("server: error unmarshaling: %v", err)
 			return
 		}
 
@@ -69,11 +88,21 @@ func TestConn_SendReceive(t *testing.T) {
 		serverWriter.Write(respBytes)
 	}()
 
-	// Make a call
+	// Make a call with a timeout
+	done := make(chan error, 1)
 	var result map[string]string
-	err := conn.Call("test/method", map[string]string{"msg": "hello"}, &result)
-	if err != nil {
-		t.Fatalf("Call failed: %v", err)
+	go func() {
+		done <- conn.Call("test/method", map[string]string{"msg": "hello"}, &result)
+	}()
+
+	// Wait for result with timeout
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Call failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Call timed out")
 	}
 
 	if result["echo"] != "hello" {
