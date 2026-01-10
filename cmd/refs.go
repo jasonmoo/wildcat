@@ -73,10 +73,14 @@ func runRefs(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	config := lsp.ServerConfig{
-		Command: "gopls",
-		Args:    []string{"serve"},
-		WorkDir: workDir,
+	config, err := GetServerConfig(workDir)
+	if err != nil {
+		return writer.WriteError(
+			string(errors.CodeServerNotFound),
+			err.Error(),
+			nil,
+			nil,
+		)
 	}
 
 	client, err := lsp.NewClient(ctx, config)

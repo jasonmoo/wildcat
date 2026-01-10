@@ -74,11 +74,15 @@ func runCallers(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Try to detect and start appropriate language server
-	config := lsp.ServerConfig{
-		Command: "gopls", // Default to gopls for now
-		Args:    []string{"serve"},
-		WorkDir: workDir,
+	// Get language server configuration
+	config, err := GetServerConfig(workDir)
+	if err != nil {
+		return writer.WriteError(
+			string(errors.CodeServerNotFound),
+			err.Error(),
+			nil,
+			nil,
+		)
 	}
 
 	client, err := lsp.NewClient(ctx, config)
