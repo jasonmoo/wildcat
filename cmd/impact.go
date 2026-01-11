@@ -129,6 +129,7 @@ func runImpact(cmd *cobra.Command, args []string) error {
 
 	impact := output.Impact{}
 	var callersCount, refsCount, implsCount, inTestsCount int
+	extractor := output.NewSnippetExtractor()
 
 	// Get transitive callers (for functions/methods)
 	if resolved.Kind == lsp.SymbolKindFunction || resolved.Kind == lsp.SymbolKindMethod {
@@ -144,12 +145,16 @@ func runImpact(cmd *cobra.Command, args []string) error {
 			callers, err := traverser.GetCallers(ctx, items[0], opts)
 			if err == nil {
 				for _, caller := range callers {
-					impact.Callers = append(impact.Callers, output.ImpactCategory{
+					cat := output.ImpactCategory{
 						Symbol: caller.Symbol,
 						File:   output.AbsolutePath(caller.File),
 						Line:   caller.Line,
 						Reason: "calls this function",
-					})
+					}
+					if snippet, err := extractor.ExtractLine(caller.File, caller.Line); err == nil {
+						cat.Snippet = snippet
+					}
+					impact.Callers = append(impact.Callers, cat)
 					if caller.InTest {
 						inTestsCount++
 					}
@@ -170,11 +175,16 @@ func runImpact(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			impact.References = append(impact.References, output.ImpactCategory{
+			line := ref.Range.Start.Line + 1
+			cat := output.ImpactCategory{
 				File:   output.AbsolutePath(file),
-				Line:   ref.Range.Start.Line + 1,
+				Line:   line,
 				Reason: "references this symbol",
-			})
+			}
+			if snippet, err := extractor.ExtractLine(file, line); err == nil {
+				cat.Snippet = snippet
+			}
+			impact.References = append(impact.References, cat)
 			if isTest {
 				inTestsCount++
 			}
@@ -194,11 +204,16 @@ func runImpact(cmd *cobra.Command, args []string) error {
 					continue
 				}
 
-				impact.Implementations = append(impact.Implementations, output.ImpactCategory{
+				line := impl.Range.Start.Line + 1
+				cat := output.ImpactCategory{
 					File:   output.AbsolutePath(file),
-					Line:   impl.Range.Start.Line + 1,
+					Line:   line,
 					Reason: "implements this interface",
-				})
+				}
+				if snippet, err := extractor.ExtractLine(file, line); err == nil {
+					cat.Snippet = snippet
+				}
+				impact.Implementations = append(impact.Implementations, cat)
 				if isTest {
 					inTestsCount++
 				}

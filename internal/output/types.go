@@ -106,10 +106,11 @@ type TreeResponse struct {
 
 // ImpactCategory represents a category of impact.
 type ImpactCategory struct {
-	Symbol string `json:"symbol"`
-	File   string `json:"file"`
-	Line   int    `json:"line"`
-	Reason string `json:"reason,omitempty"`
+	Symbol  string `json:"symbol"`
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Reason  string `json:"reason,omitempty"`
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // ImpactDependent represents a dependent package.
