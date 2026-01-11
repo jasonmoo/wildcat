@@ -2,6 +2,7 @@
     "permissions": {
         "allow": [
             "Bash(bd:*)",
+            "Bash(wildcat:*)",
             "Bash(go build:*)",
             "Bash(go test:*)",
             "Bash(go doc:*)",

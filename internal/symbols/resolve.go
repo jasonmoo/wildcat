@@ -31,7 +31,8 @@ func NewResolver(client *lsp.Client) *Resolver {
 // Returns an error with suggestions if not found or ambiguous.
 func (r *Resolver) Resolve(ctx context.Context, query *Query) (*ResolvedSymbol, error) {
 	// Search for the symbol using workspace/symbol
-	symbols, err := r.client.WorkspaceSymbol(ctx, query.Name)
+	// Pass the raw query - gopls handles qualified names like "Type.Method" natively
+	symbols, err := r.client.WorkspaceSymbol(ctx, query.Raw)
 	if err != nil {
 		return nil, errors.NewLSPError("workspace/symbol", err)
 	}
@@ -76,7 +77,7 @@ func (r *Resolver) Resolve(ctx context.Context, query *Query) (*ResolvedSymbol, 
 
 // FindAll finds all symbols matching the query.
 func (r *Resolver) FindAll(ctx context.Context, query *Query) ([]ResolvedSymbol, error) {
-	symbols, err := r.client.WorkspaceSymbol(ctx, query.Name)
+	symbols, err := r.client.WorkspaceSymbol(ctx, query.Raw)
 	if err != nil {
 		return nil, errors.NewLSPError("workspace/symbol", err)
 	}
@@ -99,34 +100,29 @@ func (r *Resolver) FindAll(ctx context.Context, query *Query) ([]ResolvedSymbol,
 
 // matchesQuery checks if a symbol matches the query.
 func (r *Resolver) matchesQuery(sym lsp.SymbolInformation, query *Query) bool {
-	// Name must match
-	if sym.Name != query.Name {
-		return false
+	// If sym.Name matches the full raw query, it's an exact match - no further filtering needed
+	// gopls handles qualified queries like "Type.Method" and "pkg.Function" natively
+	if sym.Name == query.Raw {
+		return true
 	}
 
-	// If query specifies a package, container should contain it
-	if query.Package != "" {
-		if !strings.Contains(strings.ToLower(sym.ContainerName), strings.ToLower(query.Package)) {
-			// Also check URI for package path
-			if !strings.Contains(strings.ToLower(sym.Location.URI), strings.ToLower(query.Package)) {
-				return false
+	// Fallback: check if just the name part matches (for unqualified queries)
+	if sym.Name == query.Name {
+		// Apply additional filters only for unqualified matches
+		if query.Package != "" {
+			if !strings.Contains(strings.ToLower(sym.ContainerName), strings.ToLower(query.Package)) {
+				if !strings.Contains(strings.ToLower(sym.Location.URI), strings.ToLower(query.Package)) {
+					return false
+				}
 			}
 		}
-	}
-
-	// If query specifies a type, container should match
-	if query.Type != "" {
-		if !strings.Contains(sym.ContainerName, query.Type) {
+		if query.IsMethod() && sym.Kind != lsp.SymbolKindMethod {
 			return false
 		}
+		return true
 	}
 
-	// If query is for a method, symbol should be a method
-	if query.IsMethod() && sym.Kind != lsp.SymbolKindMethod {
-		return false
-	}
-
-	return true
+	return false
 }
 
 // formatSymbol creates a display name for a symbol.
