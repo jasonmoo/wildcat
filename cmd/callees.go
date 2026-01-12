@@ -218,7 +218,7 @@ func runCallees(cmd *cobra.Command, args []string) error {
 			InTests:   inTests,
 			Truncated: calleesLimit > 0 && len(callees) > calleesLimit,
 		},
-		SimilarSymbols: similarSymbols,
+		OtherFuzzyMatches: similarSymbols,
 	}
 
 	return writer.Write(response)

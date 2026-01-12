@@ -45,7 +45,7 @@ type CallersResponse struct {
 	Target         TargetInfo `json:"target"`
 	Results        []Result   `json:"results"`
 	Summary        Summary    `json:"summary"`
-	SimilarSymbols []string   `json:"similar_symbols,omitempty"`
+	OtherFuzzyMatches []string `json:"other_fuzzy_matches,omitempty"`
 }
 
 // CalleesResponse is the output for the callees command.
@@ -54,7 +54,7 @@ type CalleesResponse struct {
 	Target         TargetInfo `json:"target"`
 	Results        []Result   `json:"results"`
 	Summary        Summary    `json:"summary"`
-	SimilarSymbols []string   `json:"similar_symbols,omitempty"`
+	OtherFuzzyMatches []string `json:"other_fuzzy_matches,omitempty"`
 }
 
 // RefsResponse is the output for the refs command.
@@ -63,7 +63,7 @@ type RefsResponse struct {
 	Target         TargetInfo `json:"target"`
 	Results        []Result   `json:"results"`
 	Summary        Summary    `json:"summary"`
-	SimilarSymbols []string   `json:"similar_symbols,omitempty"`
+	OtherFuzzyMatches []string `json:"other_fuzzy_matches,omitempty"`
 }
 
 // TreeNode represents a node in the call tree.
@@ -147,7 +147,7 @@ type ImpactResponse struct {
 	Target         TargetInfo    `json:"target"`
 	Impact         Impact        `json:"impact"`
 	Summary        ImpactSummary `json:"summary"`
-	SimilarSymbols []string      `json:"similar_symbols,omitempty"`
+	OtherFuzzyMatches []string   `json:"other_fuzzy_matches,omitempty"`
 }
 
 // ImplementsResponse is the output for the implements command.

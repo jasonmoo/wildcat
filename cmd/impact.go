@@ -247,7 +247,7 @@ func runImpact(cmd *cobra.Command, args []string) error {
 			Implementations: implsCount,
 			InTests:         inTestsCount,
 		},
-		SimilarSymbols: similarSymbols,
+		OtherFuzzyMatches: similarSymbols,
 	}
 
 	return writer.Write(response)

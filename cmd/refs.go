@@ -196,7 +196,7 @@ func runRefs(cmd *cobra.Command, args []string) error {
 			InTests:   inTests,
 			Truncated: refsLimit > 0 && len(refs) > refsLimit,
 		},
-		SimilarSymbols: similarSymbols,
+		OtherFuzzyMatches: similarSymbols,
 	}
 
 	return writer.Write(response)

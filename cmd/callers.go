@@ -244,7 +244,7 @@ func runCallers(cmd *cobra.Command, args []string) error {
 			InTests:   inTests,
 			Truncated: callersLimit > 0 && len(callers) > callersLimit,
 		},
-		SimilarSymbols: similarSymbols,
+		OtherFuzzyMatches: similarSymbols,
 	}
 
 	return writer.Write(response)
