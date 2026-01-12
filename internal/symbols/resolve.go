@@ -38,7 +38,8 @@ func (r *Resolver) Resolve(ctx context.Context, query *Query) (*ResolvedSymbol, 
 	}
 
 	if len(symbols) == 0 {
-		return nil, errors.NewSymbolNotFound(query.Raw, nil)
+		suggestions := r.fallbackSuggestions(ctx, query, 5)
+		return nil, errors.NewSymbolNotFound(query.Raw, suggestions)
 	}
 
 	// Filter by package/type if specified
@@ -133,11 +134,59 @@ func (r *Resolver) formatSymbol(sym lsp.SymbolInformation) string {
 	return sym.Name
 }
 
+// formatSymbolShort creates a short display name for suggestions.
+// gopls returns names like "config.Load" which are already user-friendly.
+func (r *Resolver) formatSymbolShort(sym lsp.SymbolInformation) string {
+	return sym.Name
+}
+
 // suggestFromSymbols generates suggestions from a list of symbols.
 func (r *Resolver) suggestFromSymbols(symbols []lsp.SymbolInformation, query *Query, limit int) []string {
 	candidates := make([]string, 0, len(symbols))
 	for _, sym := range symbols {
-		candidates = append(candidates, r.formatSymbol(sym))
+		candidates = append(candidates, r.formatSymbolShort(sym))
 	}
 	return errors.SuggestSimilar(query.Raw, candidates, limit)
+}
+
+// fallbackSuggestions tries alternate queries when original returns nothing.
+func (r *Resolver) fallbackSuggestions(ctx context.Context, query *Query, limit int) []string {
+	var allSymbols []lsp.SymbolInformation
+	seen := make(map[string]bool)
+
+	// Try name-only query (e.g., "Task" instead of "db.Task")
+	if query.Name != "" && query.Name != query.Raw {
+		if symbols, err := r.client.WorkspaceSymbol(ctx, query.Name); err == nil {
+			for _, sym := range symbols {
+				key := r.formatSymbolShort(sym)
+				if !seen[key] {
+					seen[key] = true
+					allSymbols = append(allSymbols, sym)
+				}
+			}
+		}
+	}
+
+	// Try package/type prefix (e.g., "db" to find db.* symbols)
+	prefix := query.Package
+	if prefix == "" {
+		prefix = query.Type
+	}
+	if prefix != "" && prefix != query.Raw && prefix != query.Name {
+		if symbols, err := r.client.WorkspaceSymbol(ctx, prefix); err == nil {
+			for _, sym := range symbols {
+				key := r.formatSymbolShort(sym)
+				if !seen[key] {
+					seen[key] = true
+					allSymbols = append(allSymbols, sym)
+				}
+			}
+		}
+	}
+
+	if len(allSymbols) == 0 {
+		return nil
+	}
+
+	return r.suggestFromSymbols(allSymbols, query, limit)
 }
