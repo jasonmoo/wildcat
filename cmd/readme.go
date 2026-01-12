@@ -57,7 +57,6 @@ func printCompactReadme() {
 ## Symbol Formats
 - Function               pkg.Function, main.main
 - Method                 Type.Method, Server.Start
-- Pointer receiver       (*Type).Method
 - Full path              path/to/pkg.Function
 
 ## Common Flags
@@ -139,8 +138,7 @@ Show what a package imports, or with --reverse, what imports it.
 |--------|---------|-------------|
 | Function | main | Function in current context |
 | Package.Function | config.Load | Package-qualified function |
-| Type.Method | Server.Start | Method on type |
-| (*Type).Method | (*Handler).ServeHTTP | Method on pointer receiver |
+| Type.Method | Server.Start | Method on type (value or pointer receiver) |
 | Full path | github.com/user/pkg.Func | Fully qualified |
 
 ## Output Formats
