@@ -119,6 +119,9 @@ func runRefs(cmd *cobra.Command, args []string) error {
 		return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
 	}
 
+	// Find similar symbols for navigation aid
+	similarSymbols := resolver.FindSimilar(ctx, query, 5)
+
 	// Get references
 	refs, err := client.References(ctx, resolved.URI, resolved.Position, refsIncludeDeclaration)
 	if err != nil {
@@ -193,6 +196,7 @@ func runRefs(cmd *cobra.Command, args []string) error {
 			InTests:   inTests,
 			Truncated: refsLimit > 0 && len(refs) > refsLimit,
 		},
+		SimilarSymbols: similarSymbols,
 	}
 
 	return writer.Write(response)

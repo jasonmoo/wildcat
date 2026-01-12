@@ -41,26 +41,29 @@ type Summary struct {
 
 // CallersResponse is the output for the callers command.
 type CallersResponse struct {
-	Query   QueryInfo  `json:"query"`
-	Target  TargetInfo `json:"target"`
-	Results []Result   `json:"results"`
-	Summary Summary    `json:"summary"`
+	Query          QueryInfo  `json:"query"`
+	Target         TargetInfo `json:"target"`
+	Results        []Result   `json:"results"`
+	Summary        Summary    `json:"summary"`
+	SimilarSymbols []string   `json:"similar_symbols,omitempty"`
 }
 
 // CalleesResponse is the output for the callees command.
 type CalleesResponse struct {
-	Query   QueryInfo  `json:"query"`
-	Target  TargetInfo `json:"target"`
-	Results []Result   `json:"results"`
-	Summary Summary    `json:"summary"`
+	Query          QueryInfo  `json:"query"`
+	Target         TargetInfo `json:"target"`
+	Results        []Result   `json:"results"`
+	Summary        Summary    `json:"summary"`
+	SimilarSymbols []string   `json:"similar_symbols,omitempty"`
 }
 
 // RefsResponse is the output for the refs command.
 type RefsResponse struct {
-	Query   QueryInfo  `json:"query"`
-	Target  TargetInfo `json:"target"`
-	Results []Result   `json:"results"`
-	Summary Summary    `json:"summary"`
+	Query          QueryInfo  `json:"query"`
+	Target         TargetInfo `json:"target"`
+	Results        []Result   `json:"results"`
+	Summary        Summary    `json:"summary"`
+	SimilarSymbols []string   `json:"similar_symbols,omitempty"`
 }
 
 // TreeNode represents a node in the call tree.

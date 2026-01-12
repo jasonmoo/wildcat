@@ -123,6 +123,9 @@ func runCallers(cmd *cobra.Command, args []string) error {
 		return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
 	}
 
+	// Find similar symbols for navigation aid
+	similarSymbols := resolver.FindSimilar(ctx, query, 5)
+
 	// Prepare call hierarchy
 	items, err := client.PrepareCallHierarchy(ctx, resolved.URI, resolved.Position)
 	if err != nil {
@@ -241,6 +244,7 @@ func runCallers(cmd *cobra.Command, args []string) error {
 			InTests:   inTests,
 			Truncated: callersLimit > 0 && len(callers) > callersLimit,
 		},
+		SimilarSymbols: similarSymbols,
 	}
 
 	return writer.Write(response)

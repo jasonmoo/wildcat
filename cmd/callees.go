@@ -119,6 +119,9 @@ func runCallees(cmd *cobra.Command, args []string) error {
 		return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
 	}
 
+	// Find similar symbols for navigation aid
+	similarSymbols := resolver.FindSimilar(ctx, query, 5)
+
 	// Prepare call hierarchy
 	items, err := client.PrepareCallHierarchy(ctx, resolved.URI, resolved.Position)
 	if err != nil {
@@ -215,6 +218,7 @@ func runCallees(cmd *cobra.Command, args []string) error {
 			InTests:   inTests,
 			Truncated: calleesLimit > 0 && len(callees) > calleesLimit,
 		},
+		SimilarSymbols: similarSymbols,
 	}
 
 	return writer.Write(response)

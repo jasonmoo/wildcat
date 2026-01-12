@@ -205,3 +205,34 @@ func (r *Resolver) fallbackSuggestions(ctx context.Context, query *Query, limit 
 
 	return r.suggestFromSymbols(allSymbols, query, limit)
 }
+
+// FindSimilar finds symbols similar to the given query.
+// Used to populate similar_symbols in successful responses.
+func (r *Resolver) FindSimilar(ctx context.Context, query *Query, limit int) []string {
+	// Query workspace symbols using the name part
+	symbols, err := r.client.WorkspaceSymbol(ctx, query.Name)
+	if err != nil || len(symbols) == 0 {
+		return nil
+	}
+
+	// Collect unique symbols, excluding exact match
+	seen := make(map[string]bool)
+	var candidates []lsp.SymbolInformation
+	for _, sym := range symbols {
+		short := r.formatSymbolShort(sym)
+		// Skip exact match to the query
+		if short == query.Raw {
+			continue
+		}
+		if !seen[short] {
+			seen[short] = true
+			candidates = append(candidates, sym)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	return r.suggestFromSymbols(candidates, query, limit)
+}
