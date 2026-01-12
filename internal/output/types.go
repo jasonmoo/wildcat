@@ -143,10 +143,11 @@ type ImpactSummary struct {
 
 // ImpactResponse is the output for the impact command.
 type ImpactResponse struct {
-	Query   QueryInfo     `json:"query"`
-	Target  TargetInfo    `json:"target"`
-	Impact  Impact        `json:"impact"`
-	Summary ImpactSummary `json:"summary"`
+	Query          QueryInfo     `json:"query"`
+	Target         TargetInfo    `json:"target"`
+	Impact         Impact        `json:"impact"`
+	Summary        ImpactSummary `json:"summary"`
+	SimilarSymbols []string      `json:"similar_symbols,omitempty"`
 }
 
 // ImplementsResponse is the output for the implements command.

@@ -110,6 +110,9 @@ func runImpact(cmd *cobra.Command, args []string) error {
 		return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
 	}
 
+	// Find similar symbols for navigation aid
+	similarSymbols := resolver.FindSimilar(ctx, query, 5)
+
 	// Determine symbol kind for display
 	kind := "symbol"
 	switch resolved.Kind {
@@ -244,6 +247,7 @@ func runImpact(cmd *cobra.Command, args []string) error {
 			Implementations: implsCount,
 			InTests:         inTestsCount,
 		},
+		SimilarSymbols: similarSymbols,
 	}
 
 	return writer.Write(response)
