@@ -129,6 +129,21 @@ func (r *Resolver) matchesQuery(sym lsp.SymbolInformation, query *Query) bool {
 // formatSymbol creates a display name for a symbol.
 func (r *Resolver) formatSymbol(sym lsp.SymbolInformation) string {
 	if sym.ContainerName != "" {
+		// gopls often returns Name as "pkg.Symbol" (e.g., "model.Task")
+		// and ContainerName as full path (e.g., "github.com/.../model")
+		// Avoid duplication by checking if Name already has the short package prefix
+		shortPkg := sym.ContainerName
+		if idx := strings.LastIndex(sym.ContainerName, "/"); idx >= 0 {
+			shortPkg = sym.ContainerName[idx+1:]
+		}
+		if strings.HasPrefix(sym.Name, shortPkg+".") {
+			// Name already includes package prefix, use container path without short pkg
+			basePath := sym.ContainerName
+			if idx := strings.LastIndex(basePath, "/"); idx >= 0 {
+				basePath = basePath[:idx]
+			}
+			return basePath + "/" + sym.Name
+		}
 		return sym.ContainerName + "." + sym.Name
 	}
 	return sym.Name
