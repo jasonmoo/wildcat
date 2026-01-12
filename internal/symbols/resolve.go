@@ -220,8 +220,8 @@ func (r *Resolver) FindSimilar(ctx context.Context, query *Query, limit int) []s
 	var candidates []lsp.SymbolInformation
 	for _, sym := range symbols {
 		short := r.formatSymbolShort(sym)
-		// Skip exact match to the query
-		if short == query.Raw {
+		// Skip exact match to the query or just the name part
+		if short == query.Raw || short == query.Name {
 			continue
 		}
 		if !seen[short] {
