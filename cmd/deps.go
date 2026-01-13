@@ -14,44 +14,36 @@ import (
 
 var depsCmd = &cobra.Command{
 	Use:   "deps [package]",
-	Short: "Show package dependencies",
-	Long: `Show package dependencies.
+	Short: "Show package dependencies (imports and imported_by)",
+	Long: `Show package dependencies in both directions.
 
-By default shows what the package imports. Use --reverse to show
-what packages import this package.
+Returns what the package imports and what packages import it.
 
 Examples:
-  wildcat deps                           # Current package imports
-  wildcat deps ./internal/lsp            # Specific package imports
-  wildcat deps ./cmd --reverse           # What imports ./cmd
-  wildcat deps --exclude-stdlib          # Exclude standard library`,
+  wildcat deps                     # Current package
+  wildcat deps ./internal/lsp      # Specific package
+  wildcat deps --exclude-stdlib    # Exclude standard library imports`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runDeps,
 }
 
 var (
-	depsReverse       bool
 	depsExcludeStdlib bool
-	depsDepth         int
 )
 
 func init() {
 	rootCmd.AddCommand(depsCmd)
 
-	depsCmd.Flags().BoolVar(&depsReverse, "reverse", false, "Show what imports this package")
-	depsCmd.Flags().BoolVar(&depsExcludeStdlib, "exclude-stdlib", false, "Exclude standard library")
-	depsCmd.Flags().IntVar(&depsDepth, "depth", 1, "Transitive depth (1 = direct only)")
+	depsCmd.Flags().BoolVar(&depsExcludeStdlib, "exclude-stdlib", false, "Exclude standard library from imports")
 }
 
 // goListPackage represents the JSON output from `go list -json`
 type goListPackage struct {
-	Dir         string   `json:"Dir"`
-	ImportPath  string   `json:"ImportPath"`
-	Name        string   `json:"Name"`
-	GoFiles     []string `json:"GoFiles"`
-	Imports     []string `json:"Imports"`
-	Deps        []string `json:"Deps"`
-	TestImports []string `json:"TestImports"`
+	Dir        string   `json:"Dir"`
+	ImportPath string   `json:"ImportPath"`
+	Name       string   `json:"Name"`
+	GoFiles    []string `json:"GoFiles"`
+	Imports    []string `json:"Imports"`
 }
 
 func runDeps(cmd *cobra.Command, args []string) error {
@@ -72,18 +64,10 @@ func runDeps(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	if depsReverse {
-		return runReverseDeps(writer, workDir, pkgPath)
-	}
-
-	return runForwardDeps(writer, workDir, pkgPath)
-}
-
-func runForwardDeps(writer *output.Writer, workDir, pkgPath string) error {
-	// Run go list -json
-	cmd := exec.Command("go", "list", "-json", pkgPath)
-	cmd.Dir = workDir
-	out, err := cmd.Output()
+	// Get target package info
+	goCmd := exec.Command("go", "list", "-json", pkgPath)
+	goCmd.Dir = workDir
+	out, err := goCmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return writer.WriteError(
@@ -96,31 +80,28 @@ func runForwardDeps(writer *output.Writer, workDir, pkgPath string) error {
 		return writer.WriteError("go_list_error", err.Error(), nil, nil)
 	}
 
-	var pkg goListPackage
-	if err := json.Unmarshal(out, &pkg); err != nil {
+	var targetPkg goListPackage
+	if err := json.Unmarshal(out, &targetPkg); err != nil {
 		return writer.WriteError("parse_error", err.Error(), nil, nil)
 	}
 
-	// Build dependency list
-	var deps []output.DepResult
-	imports := pkg.Imports
-	if depsDepth > 1 {
-		imports = pkg.Deps // Use transitive deps
-	}
-
-	for _, imp := range imports {
+	// Get imports (what this package imports)
+	var imports []output.DepResult
+	for _, imp := range targetPkg.Imports {
 		if depsExcludeStdlib && isStdlib(imp) {
 			continue
 		}
-
-		// Find the import location in source files
-		importFile, importLine := findImportLocation(pkg.Dir, pkg.GoFiles, imp)
-
-		deps = append(deps, output.DepResult{
-			Package:    imp,
-			ImportFile: importFile,
-			ImportLine: importLine,
+		location := findImportLocation(targetPkg.Dir, targetPkg.GoFiles, imp)
+		imports = append(imports, output.DepResult{
+			Package:  imp,
+			Location: location,
 		})
+	}
+
+	// Get imported_by (what packages import this one)
+	importedBy, err := findImportedBy(workDir, targetPkg.ImportPath)
+	if err != nil {
+		return writer.WriteError("go_list_error", err.Error(), nil, nil)
 	}
 
 	response := output.DepsResponse{
@@ -128,41 +109,29 @@ func runForwardDeps(writer *output.Writer, workDir, pkgPath string) error {
 			Command: "deps",
 			Target:  pkgPath,
 		},
-		Package:      pkg.ImportPath,
-		Direction:    "imports",
-		Dependencies: deps,
-		Summary: output.Summary{
-			Count: len(deps),
+		Package:    targetPkg.ImportPath,
+		Imports:    imports,
+		ImportedBy: importedBy,
+		Summary: output.DepsSummary{
+			ImportsCount:    len(imports),
+			ImportedByCount: len(importedBy),
 		},
 	}
 
 	return writer.Write(response)
 }
 
-func runReverseDeps(writer *output.Writer, workDir, pkgPath string) error {
-	// First get the import path of the target package
-	cmd := exec.Command("go", "list", "-json", pkgPath)
+// findImportedBy finds all packages in the module that import the target.
+func findImportedBy(workDir, targetImportPath string) ([]output.DepResult, error) {
+	// List all packages in the module
+	cmd := exec.Command("go", "list", "-json", "./...")
 	cmd.Dir = workDir
 	out, err := cmd.Output()
 	if err != nil {
-		return writer.WriteError("go_list_error", err.Error(), nil, nil)
+		return nil, err
 	}
 
-	var targetPkg goListPackage
-	if err := json.Unmarshal(out, &targetPkg); err != nil {
-		return writer.WriteError("parse_error", err.Error(), nil, nil)
-	}
-
-	// List all packages in the module
-	cmd = exec.Command("go", "list", "-json", "./...")
-	cmd.Dir = workDir
-	out, err = cmd.Output()
-	if err != nil {
-		return writer.WriteError("go_list_error", err.Error(), nil, nil)
-	}
-
-	// Parse multiple JSON objects (go list outputs one per line)
-	var deps []output.DepResult
+	var results []output.DepResult
 	decoder := json.NewDecoder(strings.NewReader(string(out)))
 	for decoder.More() {
 		var pkg goListPackage
@@ -172,32 +141,18 @@ func runReverseDeps(writer *output.Writer, workDir, pkgPath string) error {
 
 		// Check if this package imports our target
 		for _, imp := range pkg.Imports {
-			if imp == targetPkg.ImportPath {
-				importFile, importLine := findImportLocation(pkg.Dir, pkg.GoFiles, imp)
-				deps = append(deps, output.DepResult{
-					Package:    pkg.ImportPath,
-					ImportFile: importFile,
-					ImportLine: importLine,
+			if imp == targetImportPath {
+				location := findImportLocation(pkg.Dir, pkg.GoFiles, targetImportPath)
+				results = append(results, output.DepResult{
+					Package:  pkg.ImportPath,
+					Location: location,
 				})
 				break
 			}
 		}
 	}
 
-	response := output.DepsResponse{
-		Query: output.QueryInfo{
-			Command: "deps",
-			Target:  pkgPath,
-		},
-		Package:      targetPkg.ImportPath,
-		Direction:    "imported_by",
-		Dependencies: deps,
-		Summary: output.Summary{
-			Count: len(deps),
-		},
-	}
-
-	return writer.Write(response)
+	return results, nil
 }
 
 // isStdlib checks if an import path is from the standard library.
@@ -212,7 +167,8 @@ func isStdlib(importPath string) bool {
 }
 
 // findImportLocation finds where a package is imported in source files.
-func findImportLocation(dir string, files []string, importPath string) (string, int) {
+// Returns file:line format or empty string if not found.
+func findImportLocation(dir string, files []string, importPath string) string {
 	for _, file := range files {
 		fullPath := filepath.Join(dir, file)
 		content, err := os.ReadFile(fullPath)
@@ -224,9 +180,9 @@ func findImportLocation(dir string, files []string, importPath string) (string, 
 		for i, line := range lines {
 			// Simple heuristic: look for the import path in quotes
 			if strings.Contains(line, `"`+importPath+`"`) {
-				return fullPath, i + 1
+				return fmt.Sprintf("%s:%d", fullPath, i+1)
 			}
 		}
 	}
-	return "", 0
+	return ""
 }

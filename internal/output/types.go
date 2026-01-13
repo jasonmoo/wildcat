@@ -176,18 +176,23 @@ type InterfaceResult struct {
 
 // DepsResponse is the output for the deps command.
 type DepsResponse struct {
-	Query        QueryInfo    `json:"query"`
-	Package      string       `json:"package"`
-	Direction    string       `json:"direction"`
-	Dependencies []DepResult  `json:"dependencies"`
-	Summary      Summary      `json:"summary"`
+	Query      QueryInfo   `json:"query"`
+	Package    string      `json:"package"`
+	Imports    []DepResult `json:"imports"`
+	ImportedBy []DepResult `json:"imported_by"`
+	Summary    DepsSummary `json:"summary"`
+}
+
+// DepsSummary provides counts for the deps command.
+type DepsSummary struct {
+	ImportsCount    int `json:"imports_count"`
+	ImportedByCount int `json:"imported_by_count"`
 }
 
 // DepResult represents a package dependency.
 type DepResult struct {
-	Package    string `json:"package"`
-	ImportFile string `json:"import_file"`
-	ImportLine int    `json:"import_line"`
+	Package  string `json:"package"`
+	Location string `json:"location,omitempty"` // file:line where import occurs
 }
 
 // ErrorResponse is the output when an error occurs.
