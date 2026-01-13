@@ -63,6 +63,42 @@ const (
 	SymbolKindTypeParameter SymbolKind = 26
 )
 
+// String returns the human-readable name of a SymbolKind.
+func (k SymbolKind) String() string {
+	names := map[SymbolKind]string{
+		SymbolKindFile:          "file",
+		SymbolKindModule:        "module",
+		SymbolKindNamespace:     "namespace",
+		SymbolKindPackage:       "package",
+		SymbolKindClass:         "class",
+		SymbolKindMethod:        "method",
+		SymbolKindProperty:      "property",
+		SymbolKindField:         "field",
+		SymbolKindConstructor:   "constructor",
+		SymbolKindEnum:          "enum",
+		SymbolKindInterface:     "interface",
+		SymbolKindFunction:      "function",
+		SymbolKindVariable:      "variable",
+		SymbolKindConstant:      "constant",
+		SymbolKindString:        "string",
+		SymbolKindNumber:        "number",
+		SymbolKindBoolean:       "boolean",
+		SymbolKindArray:         "array",
+		SymbolKindObject:        "object",
+		SymbolKindKey:           "key",
+		SymbolKindNull:          "null",
+		SymbolKindEnumMember:    "enum_member",
+		SymbolKindStruct:        "struct",
+		SymbolKindEvent:         "event",
+		SymbolKindOperator:      "operator",
+		SymbolKindTypeParameter: "type_parameter",
+	}
+	if name, ok := names[k]; ok {
+		return name
+	}
+	return "unknown"
+}
+
 // SymbolInformation represents information about programming constructs like
 // variables, classes, interfaces etc.
 type SymbolInformation struct {

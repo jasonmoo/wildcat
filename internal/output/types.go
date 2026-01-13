@@ -202,3 +202,31 @@ type ErrorDetail struct {
 	Suggestions []string       `json:"suggestions,omitempty"`
 	Context     map[string]any `json:"context,omitempty"`
 }
+
+// SymbolsQuery describes a symbols search query.
+type SymbolsQuery struct {
+	Command string `json:"command"`
+	Pattern string `json:"pattern"`
+}
+
+// SymbolResult represents a single symbol search result.
+type SymbolResult struct {
+	Symbol   string `json:"symbol"`
+	Kind     string `json:"kind"`
+	Location string `json:"location"` // file:line:line_end
+	Package  string `json:"package,omitempty"`
+}
+
+// SymbolsSummary provides aggregate information about symbol search results.
+type SymbolsSummary struct {
+	Count     int            `json:"count"`
+	ByKind    map[string]int `json:"by_kind,omitempty"`
+	Truncated bool           `json:"truncated"`
+}
+
+// SymbolsResponse is the output for the symbols command.
+type SymbolsResponse struct {
+	Query   SymbolsQuery   `json:"query"`
+	Results []SymbolResult `json:"results"`
+	Summary SymbolsSummary `json:"summary"`
+}

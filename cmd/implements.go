@@ -113,9 +113,9 @@ func runImplements(cmd *cobra.Command, args []string) error {
 	if resolved.Kind != lsp.SymbolKindInterface {
 		return writer.WriteError(
 			"invalid_symbol_kind",
-			fmt.Sprintf("'%s' is not an interface (got %s)", query.Raw, symbolKindName(resolved.Kind)),
+			fmt.Sprintf("'%s' is not an interface (got %s)", query.Raw, resolved.Kind.String()),
 			[]string{"Use an interface type name"},
-			map[string]any{"kind": symbolKindName(resolved.Kind)},
+			map[string]any{"kind": resolved.Kind.String()},
 		)
 	}
 
@@ -186,21 +186,3 @@ func runImplements(cmd *cobra.Command, args []string) error {
 	return writer.Write(response)
 }
 
-func symbolKindName(kind lsp.SymbolKind) string {
-	switch kind {
-	case lsp.SymbolKindFunction:
-		return "function"
-	case lsp.SymbolKindMethod:
-		return "method"
-	case lsp.SymbolKindClass, lsp.SymbolKindStruct:
-		return "type"
-	case lsp.SymbolKindInterface:
-		return "interface"
-	case lsp.SymbolKindVariable:
-		return "variable"
-	case lsp.SymbolKindConstant:
-		return "constant"
-	default:
-		return "symbol"
-	}
-}

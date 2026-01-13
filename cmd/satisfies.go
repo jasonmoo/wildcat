@@ -171,7 +171,7 @@ func runSatisfies(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine kind
-	kind := symbolKindName(resolved.Kind)
+	kind := resolved.Kind.String()
 
 	response := output.SatisfiesResponse{
 		Query: output.QueryInfo{
