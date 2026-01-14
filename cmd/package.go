@@ -173,9 +173,8 @@ type packageCollector struct {
 
 // parsedFile holds a parsed Go source file.
 type parsedFile struct {
-	fset  *token.FileSet
-	file  *ast.File
-	lines []string // for fallback
+	fset *token.FileSet
+	file *ast.File
 }
 
 type typeInfo struct {
@@ -199,20 +198,11 @@ func newPackageCollector(dir string) *packageCollector {
 }
 
 func (c *packageCollector) addFile(path string, symbols []lsp.DocumentSymbol) error {
-	// Read and parse the full file
-	lines, err := readFileLines(path)
-	if err != nil {
-		return err
-	}
-
-	source := strings.Join(lines, "\n")
+	// Parse the file using AST
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, source, parser.ParseComments)
-	if err != nil {
-		// Store lines for fallback even if parse fails
-		c.files[path] = &parsedFile{lines: lines}
-	} else {
-		c.files[path] = &parsedFile{fset: fset, file: file, lines: lines}
+	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err == nil {
+		c.files[path] = &parsedFile{fset: fset, file: file}
 	}
 
 	// Process each symbol
@@ -229,19 +219,13 @@ func (c *packageCollector) processSymbol(path string, sym lsp.DocumentSymbol) {
 
 	location := formatLocation(path, startLine, endLine)
 
-	// Get the parsed file
-	pf := c.files[path]
-
-	// Try AST-based extraction first, fall back to line-based
+	// Get signature from AST
 	signature := ""
-	if pf != nil && pf.file != nil {
+	if pf := c.files[path]; pf != nil {
 		signature = c.extractFromAST(pf, sym)
 	}
-	if signature == "" && pf != nil {
-		signature = cleanDeclaration(pf.lines, sym)
-	}
 	if signature == "" {
-		signature = sym.Name // Final fallback
+		signature = sym.Name // Fallback to symbol name
 	}
 
 	switch sym.Kind {
@@ -506,162 +490,6 @@ func (c *packageCollector) build(importPath, name, dir string) *output.PackageRe
 	}
 }
 
-// cleanDeclaration extracts any declaration and cleans it using go/parser and go/printer.
-// Removes comments and struct tags, returns canonical Go formatting.
-func cleanDeclaration(lines []string, sym lsp.DocumentSymbol) string {
-	startLine := sym.Range.Start.Line // 0-indexed
-	endLine := sym.Range.End.Line + 1 // exclusive
-
-	if startLine >= len(lines) || endLine > len(lines) {
-		return ""
-	}
-
-	// For constants/variables, find and parse the enclosing block
-	if sym.Kind == lsp.SymbolKindConstant || sym.Kind == lsp.SymbolKindVariable {
-		return cleanValueDeclaration(lines, sym)
-	}
-
-	// Extract the source lines
-	source := strings.Join(lines[startLine:endLine], "\n")
-
-	// Wrap in a package so it parses
-	wrapped := "package p\n" + source
-
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", wrapped, parser.ParseComments)
-	if err != nil {
-		return ""
-	}
-
-	if len(f.Decls) == 0 {
-		return ""
-	}
-
-	decl := f.Decls[0]
-
-	// Clean the declaration based on type
-	switch d := decl.(type) {
-	case *ast.GenDecl:
-		d.Doc = nil
-		for _, spec := range d.Specs {
-			switch s := spec.(type) {
-			case *ast.TypeSpec:
-				s.Doc = nil
-				s.Comment = nil
-				stripTypeComments(s.Type)
-			case *ast.ValueSpec:
-				s.Doc = nil
-				s.Comment = nil
-			}
-		}
-	case *ast.FuncDecl:
-		d.Doc = nil
-		d.Body = nil // Remove function body, keep just signature
-	}
-
-	// Print the cleaned declaration
-	var buf bytes.Buffer
-	cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}
-	if err := cfg.Fprint(&buf, fset, decl); err != nil {
-		return ""
-	}
-
-	return buf.String()
-}
-
-// cleanValueDeclaration handles const and var declarations by finding the enclosing block.
-func cleanValueDeclaration(lines []string, sym lsp.DocumentSymbol) string {
-	symLine := sym.Range.Start.Line // 0-indexed
-
-	// Find the start of the const/var block (scan backwards)
-	blockStart := symLine
-	for i := symLine; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(line, "const ") || strings.HasPrefix(line, "const(") ||
-			strings.HasPrefix(line, "var ") || strings.HasPrefix(line, "var(") {
-			blockStart = i
-			break
-		}
-		// Stop if we hit another declaration type
-		if strings.HasPrefix(line, "func ") || strings.HasPrefix(line, "type ") {
-			break
-		}
-	}
-
-	// Find the end of the block (scan forwards for closing paren or single-line end)
-	blockEnd := symLine + 1
-	if strings.Contains(lines[blockStart], "(") {
-		// It's a block, find closing paren
-		depth := 0
-		for i := blockStart; i < len(lines); i++ {
-			for _, ch := range lines[i] {
-				if ch == '(' {
-					depth++
-				} else if ch == ')' {
-					depth--
-					if depth == 0 {
-						blockEnd = i + 1
-						break
-					}
-				}
-			}
-			if depth == 0 && blockEnd > blockStart {
-				break
-			}
-		}
-	}
-
-	// Parse the whole block
-	source := strings.Join(lines[blockStart:blockEnd], "\n")
-	wrapped := "package p\n" + source
-
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", wrapped, parser.ParseComments)
-	if err != nil {
-		return ""
-	}
-
-	if len(f.Decls) == 0 {
-		return ""
-	}
-
-	// Find our specific constant/variable by name
-	genDecl, ok := f.Decls[0].(*ast.GenDecl)
-	if !ok {
-		return ""
-	}
-
-	for _, spec := range genDecl.Specs {
-		valueSpec, ok := spec.(*ast.ValueSpec)
-		if !ok {
-			continue
-		}
-
-		for _, name := range valueSpec.Names {
-			if name.Name == sym.Name {
-				// Found it - create a new GenDecl with just this spec
-				valueSpec.Doc = nil
-				valueSpec.Comment = nil
-
-				newDecl := &ast.GenDecl{
-					Tok:   genDecl.Tok,
-					Specs: []ast.Spec{valueSpec},
-				}
-
-				var buf bytes.Buffer
-				cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}
-				if err := cfg.Fprint(&buf, fset, newDecl); err != nil {
-					return ""
-				}
-
-				return buf.String()
-			}
-		}
-	}
-
-	return ""
-}
-
 // stripTypeComments removes comments, tags, and normalizes positions to remove blank lines.
 func stripTypeComments(expr ast.Expr) {
 	switch t := expr.(type) {
@@ -703,22 +531,6 @@ func formatLocation(path string, start, end int) string {
 		return fmt.Sprintf("%s:%d", filename, start)
 	}
 	return fmt.Sprintf("%s:%d:%d", filename, start, end)
-}
-
-// readFileLines reads a file and returns its lines.
-func readFileLines(path string) ([]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-	return lines, scanner.Err()
 }
 
 // detectConstructor checks if a function returns a type defined in this package.
