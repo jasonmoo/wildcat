@@ -235,3 +235,48 @@ type SymbolsResponse struct {
 	Results []SymbolResult `json:"results"`
 	Summary SymbolsSummary `json:"summary"`
 }
+
+// PackageResponse is the output for the package command.
+type PackageResponse struct {
+	Query      QueryInfo          `json:"query"`
+	Package    PackageInfo        `json:"package"`
+	Constants  []PackageSymbol    `json:"constants,omitempty"`
+	Variables  []PackageSymbol    `json:"variables,omitempty"`
+	Functions  []PackageSymbol    `json:"functions,omitempty"`
+	Types      []PackageType      `json:"types,omitempty"`
+	Imports    []string           `json:"imports"`
+	ImportedBy []string           `json:"imported_by"`
+	Summary    PackageSummary     `json:"summary"`
+}
+
+// PackageInfo describes the package.
+type PackageInfo struct {
+	ImportPath string `json:"import_path"`
+	Name       string `json:"name"`
+	Dir        string `json:"dir"`
+}
+
+// PackageSymbol represents a symbol in a package.
+type PackageSymbol struct {
+	Signature string `json:"signature"`
+	Location  string `json:"location,omitempty"` // file:line[:line_end] - omitted for fields
+}
+
+// PackageType represents a type with its functions and methods.
+type PackageType struct {
+	Signature string          `json:"signature"`
+	Location  string          `json:"location"`
+	Functions []PackageSymbol `json:"functions,omitempty"`
+	Methods   []PackageSymbol `json:"methods,omitempty"`
+}
+
+// PackageSummary provides counts for the package command.
+type PackageSummary struct {
+	Constants   int            `json:"constants"`
+	Variables   int            `json:"variables"`
+	Functions   int            `json:"functions"`
+	Types       int            `json:"types"`
+	Methods     int            `json:"methods"`
+	Imports     int            `json:"imports"`
+	ImportedBy  int            `json:"imported_by"`
+}

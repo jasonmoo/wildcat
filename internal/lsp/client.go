@@ -46,6 +46,9 @@ func (c *Client) Initialize(ctx context.Context) error {
 				References: ReferencesClientCapabilities{
 					DynamicRegistration: false,
 				},
+				DocumentSymbol: DocumentSymbolClientCapabilities{
+					HierarchicalDocumentSymbolSupport: true,
+				},
 			},
 			Workspace: WorkspaceClientCapabilities{
 				Symbol: WorkspaceSymbolClientCapabilities{
@@ -255,6 +258,20 @@ func (c *Client) DidClose(ctx context.Context, uri string) error {
 	}
 
 	return c.server.Conn().Notify("textDocument/didClose", params)
+}
+
+// DocumentSymbol returns the symbols in a document with hierarchy.
+func (c *Client) DocumentSymbol(ctx context.Context, uri string) ([]DocumentSymbol, error) {
+	params := DocumentSymbolParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+	}
+
+	var result []DocumentSymbol
+	if err := c.server.Conn().Call("textDocument/documentSymbol", params, &result); err != nil {
+		return nil, fmt.Errorf("textDocument/documentSymbol: %w", err)
+	}
+
+	return result, nil
 }
 
 // FileURI converts a file path to a file:// URI.

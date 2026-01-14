@@ -210,8 +210,15 @@ type Capabilities struct {
 
 // TextDocumentClientCapabilities defines capabilities for text document features.
 type TextDocumentClientCapabilities struct {
-	CallHierarchy CallHierarchyClientCapabilities `json:"callHierarchy,omitempty"`
-	References    ReferencesClientCapabilities    `json:"references,omitempty"`
+	CallHierarchy  CallHierarchyClientCapabilities  `json:"callHierarchy,omitempty"`
+	References     ReferencesClientCapabilities     `json:"references,omitempty"`
+	DocumentSymbol DocumentSymbolClientCapabilities `json:"documentSymbol,omitempty"`
+}
+
+// DocumentSymbolClientCapabilities defines capabilities for document symbols.
+type DocumentSymbolClientCapabilities struct {
+	DynamicRegistration               bool `json:"dynamicRegistration,omitempty"`
+	HierarchicalDocumentSymbolSupport bool `json:"hierarchicalDocumentSymbolSupport,omitempty"`
 }
 
 // CallHierarchyClientCapabilities defines capabilities for call hierarchy.
@@ -262,5 +269,20 @@ type DidOpenTextDocumentParams struct {
 
 // DidCloseTextDocumentParams is the parameter for textDocument/didClose.
 type DidCloseTextDocumentParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+// DocumentSymbol represents a symbol in a document with hierarchy support.
+type DocumentSymbol struct {
+	Name           string           `json:"name"`
+	Detail         string           `json:"detail,omitempty"`
+	Kind           SymbolKind       `json:"kind"`
+	Range          Range            `json:"range"`
+	SelectionRange Range            `json:"selectionRange"`
+	Children       []DocumentSymbol `json:"children,omitempty"`
+}
+
+// DocumentSymbolParams is the parameter for textDocument/documentSymbol.
+type DocumentSymbolParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
 }
