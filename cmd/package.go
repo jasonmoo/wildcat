@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -708,48 +707,39 @@ func qualifiedInterfaceName(uri, name string) string {
 	return name
 }
 
-// extractTypeNameAtLocation reads a file and extracts the type name at the given line.
+// extractTypeNameAtLocation parses a file and extracts the type name at the given line.
 func extractTypeNameAtLocation(file string, line int) string {
-	f, err := os.Open(file)
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, file, nil, 0)
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	currentLine := 0
-	for scanner.Scan() {
-		if currentLine == line {
-			text := strings.TrimSpace(scanner.Text())
-			// Look for "type Name" pattern
-			if strings.HasPrefix(text, "type ") {
-				text = strings.TrimPrefix(text, "type ")
-				// Find end of name
-				for i, ch := range text {
-					if ch == ' ' || ch == '{' || ch == '[' {
-						return text[:i]
+	// LSP line is 0-indexed, go/token is 1-indexed
+	targetLine := line + 1
+
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.GenDecl:
+			if d.Tok == token.TYPE {
+				for _, spec := range d.Specs {
+					ts, ok := spec.(*ast.TypeSpec)
+					if !ok {
+						continue
+					}
+					if fset.Position(ts.Name.Pos()).Line == targetLine {
+						return ts.Name.Name
 					}
 				}
-				return text
 			}
-			// Could also be a method receiver line - extract type from that
-			if strings.HasPrefix(text, "func (") {
-				// func (r *Receiver) Method - extract Receiver
-				text = strings.TrimPrefix(text, "func (")
-				if idx := strings.Index(text, ")"); idx != -1 {
-					receiver := text[:idx]
-					receiver = strings.TrimSpace(receiver)
-					// Remove variable name if present: "r *Type" -> "*Type"
-					if spaceIdx := strings.LastIndex(receiver, " "); spaceIdx != -1 {
-						receiver = receiver[spaceIdx+1:]
-					}
-					receiver = strings.TrimPrefix(receiver, "*")
-					return receiver
+		case *ast.FuncDecl:
+			// Implementation might point to a method - extract receiver type
+			if d.Recv != nil && len(d.Recv.List) > 0 {
+				if fset.Position(d.Name.Pos()).Line == targetLine {
+					return extractTypeName(d.Recv.List[0].Type)
 				}
 			}
-			break
 		}
-		currentLine++
 	}
 	return ""
 }
