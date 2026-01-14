@@ -75,6 +75,8 @@ func (e *SnippetExtractor) ExtractSmart(filePath string, line int) (string, erro
 }
 
 // extractASTSnippet finds an enclosing AST node and extracts it if small enough.
+// When the enclosing scope is too large, it falls back to a window that stays
+// within the scope boundaries (never crossing into adjacent functions).
 func (e *SnippetExtractor) extractASTSnippet(filePath string, targetLine int) (string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
@@ -85,7 +87,7 @@ func (e *SnippetExtractor) extractASTSnippet(filePath string, targetLine int) (s
 	// Find the enclosing node
 	startLine, endLine, isTopLevel := e.findEnclosingNode(fset, f, targetLine)
 	if startLine == 0 {
-		// No suitable node found, use fallback
+		// No suitable node found, use fallback (no scope to bound)
 		return e.Extract(filePath, targetLine, SmartSnippetFallbackContext)
 	}
 
@@ -94,7 +96,7 @@ func (e *SnippetExtractor) extractASTSnippet(filePath string, targetLine int) (s
 	// Decision logic:
 	// - Top-level (func/type/const/var): show whole if ≤ maxLines
 	// - Nested (for/switch/if/select): show whole if minLines ≤ size ≤ maxLines
-	// - Otherwise: fall back
+	// - Otherwise: fall back with scope-bounded window
 	showWhole := false
 	if isTopLevel && lineCount <= SmartSnippetMaxLines {
 		showWhole = true
@@ -106,8 +108,25 @@ func (e *SnippetExtractor) extractASTSnippet(filePath string, targetLine int) (s
 		return e.ExtractRange(filePath, startLine, endLine)
 	}
 
-	// Fall back to line-based
-	return e.Extract(filePath, targetLine, SmartSnippetFallbackContext)
+	// Fall back to scope-bounded window
+	// Compute window centered on target, clamped to scope boundaries
+	windowSize := SmartSnippetFallbackContext*2 + 1 // 7 lines
+	halfWindow := SmartSnippetFallbackContext       // 3 lines each side
+
+	windowStart := targetLine - halfWindow
+	windowEnd := targetLine + halfWindow
+
+	// Clamp to scope boundaries
+	if windowStart < startLine {
+		windowStart = startLine
+		windowEnd = min(startLine+windowSize-1, endLine)
+	}
+	if windowEnd > endLine {
+		windowEnd = endLine
+		windowStart = max(endLine-windowSize+1, startLine)
+	}
+
+	return e.ExtractRange(filePath, windowStart, windowEnd)
 }
 
 // findEnclosingNode finds the best enclosing AST node for a target line.
