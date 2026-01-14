@@ -157,17 +157,19 @@ type ImpactResponse struct {
 // ImplementsResponse is the output for the implements command.
 type ImplementsResponse struct {
 	Query           QueryInfo  `json:"query"`
-	Interface       TargetInfo `json:"interface"`
-	Implementations []Result   `json:"implementations"`
-	Summary         Summary    `json:"summary"`
+	Interface       TargetInfo `json:"interface,omitempty"`
+	Implementations []Result   `json:"implementations,omitempty"`
+	Summary         Summary    `json:"summary,omitempty"`
+	Error           string     `json:"error,omitempty"` // populated on error in multi-symbol queries
 }
 
 // SatisfiesResponse is the output for the satisfies command.
 type SatisfiesResponse struct {
 	Query      QueryInfo         `json:"query"`
-	Type       TargetInfo        `json:"type"`
-	Interfaces []InterfaceResult `json:"interfaces"`
-	Summary    Summary           `json:"summary"`
+	Type       TargetInfo        `json:"type,omitempty"`
+	Interfaces []InterfaceResult `json:"interfaces,omitempty"`
+	Summary    Summary           `json:"summary,omitempty"`
+	Error      string            `json:"error,omitempty"` // populated on error in multi-symbol queries
 }
 
 // InterfaceResult represents an interface that a type satisfies.

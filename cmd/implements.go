@@ -14,7 +14,7 @@ import (
 )
 
 var implementsCmd = &cobra.Command{
-	Use:   "implements <interface>",
+	Use:   "implements <interface>...",
 	Short: "Find all types implementing an interface",
 	Long: `Find all types implementing an interface.
 
@@ -24,8 +24,9 @@ that implement the specified interface.
 Examples:
   wildcat implements io.Reader
   wildcat implements error
-  wildcat implements Handler`,
-	Args: cobra.ExactArgs(1),
+  wildcat implements Handler
+  wildcat implements Formatter Writer    # multiple interfaces`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runImplements,
 }
 
@@ -44,16 +45,9 @@ func init() {
 }
 
 func runImplements(cmd *cobra.Command, args []string) error {
-	symbolArg := args[0]
 	writer, err := GetWriter(os.Stdout)
 	if err != nil {
 		return fmt.Errorf("invalid output format: %w", err)
-	}
-
-	// Parse symbol
-	query, err := symbols.Parse(symbolArg)
-	if err != nil {
-		return writer.WriteError("parse_error", err.Error(), nil, nil)
 	}
 
 	// Get working directory
@@ -99,35 +93,61 @@ func runImplements(cmd *cobra.Command, args []string) error {
 
 	time.Sleep(200 * time.Millisecond)
 
+	// Process each symbol
+	var responses []output.ImplementsResponse
+	for _, symbolArg := range args {
+		response, err := getImplementsForSymbol(ctx, client, symbolArg)
+		if err != nil {
+			// For multi-symbol queries, include error as a response
+			if len(args) > 1 {
+				responses = append(responses, output.ImplementsResponse{
+					Query: output.QueryInfo{
+						Command: "implements",
+						Target:  symbolArg,
+					},
+					Error: err.Error(),
+				})
+				continue
+			}
+			// Single symbol - return error directly
+			if we, ok := err.(*errors.WildcatError); ok {
+				return writer.WriteError(string(we.Code), we.Message, we.Suggestions, we.Context)
+			}
+			return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
+		}
+		responses = append(responses, *response)
+	}
+
+	// Single symbol: return object; multiple: return array
+	if len(args) == 1 {
+		return writer.Write(responses[0])
+	}
+	return writer.Write(responses)
+}
+
+func getImplementsForSymbol(ctx context.Context, client *lsp.Client, symbolArg string) (*output.ImplementsResponse, error) {
+	// Parse symbol
+	query, err := symbols.Parse(symbolArg)
+	if err != nil {
+		return nil, fmt.Errorf("parse error: %w", err)
+	}
+
 	// Resolve symbol
 	resolver := symbols.NewResolver(client)
 	resolved, err := resolver.Resolve(ctx, query)
 	if err != nil {
-		if we, ok := err.(*errors.WildcatError); ok {
-			return writer.WriteError(string(we.Code), we.Message, we.Suggestions, we.Context)
-		}
-		return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
+		return nil, err
 	}
 
 	// Check if it's an interface
 	if resolved.Kind != lsp.SymbolKindInterface {
-		return writer.WriteError(
-			"invalid_symbol_kind",
-			fmt.Sprintf("'%s' is not an interface (got %s)", query.Raw, resolved.Kind.String()),
-			[]string{"Use an interface type name"},
-			map[string]any{"kind": resolved.Kind.String()},
-		)
+		return nil, fmt.Errorf("'%s' is not an interface (got %s)", query.Raw, resolved.Kind.String())
 	}
 
 	// Get implementations
 	impls, err := client.Implementation(ctx, resolved.URI, resolved.Position)
 	if err != nil {
-		return writer.WriteError(
-			string(errors.CodeLSPError),
-			fmt.Sprintf("Failed to get implementations: %v", err),
-			nil,
-			nil,
-		)
+		return nil, fmt.Errorf("failed to get implementations: %w", err)
 	}
 
 	// Build results
@@ -164,7 +184,7 @@ func runImplements(cmd *cobra.Command, args []string) error {
 		results = append(results, result)
 	}
 
-	response := output.ImplementsResponse{
+	return &output.ImplementsResponse{
 		Query: output.QueryInfo{
 			Command:  "implements",
 			Target:   query.Raw,
@@ -181,8 +201,6 @@ func runImplements(cmd *cobra.Command, args []string) error {
 			Count:   len(results),
 			InTests: inTests,
 		},
-	}
-
-	return writer.Write(response)
+	}, nil
 }
 

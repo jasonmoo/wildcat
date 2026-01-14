@@ -14,7 +14,7 @@ import (
 )
 
 var satisfiesCmd = &cobra.Command{
-	Use:   "satisfies <type>",
+	Use:   "satisfies <type>...",
 	Short: "Find all interfaces a type satisfies",
 	Long: `Find all interfaces a type satisfies.
 
@@ -24,8 +24,9 @@ concrete type implements.
 Examples:
   wildcat satisfies JSONFormatter
   wildcat satisfies output.Writer
-  wildcat satisfies *Server`,
-	Args: cobra.ExactArgs(1),
+  wildcat satisfies *Server
+  wildcat satisfies Writer Registry    # multiple types`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runSatisfies,
 }
 
@@ -44,16 +45,9 @@ func init() {
 }
 
 func runSatisfies(cmd *cobra.Command, args []string) error {
-	symbolArg := args[0]
 	writer, err := GetWriter(os.Stdout)
 	if err != nil {
 		return fmt.Errorf("invalid output format: %w", err)
-	}
-
-	// Parse symbol
-	query, err := symbols.Parse(symbolArg)
-	if err != nil {
-		return writer.WriteError("parse_error", err.Error(), nil, nil)
 	}
 
 	// Get working directory
@@ -99,45 +93,66 @@ func runSatisfies(cmd *cobra.Command, args []string) error {
 
 	time.Sleep(200 * time.Millisecond)
 
+	// Process each symbol
+	var responses []output.SatisfiesResponse
+	for _, symbolArg := range args {
+		response, err := getSatisfiesForSymbol(ctx, client, symbolArg)
+		if err != nil {
+			// For multi-symbol queries, include error as a response
+			if len(args) > 1 {
+				responses = append(responses, output.SatisfiesResponse{
+					Query: output.QueryInfo{
+						Command: "satisfies",
+						Target:  symbolArg,
+					},
+					Error: err.Error(),
+				})
+				continue
+			}
+			// Single symbol - return error directly
+			if we, ok := err.(*errors.WildcatError); ok {
+				return writer.WriteError(string(we.Code), we.Message, we.Suggestions, we.Context)
+			}
+			return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
+		}
+		responses = append(responses, *response)
+	}
+
+	// Single symbol: return object; multiple: return array
+	if len(args) == 1 {
+		return writer.Write(responses[0])
+	}
+	return writer.Write(responses)
+}
+
+func getSatisfiesForSymbol(ctx context.Context, client *lsp.Client, symbolArg string) (*output.SatisfiesResponse, error) {
+	// Parse symbol
+	query, err := symbols.Parse(symbolArg)
+	if err != nil {
+		return nil, fmt.Errorf("parse error: %w", err)
+	}
+
 	// Resolve symbol
 	resolver := symbols.NewResolver(client)
 	resolved, err := resolver.Resolve(ctx, query)
 	if err != nil {
-		if we, ok := err.(*errors.WildcatError); ok {
-			return writer.WriteError(string(we.Code), we.Message, we.Suggestions, we.Context)
-		}
-		return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
+		return nil, err
 	}
 
 	// Prepare type hierarchy
 	items, err := client.PrepareTypeHierarchy(ctx, resolved.URI, resolved.Position)
 	if err != nil {
-		return writer.WriteError(
-			string(errors.CodeLSPError),
-			fmt.Sprintf("Failed to prepare type hierarchy: %v", err),
-			nil,
-			nil,
-		)
+		return nil, fmt.Errorf("failed to prepare type hierarchy: %w", err)
 	}
 
 	if len(items) == 0 {
-		return writer.WriteError(
-			string(errors.CodeSymbolNotFound),
-			fmt.Sprintf("No type hierarchy found for '%s'", query.Raw),
-			nil,
-			nil,
-		)
+		return nil, fmt.Errorf("no type hierarchy found for '%s'", query.Raw)
 	}
 
 	// Get supertypes (interfaces this type satisfies)
 	supertypes, err := client.Supertypes(ctx, items[0])
 	if err != nil {
-		return writer.WriteError(
-			string(errors.CodeLSPError),
-			fmt.Sprintf("Failed to get supertypes: %v", err),
-			nil,
-			nil,
-		)
+		return nil, fmt.Errorf("failed to get supertypes: %w", err)
 	}
 
 	// Build results
@@ -173,7 +188,7 @@ func runSatisfies(cmd *cobra.Command, args []string) error {
 	// Determine kind
 	kind := resolved.Kind.String()
 
-	response := output.SatisfiesResponse{
+	return &output.SatisfiesResponse{
 		Query: output.QueryInfo{
 			Command:  "satisfies",
 			Target:   query.Raw,
@@ -189,9 +204,7 @@ func runSatisfies(cmd *cobra.Command, args []string) error {
 		Summary: output.Summary{
 			Count: len(results),
 		},
-	}
-
-	return writer.Write(response)
+	}, nil
 }
 
 // isStdlibPath checks if a path is from the standard library.
