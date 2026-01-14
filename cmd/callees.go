@@ -190,17 +190,24 @@ func getCalleesForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 			break
 		}
 
+		// Use call site info - the call happens in targetFile, not in the callee's file
+		callLine := callee.Line // fallback to callee definition
+		callFile := callee.File
+		if len(callee.CallRanges) > 0 {
+			callLine = callee.CallRanges[0].Start.Line + 1
+			callFile = targetFile // call site is in the source function's file
+		}
+
 		result := output.Result{
 			Symbol: callee.Symbol,
-			File:   output.AbsolutePath(callee.File),
-			Line:   callee.Line,
+			File:   output.AbsolutePath(callFile),
+			Line:   callLine,
 			InTest: callee.InTest,
 		}
 
 		if !calleesCompact && len(callee.CallRanges) > 0 {
 			// Extract snippet from the caller's file where the call happens
-			line := callee.CallRanges[0].Start.Line + 1
-			snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(targetFile, line)
+			snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(targetFile, callLine)
 			if err == nil {
 				result.Snippet = snippet
 				result.SnippetStart = snippetStart
@@ -221,17 +228,8 @@ func getCalleesForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		packages = append(packages, p)
 	}
 
-	// Merge overlapping snippets
-	originalCount := len(results)
-	if !calleesCompact {
-		results = extractor.MergeOverlappingResults(results)
-		inTests = 0
-		for _, r := range results {
-			if r.InTest {
-				inTests++
-			}
-		}
-	}
+	// Note: Unlike refs/callers, we don't merge callees because each represents
+	// a distinct function being called, not multiple references to the same symbol
 
 	return &output.CalleesResponse{
 		Query: output.QueryInfo{
@@ -246,7 +244,7 @@ func getCalleesForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		},
 		Results: results,
 		Summary: output.Summary{
-			Count:     originalCount,
+			Count:     len(results),
 			Packages:  packages,
 			InTests:   inTests,
 			Truncated: calleesLimit > 0 && len(callees) > calleesLimit,

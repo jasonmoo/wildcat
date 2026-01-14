@@ -20,7 +20,7 @@ var impactCmd = &cobra.Command{
 	Long: `Comprehensive impact analysis: everything affected by changing a symbol.
 
 This command answers "What breaks if I change this?" by combining:
-  - Transitive callers (recursive, not just direct)
+  - Direct callers (functions that call this symbol)
   - All references (type usage, not just calls)
   - Interface implementations (if changing an interface)
 
@@ -35,14 +35,12 @@ Examples:
 
 var (
 	impactExcludeTests bool
-	impactDepth        int
 )
 
 func init() {
 	rootCmd.AddCommand(impactCmd)
 
 	impactCmd.Flags().BoolVar(&impactExcludeTests, "exclude-tests", false, "Exclude test files")
-	impactCmd.Flags().IntVar(&impactDepth, "depth", 3, "Max depth for transitive callers")
 }
 
 func runImpact(cmd *cobra.Command, args []string) error {
@@ -171,20 +169,26 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 			traverser := traverse.NewTraverser(client)
 			opts := traverse.Options{
 				Direction:    traverse.Up,
-				MaxDepth:     impactDepth,
+				MaxDepth:     1, // Direct callers only for impact analysis
 				ExcludeTests: impactExcludeTests,
 			}
 
 			callers, err := traverser.GetCallers(ctx, items[0], opts)
 			if err == nil {
 				for _, caller := range callers {
+					// Use call site line if available
+					callLine := caller.Line
+					if len(caller.CallRanges) > 0 {
+						callLine = caller.CallRanges[0].Start.Line + 1
+					}
+
 					cat := output.ImpactCategory{
 						Symbol: caller.Symbol,
 						File:   output.AbsolutePath(caller.File),
-						Line:   caller.Line,
+						Line:   callLine,
 						Reason: "calls this function",
 					}
-					if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(caller.File, caller.Line); err == nil {
+					if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(caller.File, callLine); err == nil {
 						cat.Snippet = snippet
 						cat.SnippetStart = snippetStart
 						cat.SnippetEnd = snippetEnd
@@ -199,7 +203,14 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		}
 	}
 
-	// Get all references
+	// Build set of caller locations to dedupe references
+	callerLocations := make(map[string]bool)
+	for _, caller := range impact.Callers {
+		key := fmt.Sprintf("%s:%d", caller.File, caller.Line)
+		callerLocations[key] = true
+	}
+
+	// Get all references (excluding those already in callers)
 	refs, err := client.References(ctx, resolved.URI, resolved.Position, false)
 	if err == nil {
 		for _, ref := range refs {
@@ -211,8 +222,16 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 			}
 
 			line := ref.Range.Start.Line + 1
+			absFile := output.AbsolutePath(file)
+
+			// Skip if already covered by callers
+			key := fmt.Sprintf("%s:%d", absFile, line)
+			if callerLocations[key] {
+				continue
+			}
+
 			cat := output.ImpactCategory{
-				File:   output.AbsolutePath(file),
+				File:   absFile,
 				Line:   line,
 				Reason: "references this symbol",
 			}

@@ -144,8 +144,18 @@ func getImplementsForSymbol(ctx context.Context, client *lsp.Client, symbolArg s
 		return nil, fmt.Errorf("'%s' is not an interface (got %s)", query.Raw, resolved.Kind.String())
 	}
 
-	// Get implementations
-	impls, err := client.Implementation(ctx, resolved.URI, resolved.Position)
+	// Prepare type hierarchy to get subtypes (implementing types)
+	items, err := client.PrepareTypeHierarchy(ctx, resolved.URI, resolved.Position)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare type hierarchy: %w", err)
+	}
+
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no type hierarchy found for '%s'", query.Raw)
+	}
+
+	// Get subtypes (types that implement this interface)
+	impls, err := client.Subtypes(ctx, items[0])
 	if err != nil {
 		return nil, fmt.Errorf("failed to get implementations: %w", err)
 	}
@@ -164,6 +174,7 @@ func getImplementsForSymbol(ctx context.Context, client *lsp.Client, symbolArg s
 		}
 
 		result := output.Result{
+			Symbol: impl.Name,
 			File:   output.AbsolutePath(file),
 			Line:   impl.Range.Start.Line + 1,
 			InTest: isTest,

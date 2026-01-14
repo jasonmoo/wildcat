@@ -37,15 +37,16 @@ wildcat callers config.Load
   "target": {
     "symbol": "config.Load",
     "file": "/home/user/proj/internal/config/config.go",
-    "line": 15,
-    "signature": "func Load(path string) (*Config, error)"
+    "line": 15
   },
   "results": [
     {
       "symbol": "main.main",
       "file": "/home/user/proj/main.go",
       "line": 23,
-      "snippet": "cfg, err := config.Load(configPath)",
+      "snippet": "func main() {\n\tcfg, err := config.Load(configPath)\n\tif err != nil {",
+      "snippet_start": 21,
+      "snippet_end": 25,
       "call_expr": "config.Load(configPath)"
     }
   ]
@@ -89,10 +90,10 @@ Every result includes what you need to act:
 | Field | Purpose |
 |-------|---------|
 | `file` | Absolute path for read/edit tools |
-| `line`, `line_end` | Line range for focused reads |
+| `line` | Line of the reference/call site |
 | `snippet` | Code context without file read |
-| `call_expr` | Exact text for find/replace |
-| `args` | Arguments at call site |
+| `snippet_start`, `snippet_end` | Line range of the snippet |
+| `call_expr` | Exact call expression text (callers only) |
 | `in_test` | Filter test vs production code |
 
 ### Filtering
@@ -143,8 +144,11 @@ Wildcat auto-detects the language and starts the appropriate server.
 | `wildcat tree <symbol>` | Full call tree with depth control |
 | `wildcat refs <symbol>` | All references to symbol |
 | `wildcat impact <symbol>` | What breaks if I change this? |
-| `wildcat implements <type>` | What implements this interface? |
-| `wildcat deps <package>` | Package dependency graph |
+| `wildcat implements <iface>` | What implements this interface? |
+| `wildcat satisfies <type>` | What interfaces does this type satisfy? |
+| `wildcat deps [package]` | Package dependency graph (both directions) |
+| `wildcat package [path]` | Package profile with all symbols |
+| `wildcat symbols <query>` | Fuzzy search for symbols |
 | `wildcat readme` | AI onboarding instructions |
 
 ## Installation
@@ -168,8 +172,14 @@ wildcat impact config.Config
 # Find what implements an interface
 wildcat implements io.Reader
 
-# Package dependencies
+# Find what interfaces a type satisfies
+wildcat satisfies MyServer
+
+# Package dependencies (shows imports and imported_by)
 wildcat deps ./internal/server
+
+# Search for symbols by name
+wildcat symbols Config
 ```
 
 ## Why "Wildcat"?

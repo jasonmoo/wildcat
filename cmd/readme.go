@@ -53,6 +53,8 @@ func printCompactReadme() {
 - wildcat implements <iface>   Find types implementing interface
 - wildcat satisfies <type>     Find interfaces a type satisfies
 - wildcat deps [package]       Show package dependencies
+- wildcat package [path]       Show package profile with symbols
+- wildcat symbols <query>      Search for symbols (fuzzy match)
 
 ## Symbol Formats
 - Function               pkg.Function, main.main
@@ -128,9 +130,20 @@ Find all types that implement an interface.
 Find all interfaces that a type satisfies.
 
 ### deps - Package dependencies
-`+"`"+`wildcat deps ./internal/lsp --reverse`+"`"+`
+`+"`"+`wildcat deps ./internal/lsp`+"`"+`
 
-Show what a package imports, or with --reverse, what imports it.
+Show what a package imports and what packages import it (both directions in one call).
+
+### package - Package profile
+`+"`"+`wildcat package ./internal/output`+"`"+`
+
+Show a complete package profile with all symbols in godoc order (constants,
+variables, functions, then types with their methods).
+
+### symbols - Search for symbols
+`+"`"+`wildcat symbols Config`+"`"+`
+
+Fuzzy search for symbols across the workspace. Results are ranked by relevance.
 
 ## Symbol Formats
 

@@ -196,17 +196,22 @@ func getCallersForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 			// TODO: implement package filtering
 		}
 
+		// Use call site line if available, otherwise fall back to function definition
+		callLine := caller.Line
+		if len(caller.CallRanges) > 0 {
+			callLine = caller.CallRanges[0].Start.Line + 1
+		}
+
 		result := output.Result{
 			Symbol: caller.Symbol,
 			File:   output.AbsolutePath(caller.File),
-			Line:   caller.Line,
+			Line:   callLine,
 			InTest: caller.InTest,
 		}
 
 		// Extract snippet if not compact
 		if !callersCompact && len(caller.CallRanges) > 0 {
-			line := caller.CallRanges[0].Start.Line + 1
-			snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(caller.File, line)
+			snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(caller.File, callLine)
 			if err == nil {
 				result.Snippet = snippet
 				result.SnippetStart = snippetStart
@@ -216,7 +221,7 @@ func getCallersForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 			// Extract call expression
 			callExpr, err := extractor.ExtractCallExpr(
 				caller.File,
-				line,
+				callLine,
 				caller.CallRanges[0].Start.Character,
 				caller.CallRanges[0].End.Character,
 			)
