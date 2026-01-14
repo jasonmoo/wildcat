@@ -167,6 +167,9 @@ func runCallees(cmd *cobra.Command, args []string) error {
 	packagesSet := make(map[string]bool)
 	inTests := 0
 
+	// CallRanges are in the target (caller) file, not the callee file
+	targetFile := lsp.URIToPath(items[0].URI)
+
 	for _, callee := range callees {
 		if calleesLimit > 0 && len(results) >= calleesLimit {
 			break
@@ -180,8 +183,9 @@ func runCallees(cmd *cobra.Command, args []string) error {
 		}
 
 		if !calleesCompact && len(callee.CallRanges) > 0 {
+			// Extract snippet from the caller's file where the call happens
 			line := callee.CallRanges[0].Start.Line + 1
-			snippet, err := extractor.Extract(callee.File, line, calleesContext)
+			snippet, err := extractor.Extract(targetFile, line, calleesContext)
 			if err == nil {
 				result.Snippet = snippet
 			}
