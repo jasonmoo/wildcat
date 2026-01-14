@@ -200,7 +200,7 @@ func getCalleesForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		if !calleesCompact && len(callee.CallRanges) > 0 {
 			// Extract snippet from the caller's file where the call happens
 			line := callee.CallRanges[0].Start.Line + 1
-			snippet, err := extractor.Extract(targetFile, line, calleesContext)
+			snippet, err := extractor.ExtractSmart(targetFile, line)
 			if err == nil {
 				result.Snippet = snippet
 			}

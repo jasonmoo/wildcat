@@ -171,7 +171,7 @@ func getImplementsForSymbol(ctx context.Context, client *lsp.Client, symbolArg s
 
 		if !implementsCompact {
 			line := impl.Range.Start.Line + 1
-			snippet, err := extractor.Extract(file, line, implementsContext)
+			snippet, err := extractor.ExtractSmart(file, line)
 			if err == nil {
 				result.Snippet = snippet
 			}

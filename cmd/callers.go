@@ -206,7 +206,7 @@ func getCallersForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		// Extract snippet if not compact
 		if !callersCompact && len(caller.CallRanges) > 0 {
 			line := caller.CallRanges[0].Start.Line + 1
-			snippet, err := extractor.Extract(caller.File, line, callersContext)
+			snippet, err := extractor.ExtractSmart(caller.File, line)
 			if err == nil {
 				result.Snippet = snippet
 			}

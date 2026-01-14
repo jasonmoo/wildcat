@@ -184,7 +184,7 @@ func getRefsForSymbol(ctx context.Context, client *lsp.Client, symbolArg string)
 
 		if !refsCompact {
 			line := ref.Range.Start.Line + 1
-			snippet, err := extractor.Extract(file, line, refsContext)
+			snippet, err := extractor.ExtractSmart(file, line)
 			if err == nil {
 				result.Snippet = snippet
 			}

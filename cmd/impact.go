@@ -184,7 +184,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 						Line:   caller.Line,
 						Reason: "calls this function",
 					}
-					if snippet, err := extractor.ExtractLine(caller.File, caller.Line); err == nil {
+					if snippet, err := extractor.ExtractSmart(caller.File, caller.Line); err == nil {
 						cat.Snippet = snippet
 					}
 					impact.Callers = append(impact.Callers, cat)
@@ -214,7 +214,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 				Line:   line,
 				Reason: "references this symbol",
 			}
-			if snippet, err := extractor.ExtractLine(file, line); err == nil {
+			if snippet, err := extractor.ExtractSmart(file, line); err == nil {
 				cat.Snippet = snippet
 			}
 			impact.References = append(impact.References, cat)
@@ -243,7 +243,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 					Line:   line,
 					Reason: "implements this interface",
 				}
-				if snippet, err := extractor.ExtractLine(file, line); err == nil {
+				if snippet, err := extractor.ExtractSmart(file, line); err == nil {
 					cat.Snippet = snippet
 				}
 				impact.Implementations = append(impact.Implementations, cat)

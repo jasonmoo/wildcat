@@ -3,9 +3,21 @@ package output
 import (
 	"bufio"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
+)
+
+const (
+	// SmartSnippetMaxLines is the max lines for showing a complete AST unit
+	SmartSnippetMaxLines = 10
+	// SmartSnippetMinLines is the min lines for nested units to be shown whole
+	SmartSnippetMinLines = 5
+	// SmartSnippetFallbackContext is lines before/after for fallback
+	SmartSnippetFallbackContext = 3
 )
 
 // SnippetExtractor extracts code snippets from source files.
@@ -39,6 +51,119 @@ func (e *SnippetExtractor) Extract(filePath string, line, contextLines int) (str
 	end := min(len(lines), lineIdx+contextLines+1)
 
 	return strings.Join(lines[start:end], "\n"), nil
+}
+
+// ExtractSmart extracts an AST-aware snippet around a target line.
+// For Go files, it tries to find a meaningful enclosing AST node (function,
+// type declaration, loop, etc.) and returns the whole unit if it's small enough.
+// Falls back to line-based extraction for non-Go files or large units.
+// line is 1-indexed.
+func (e *SnippetExtractor) ExtractSmart(filePath string, line int) (string, error) {
+	// Only use AST for Go files
+	if !strings.HasSuffix(filePath, ".go") {
+		return e.Extract(filePath, line, SmartSnippetFallbackContext)
+	}
+
+	// Try AST-based extraction
+	snippet, err := e.extractASTSnippet(filePath, line)
+	if err != nil {
+		// Fall back to line-based on any AST error
+		return e.Extract(filePath, line, SmartSnippetFallbackContext)
+	}
+
+	return snippet, nil
+}
+
+// extractASTSnippet finds an enclosing AST node and extracts it if small enough.
+func (e *SnippetExtractor) extractASTSnippet(filePath string, targetLine int) (string, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
+	if err != nil {
+		return "", err
+	}
+
+	// Find the enclosing node
+	startLine, endLine, isTopLevel := e.findEnclosingNode(fset, f, targetLine)
+	if startLine == 0 {
+		// No suitable node found, use fallback
+		return e.Extract(filePath, targetLine, SmartSnippetFallbackContext)
+	}
+
+	lineCount := endLine - startLine + 1
+
+	// Decision logic:
+	// - Top-level (func/type/const/var): show whole if ≤ maxLines
+	// - Nested (for/switch/if/select): show whole if minLines ≤ size ≤ maxLines
+	// - Otherwise: fall back
+	showWhole := false
+	if isTopLevel && lineCount <= SmartSnippetMaxLines {
+		showWhole = true
+	} else if !isTopLevel && lineCount >= SmartSnippetMinLines && lineCount <= SmartSnippetMaxLines {
+		showWhole = true
+	}
+
+	if showWhole {
+		return e.ExtractRange(filePath, startLine, endLine)
+	}
+
+	// Fall back to line-based
+	return e.Extract(filePath, targetLine, SmartSnippetFallbackContext)
+}
+
+// findEnclosingNode finds the best enclosing AST node for a target line.
+// Returns (startLine, endLine, isTopLevel). Returns (0, 0, false) if no suitable node.
+func (e *SnippetExtractor) findEnclosingNode(fset *token.FileSet, f *ast.File, targetLine int) (int, int, bool) {
+	var bestStart, bestEnd int
+	var bestIsTopLevel bool
+	var bestSize int = 1<<31 - 1 // Start with max int
+
+	ast.Inspect(f, func(n ast.Node) bool {
+		if n == nil {
+			return true
+		}
+
+		startPos := fset.Position(n.Pos())
+		endPos := fset.Position(n.End())
+
+		// Check if this node contains the target line
+		if startPos.Line > targetLine || endPos.Line < targetLine {
+			return true // Continue searching
+		}
+
+		nodeSize := endPos.Line - startPos.Line + 1
+		isTopLevel := false
+		isCandidate := false
+
+		switch n.(type) {
+		case *ast.FuncDecl:
+			isTopLevel = true
+			isCandidate = true
+		case *ast.GenDecl:
+			// type, const, var declarations
+			isTopLevel = true
+			isCandidate = true
+		case *ast.ForStmt, *ast.RangeStmt:
+			isCandidate = true
+		case *ast.SwitchStmt, *ast.TypeSwitchStmt:
+			isCandidate = true
+		case *ast.SelectStmt:
+			isCandidate = true
+		case *ast.IfStmt:
+			isCandidate = true
+		}
+
+		// Pick the smallest candidate that contains our line
+		if isCandidate && nodeSize < bestSize {
+			bestStart = startPos.Line
+			bestEnd = endPos.Line
+			bestIsTopLevel = isTopLevel
+			bestSize = nodeSize
+		}
+
+		return true // Keep searching for smaller nodes
+	})
+
+	return bestStart, bestEnd, bestIsTopLevel
 }
 
 // ExtractRange returns source lines for a range.
