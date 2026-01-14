@@ -24,18 +24,12 @@ relevance with workspace symbols prioritized over stdlib.
 Query Syntax:
   hello          Fuzzy match - matches "Hello", "helloWorld", "SayHello"
   Hello          Case-sensitive fuzzy (uppercase triggers case-sensitivity)
-  ^New           Prefix match - symbols starting with "New"
-  Error$         Suffix match - symbols ending with "Error"
-  'Parse         Exact substring - must contain "Parse" exactly
-  ^New 'Error    Multiple terms - AND logic (starts with New AND contains Error)
-
-The fuzzy matcher is FZF-inspired: "DocSym" matches "DocumentSymbol",
-"cfg" matches "Config", etc.
+  DocSym         Abbreviation match - matches "DocumentSymbol"
+  cfg            Abbreviation match - matches "Config"
 
 Examples:
   wildcat symbols Resolve           # functions/types matching Resolve
-  wildcat symbols ^New              # NewClient, NewServer, NewResolver...
-  wildcat symbols 'Error$           # ParseError, ConfigError, TimeoutError...
+  wildcat symbols NewClient         # exact or fuzzy matches
   wildcat symbols --limit 5 Config  # top 5 matches for Config`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSymbols,
@@ -102,7 +96,7 @@ func runSymbols(cmd *cobra.Command, args []string) error {
 	// Give LSP server time to index
 	time.Sleep(200 * time.Millisecond)
 
-	// Query workspace symbols - pass through directly to gopls
+	// Query workspace symbols via gopls fuzzy matching
 	symbols, err := client.WorkspaceSymbol(ctx, query)
 	if err != nil {
 		return writer.WriteError(
