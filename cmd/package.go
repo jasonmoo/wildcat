@@ -119,6 +119,9 @@ func runPackage(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Enrich types with interface relationships
+	collector.enrichWithInterfaces(ctx, client)
+
 	// Organize into godoc order
 	result := collector.build(pkg.ImportPath, pkg.Name, pkg.Dir)
 
@@ -148,13 +151,19 @@ func runPackage(cmd *cobra.Command, args []string) error {
 	result.Summary.Imports = len(result.Imports)
 	result.Summary.ImportedBy = len(result.ImportedBy)
 
+	// Default to compressed markdown unless -o flag was explicitly set
+	if !cmd.Flags().Changed("output") {
+		fmt.Print(renderPackageMarkdown(result))
+		return nil
+	}
+
 	return writer.Write(result)
 }
 
 // packageCollector collects and organizes symbols from a package.
 type packageCollector struct {
 	dir       string
-	files     map[string][]string // file path -> lines
+	files     map[string]*parsedFile // file path -> parsed AST
 	constants []output.PackageSymbol
 	variables []output.PackageSymbol
 	functions []output.PackageSymbol
@@ -162,47 +171,77 @@ type packageCollector struct {
 	typeOrder []string             // preserve order
 }
 
+// parsedFile holds a parsed Go source file.
+type parsedFile struct {
+	fset  *token.FileSet
+	file  *ast.File
+	lines []string // for fallback
+}
+
 type typeInfo struct {
-	signature string
-	location  string
-	functions []output.PackageSymbol
-	methods   []output.PackageSymbol
+	signature     string
+	location      string
+	functions     []output.PackageSymbol
+	methods       []output.PackageSymbol
+	isInterface   bool
+	file          string       // full path for LSP queries
+	selRange      lsp.Range    // selection range for LSP queries (points to type name)
+	satisfies     []string     // interfaces this type implements
+	implementedBy []string     // types implementing this interface
 }
 
 func newPackageCollector(dir string) *packageCollector {
 	return &packageCollector{
 		dir:   dir,
-		files: make(map[string][]string),
+		files: make(map[string]*parsedFile),
 		types: make(map[string]*typeInfo),
 	}
 }
 
 func (c *packageCollector) addFile(path string, symbols []lsp.DocumentSymbol) error {
-	// Read file lines
+	// Read and parse the full file
 	lines, err := readFileLines(path)
 	if err != nil {
 		return err
 	}
-	c.files[path] = lines
+
+	source := strings.Join(lines, "\n")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, source, parser.ParseComments)
+	if err != nil {
+		// Store lines for fallback even if parse fails
+		c.files[path] = &parsedFile{lines: lines}
+	} else {
+		c.files[path] = &parsedFile{fset: fset, file: file, lines: lines}
+	}
 
 	// Process each symbol
 	for _, sym := range symbols {
-		c.processSymbol(path, lines, sym)
+		c.processSymbol(path, sym)
 	}
 
 	return nil
 }
 
-func (c *packageCollector) processSymbol(path string, lines []string, sym lsp.DocumentSymbol) {
+func (c *packageCollector) processSymbol(path string, sym lsp.DocumentSymbol) {
 	startLine := sym.Range.Start.Line + 1 // Convert to 1-indexed
 	endLine := sym.Range.End.Line + 1
 
 	location := formatLocation(path, startLine, endLine)
 
-	// Use AST-based cleaning for all declarations
-	signature := cleanDeclaration(lines, sym)
+	// Get the parsed file
+	pf := c.files[path]
+
+	// Try AST-based extraction first, fall back to line-based
+	signature := ""
+	if pf != nil && pf.file != nil {
+		signature = c.extractFromAST(pf, sym)
+	}
+	if signature == "" && pf != nil {
+		signature = cleanDeclaration(pf.lines, sym)
+	}
 	if signature == "" {
-		signature = sym.Name // Fallback
+		signature = sym.Name // Final fallback
 	}
 
 	switch sym.Kind {
@@ -239,6 +278,9 @@ func (c *packageCollector) processSymbol(path string, lines []string, sym lsp.Do
 		c.ensureType(typeName)
 		c.types[typeName].location = location
 		c.types[typeName].signature = signature
+		c.types[typeName].isInterface = sym.Kind == lsp.SymbolKindInterface
+		c.types[typeName].file = path
+		c.types[typeName].selRange = sym.SelectionRange // Points to type name for LSP queries
 
 	case lsp.SymbolKindMethod:
 		// Parse receiver from method name like "(*Query).String"
@@ -253,10 +295,169 @@ func (c *packageCollector) processSymbol(path string, lines []string, sym lsp.Do
 	}
 }
 
+// extractFromAST finds a declaration in the parsed AST by line number and renders it cleanly.
+func (c *packageCollector) extractFromAST(pf *parsedFile, sym lsp.DocumentSymbol) string {
+	targetLine := sym.Range.Start.Line + 1 // Convert to 1-indexed
+
+	for _, decl := range pf.file.Decls {
+		declLine := pf.fset.Position(decl.Pos()).Line
+
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if declLine == targetLine || pf.fset.Position(d.Name.Pos()).Line == targetLine {
+				return renderFuncDecl(pf.fset, d)
+			}
+
+		case *ast.GenDecl:
+			// For GenDecl, check each spec
+			for _, spec := range d.Specs {
+				specLine := pf.fset.Position(spec.Pos()).Line
+
+				switch s := spec.(type) {
+				case *ast.TypeSpec:
+					if specLine == targetLine && s.Name.Name == sym.Name {
+						return renderTypeSpec(pf.fset, d.Tok, s)
+					}
+				case *ast.ValueSpec:
+					if specLine == targetLine {
+						for _, name := range s.Names {
+							if name.Name == sym.Name {
+								return renderValueSpec(pf.fset, d.Tok, s)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// renderFuncDecl renders a function declaration without its body.
+func renderFuncDecl(fset *token.FileSet, decl *ast.FuncDecl) string {
+	// Clone and strip body
+	cleaned := *decl
+	cleaned.Doc = nil
+	cleaned.Body = nil
+
+	var buf bytes.Buffer
+	cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}
+	if err := cfg.Fprint(&buf, fset, &cleaned); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
+// renderTypeSpec renders a type specification.
+func renderTypeSpec(fset *token.FileSet, tok token.Token, spec *ast.TypeSpec) string {
+	// Strip comments and tags
+	spec.Doc = nil
+	spec.Comment = nil
+	stripTypeComments(spec.Type)
+
+	// Create a GenDecl wrapper
+	decl := &ast.GenDecl{
+		Tok:   tok,
+		Specs: []ast.Spec{spec},
+	}
+
+	var buf bytes.Buffer
+	cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}
+	if err := cfg.Fprint(&buf, fset, decl); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
+// renderValueSpec renders a const or var specification.
+func renderValueSpec(fset *token.FileSet, tok token.Token, spec *ast.ValueSpec) string {
+	spec.Doc = nil
+	spec.Comment = nil
+
+	decl := &ast.GenDecl{
+		Tok:   tok,
+		Specs: []ast.Spec{spec},
+	}
+
+	var buf bytes.Buffer
+	cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}
+	if err := cfg.Fprint(&buf, fset, decl); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
 func (c *packageCollector) ensureType(name string) {
 	if _, ok := c.types[name]; !ok {
 		c.types[name] = &typeInfo{}
 		c.typeOrder = append(c.typeOrder, name)
+	}
+}
+
+// enrichWithInterfaces queries LSP for interface relationships on each type.
+func (c *packageCollector) enrichWithInterfaces(ctx context.Context, client *lsp.Client) {
+	for typeName, info := range c.types {
+		if info.file == "" {
+			continue // Type not defined in this package
+		}
+
+		uri := lsp.FileURI(info.file)
+		pos := info.selRange.Start // Use selection range start (points to type name)
+
+		if info.isInterface {
+			// For interfaces: find implementations
+			impls, err := client.Implementation(ctx, uri, pos)
+			if err == nil {
+				for _, impl := range impls {
+					// Extract type name from the implementation location
+					implFile := lsp.URIToPath(impl.URI)
+					implName := extractTypeNameAtLocation(implFile, impl.Range.Start.Line)
+					if implName != "" {
+						info.implementedBy = append(info.implementedBy, implName)
+					}
+				}
+			}
+		} else if len(info.methods) > 0 {
+			// For types with methods: find interfaces they satisfy
+			items, err := client.PrepareTypeHierarchy(ctx, uri, pos)
+			if err == nil && len(items) > 0 {
+				supertypes, err := client.Supertypes(ctx, items[0])
+				if err == nil {
+					seen := make(map[string]string) // key -> shortest name
+					for _, st := range supertypes {
+						// Skip unexported interfaces (not useful to show)
+						// Exception: "error" is the builtin error interface
+						if len(st.Name) == 0 {
+							continue
+						}
+						if st.Name[0] < 'A' || st.Name[0] > 'Z' {
+							if st.Name != "error" {
+								continue
+							}
+						}
+						// Build qualified name from URI
+						name := qualifiedInterfaceName(st.URI, st.Name)
+						// Skip versioned/experimental packages (e.g., json@v0.0.0-...)
+						if strings.Contains(name, "@") {
+							continue
+						}
+						// Dedup by interface name, keeping shorter path (prefer stdlib)
+						key := strings.ToLower(st.Name)
+						if existing, ok := seen[key]; !ok || len(name) < len(existing) {
+							seen[key] = name
+						}
+					}
+					// Collect deduplicated results (sorted for deterministic output)
+					for _, name := range seen {
+						info.satisfies = append(info.satisfies, name)
+					}
+					sort.Strings(info.satisfies)
+				}
+			}
+		}
+
+		c.types[typeName] = info
 	}
 }
 
@@ -273,10 +474,12 @@ func (c *packageCollector) build(importPath, name, dir string) *output.PackageRe
 			continue
 		}
 		types = append(types, output.PackageType{
-			Signature:    info.signature,
-			Location:     info.location,
-			Functions: info.functions,
-			Methods:      info.methods,
+			Signature:     info.signature,
+			Location:      info.location,
+			Functions:     info.functions,
+			Methods:       info.methods,
+			Satisfies:     info.satisfies,
+			ImplementedBy: info.implementedBy,
 		})
 		methodCount += len(info.methods)
 	}
@@ -459,22 +662,34 @@ func cleanValueDeclaration(lines []string, sym lsp.DocumentSymbol) string {
 	return ""
 }
 
-// stripTypeComments removes comments and tags from type definitions.
+// stripTypeComments removes comments, tags, and normalizes positions to remove blank lines.
 func stripTypeComments(expr ast.Expr) {
 	switch t := expr.(type) {
 	case *ast.StructType:
 		if t.Fields != nil {
+			// Normalize positions so printer doesn't insert blank lines
+			pos := t.Fields.Opening + 1
 			for _, field := range t.Fields.List {
 				field.Tag = nil
 				field.Doc = nil
 				field.Comment = nil
+				// Set consecutive positions
+				for _, name := range field.Names {
+					name.NamePos = pos
+				}
+				pos++
 			}
 		}
 	case *ast.InterfaceType:
 		if t.Methods != nil {
+			pos := t.Methods.Opening + 1
 			for _, method := range t.Methods.List {
 				method.Doc = nil
 				method.Comment = nil
+				for _, name := range method.Names {
+					name.NamePos = pos
+				}
+				pos++
 			}
 		}
 	}
@@ -566,3 +781,164 @@ func parseMethodReceiver(name string) (typeName, methodName string) {
 	}
 	return "", name
 }
+
+// renderPackageMarkdown renders the package response as compressed markdown.
+func renderPackageMarkdown(r *output.PackageResponse) string {
+	var sb strings.Builder
+
+	// Header
+	sb.WriteString("# package ")
+	sb.WriteString(r.Package.ImportPath)
+	sb.WriteString("\n# dir ")
+	sb.WriteString(r.Package.Dir)
+	sb.WriteString("\n")
+
+	// Constants
+	if len(r.Constants) > 0 {
+		sb.WriteString("\n## Constants\n")
+		for _, c := range r.Constants {
+			writeSymbolMd(&sb, c.Signature, c.Location)
+		}
+	}
+
+	// Variables
+	if len(r.Variables) > 0 {
+		sb.WriteString("\n## Variables\n")
+		for _, v := range r.Variables {
+			writeSymbolMd(&sb, v.Signature, v.Location)
+		}
+	}
+
+	// Functions (standalone, not constructors)
+	if len(r.Functions) > 0 {
+		sb.WriteString("\n## Functions\n")
+		for _, f := range r.Functions {
+			writeSymbolMd(&sb, f.Signature, f.Location)
+		}
+	}
+
+	// Types
+	if len(r.Types) > 0 {
+		sb.WriteString("\n## Types\n")
+		for _, t := range r.Types {
+			sb.WriteString("\n")
+			// Build location with interface info
+			loc := t.Location
+			if len(t.Satisfies) > 0 {
+				loc += ", satisfies: " + strings.Join(t.Satisfies, ", ")
+			}
+			if len(t.ImplementedBy) > 0 {
+				loc += ", implemented by: " + strings.Join(t.ImplementedBy, ", ")
+			}
+			writeSymbolMd(&sb, t.Signature, loc)
+
+			// Constructor functions
+			for _, f := range t.Functions {
+				writeSymbolMd(&sb, f.Signature, f.Location)
+			}
+
+			// Methods
+			for _, m := range t.Methods {
+				writeSymbolMd(&sb, m.Signature, m.Location)
+			}
+		}
+	}
+
+	// Imports
+	if len(r.Imports) > 0 {
+		sb.WriteString("\n## Imports\n")
+		for _, imp := range r.Imports {
+			sb.WriteString(imp)
+			sb.WriteString("\n")
+		}
+	}
+
+	// Imported By
+	if len(r.ImportedBy) > 0 {
+		sb.WriteString("\n## Imported By\n")
+		for _, imp := range r.ImportedBy {
+			sb.WriteString(imp)
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
+// writeSymbolMd writes a symbol with its location as a trailing comment.
+func writeSymbolMd(sb *strings.Builder, signature, location string) {
+	// Handle multiline signatures
+	if strings.Contains(signature, "\n") {
+		sb.WriteString(signature)
+		sb.WriteString(" // ")
+		sb.WriteString(location)
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString(signature)
+		sb.WriteString(" // ")
+		sb.WriteString(location)
+		sb.WriteString("\n")
+	}
+}
+
+// qualifiedInterfaceName builds a package-qualified interface name from a URI.
+// e.g., "file:///home/.../go/src/fmt/print.go" + "Stringer" -> "fmt.Stringer"
+func qualifiedInterfaceName(uri, name string) string {
+	path := lsp.URIToPath(uri)
+	dir := filepath.Dir(path)
+	pkg := filepath.Base(dir)
+
+	// For stdlib, just use the package name
+	// For module packages, we could use the full import path but that's verbose
+	if pkg != "" && pkg != "." {
+		return pkg + "." + name
+	}
+	return name
+}
+
+// extractTypeNameAtLocation reads a file and extracts the type name at the given line.
+func extractTypeNameAtLocation(file string, line int) string {
+	f, err := os.Open(file)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	currentLine := 0
+	for scanner.Scan() {
+		if currentLine == line {
+			text := strings.TrimSpace(scanner.Text())
+			// Look for "type Name" pattern
+			if strings.HasPrefix(text, "type ") {
+				text = strings.TrimPrefix(text, "type ")
+				// Find end of name
+				for i, ch := range text {
+					if ch == ' ' || ch == '{' || ch == '[' {
+						return text[:i]
+					}
+				}
+				return text
+			}
+			// Could also be a method receiver line - extract type from that
+			if strings.HasPrefix(text, "func (") {
+				// func (r *Receiver) Method - extract Receiver
+				text = strings.TrimPrefix(text, "func (")
+				if idx := strings.Index(text, ")"); idx != -1 {
+					receiver := text[:idx]
+					receiver = strings.TrimSpace(receiver)
+					// Remove variable name if present: "r *Type" -> "*Type"
+					if spaceIdx := strings.LastIndex(receiver, " "); spaceIdx != -1 {
+						receiver = receiver[spaceIdx+1:]
+					}
+					receiver = strings.TrimPrefix(receiver, "*")
+					return receiver
+				}
+			}
+			break
+		}
+		currentLine++
+	}
+	return ""
+}
+

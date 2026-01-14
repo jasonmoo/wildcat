@@ -264,10 +264,12 @@ type PackageSymbol struct {
 
 // PackageType represents a type with its functions and methods.
 type PackageType struct {
-	Signature string          `json:"signature"`
-	Location  string          `json:"location"`
-	Functions []PackageSymbol `json:"functions,omitempty"`
-	Methods   []PackageSymbol `json:"methods,omitempty"`
+	Signature     string          `json:"signature"`
+	Location      string          `json:"location"`
+	Functions     []PackageSymbol `json:"functions,omitempty"`
+	Methods       []PackageSymbol `json:"methods,omitempty"`
+	Satisfies     []string        `json:"satisfies,omitempty"`      // interfaces this type implements
+	ImplementedBy []string        `json:"implemented_by,omitempty"` // types implementing this interface
 }
 
 // PackageSummary provides counts for the package command.
