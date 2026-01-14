@@ -14,7 +14,7 @@ import (
 )
 
 var refsCmd = &cobra.Command{
-	Use:   "refs <symbol>",
+	Use:   "refs <symbol>...",
 	Short: "Find all references to a symbol",
 	Long: `Find all references to a symbol (not just calls).
 
@@ -28,8 +28,9 @@ This includes:
 Examples:
   wildcat refs config.Load
   wildcat refs Config
-  wildcat refs MaxRetries`,
-	Args: cobra.ExactArgs(1),
+  wildcat refs MaxRetries
+  wildcat refs FileURI URIToPath    # multiple symbols`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runRefs,
 }
 
@@ -54,16 +55,9 @@ func init() {
 }
 
 func runRefs(cmd *cobra.Command, args []string) error {
-	symbolArg := args[0]
 	writer, err := GetWriter(os.Stdout)
 	if err != nil {
 		return fmt.Errorf("invalid output format: %w", err)
-	}
-
-	// Parse symbol
-	query, err := symbols.Parse(symbolArg)
-	if err != nil {
-		return writer.WriteError("parse_error", err.Error(), nil, nil)
 	}
 
 	// Get working directory
@@ -109,14 +103,50 @@ func runRefs(cmd *cobra.Command, args []string) error {
 
 	time.Sleep(200 * time.Millisecond)
 
+	// Process each symbol
+	var responses []output.RefsResponse
+	for _, symbolArg := range args {
+		response, err := getRefsForSymbol(ctx, client, symbolArg)
+		if err != nil {
+			// For multi-symbol queries, include error as a response
+			if len(args) > 1 {
+				responses = append(responses, output.RefsResponse{
+					Query: output.QueryInfo{
+						Command: "refs",
+						Target:  symbolArg,
+					},
+					Error: err.Error(),
+				})
+				continue
+			}
+			// Single symbol - return error directly
+			if we, ok := err.(*errors.WildcatError); ok {
+				return writer.WriteError(string(we.Code), we.Message, we.Suggestions, we.Context)
+			}
+			return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
+		}
+		responses = append(responses, *response)
+	}
+
+	// Single symbol: return object; multiple: return array
+	if len(args) == 1 {
+		return writer.Write(responses[0])
+	}
+	return writer.Write(responses)
+}
+
+func getRefsForSymbol(ctx context.Context, client *lsp.Client, symbolArg string) (*output.RefsResponse, error) {
+	// Parse symbol
+	query, err := symbols.Parse(symbolArg)
+	if err != nil {
+		return nil, fmt.Errorf("parse error: %w", err)
+	}
+
 	// Resolve symbol
 	resolver := symbols.NewResolver(client)
 	resolved, err := resolver.Resolve(ctx, query)
 	if err != nil {
-		if we, ok := err.(*errors.WildcatError); ok {
-			return writer.WriteError(string(we.Code), we.Message, we.Suggestions, we.Context)
-		}
-		return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
+		return nil, err
 	}
 
 	// Find similar symbols for navigation aid
@@ -125,12 +155,7 @@ func runRefs(cmd *cobra.Command, args []string) error {
 	// Get references
 	refs, err := client.References(ctx, resolved.URI, resolved.Position, refsIncludeDeclaration)
 	if err != nil {
-		return writer.WriteError(
-			string(errors.CodeLSPError),
-			fmt.Sprintf("Failed to get references: %v", err),
-			nil,
-			nil,
-		)
+		return nil, fmt.Errorf("failed to get references: %w", err)
 	}
 
 	// Build results
@@ -178,7 +203,7 @@ func runRefs(cmd *cobra.Command, args []string) error {
 		packages = append(packages, p)
 	}
 
-	response := output.RefsResponse{
+	return &output.RefsResponse{
 		Query: output.QueryInfo{
 			Command:  "refs",
 			Target:   query.Raw,
@@ -197,7 +222,5 @@ func runRefs(cmd *cobra.Command, args []string) error {
 			Truncated: refsLimit > 0 && len(refs) > refsLimit,
 		},
 		OtherFuzzyMatches: similarSymbols,
-	}
-
-	return writer.Write(response)
+	}, nil
 }

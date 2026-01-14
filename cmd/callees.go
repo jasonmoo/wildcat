@@ -15,7 +15,7 @@ import (
 )
 
 var calleesCmd = &cobra.Command{
-	Use:   "callees <symbol>",
+	Use:   "callees <symbol>...",
 	Short: "Find all functions called by a function or method",
 	Long: `Find all functions called by a function or method.
 
@@ -28,8 +28,9 @@ Symbol formats:
 
 Examples:
   wildcat callees main.main
-  wildcat callees Server.Start`,
-	Args: cobra.ExactArgs(1),
+  wildcat callees Server.Start
+  wildcat callees FileURI URIToPath    # multiple symbols`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runCallees,
 }
 
@@ -54,16 +55,9 @@ func init() {
 }
 
 func runCallees(cmd *cobra.Command, args []string) error {
-	symbolArg := args[0]
 	writer, err := GetWriter(os.Stdout)
 	if err != nil {
 		return fmt.Errorf("invalid output format: %w", err)
-	}
-
-	// Parse symbol
-	query, err := symbols.Parse(symbolArg)
-	if err != nil {
-		return writer.WriteError("parse_error", err.Error(), nil, nil)
 	}
 
 	// Get working directory
@@ -109,14 +103,50 @@ func runCallees(cmd *cobra.Command, args []string) error {
 
 	time.Sleep(200 * time.Millisecond)
 
+	// Process each symbol
+	var responses []output.CalleesResponse
+	for _, symbolArg := range args {
+		response, err := getCalleesForSymbol(ctx, client, symbolArg)
+		if err != nil {
+			// For multi-symbol queries, include error as a response
+			if len(args) > 1 {
+				responses = append(responses, output.CalleesResponse{
+					Query: output.QueryInfo{
+						Command: "callees",
+						Target:  symbolArg,
+					},
+					Error: err.Error(),
+				})
+				continue
+			}
+			// Single symbol - return error directly
+			if we, ok := err.(*errors.WildcatError); ok {
+				return writer.WriteError(string(we.Code), we.Message, we.Suggestions, we.Context)
+			}
+			return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
+		}
+		responses = append(responses, *response)
+	}
+
+	// Single symbol: return object; multiple: return array
+	if len(args) == 1 {
+		return writer.Write(responses[0])
+	}
+	return writer.Write(responses)
+}
+
+func getCalleesForSymbol(ctx context.Context, client *lsp.Client, symbolArg string) (*output.CalleesResponse, error) {
+	// Parse symbol
+	query, err := symbols.Parse(symbolArg)
+	if err != nil {
+		return nil, fmt.Errorf("parse error: %w", err)
+	}
+
 	// Resolve symbol
 	resolver := symbols.NewResolver(client)
 	resolved, err := resolver.Resolve(ctx, query)
 	if err != nil {
-		if we, ok := err.(*errors.WildcatError); ok {
-			return writer.WriteError(string(we.Code), we.Message, we.Suggestions, we.Context)
-		}
-		return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
+		return nil, err
 	}
 
 	// Find similar symbols for navigation aid
@@ -125,21 +155,11 @@ func runCallees(cmd *cobra.Command, args []string) error {
 	// Prepare call hierarchy
 	items, err := client.PrepareCallHierarchy(ctx, resolved.URI, resolved.Position)
 	if err != nil {
-		return writer.WriteError(
-			string(errors.CodeLSPError),
-			fmt.Sprintf("Failed to prepare call hierarchy: %v", err),
-			nil,
-			nil,
-		)
+		return nil, fmt.Errorf("failed to prepare call hierarchy: %w", err)
 	}
 
 	if len(items) == 0 {
-		return writer.WriteError(
-			string(errors.CodeSymbolNotFound),
-			fmt.Sprintf("No call hierarchy found for '%s'", query.Raw),
-			nil,
-			nil,
-		)
+		return nil, fmt.Errorf("no call hierarchy found for '%s'", query.Raw)
 	}
 
 	// Get callees
@@ -153,12 +173,7 @@ func runCallees(cmd *cobra.Command, args []string) error {
 
 	callees, err := traverser.GetCallees(ctx, items[0], opts)
 	if err != nil {
-		return writer.WriteError(
-			string(errors.CodeLSPError),
-			fmt.Sprintf("Failed to get callees: %v", err),
-			nil,
-			nil,
-		)
+		return nil, fmt.Errorf("failed to get callees: %w", err)
 	}
 
 	// Build results
@@ -204,7 +219,7 @@ func runCallees(cmd *cobra.Command, args []string) error {
 		packages = append(packages, p)
 	}
 
-	response := output.CalleesResponse{
+	return &output.CalleesResponse{
 		Query: output.QueryInfo{
 			Command:  "callees",
 			Target:   query.Raw,
@@ -223,7 +238,5 @@ func runCallees(cmd *cobra.Command, args []string) error {
 			Truncated: calleesLimit > 0 && len(callees) > calleesLimit,
 		},
 		OtherFuzzyMatches: similarSymbols,
-	}
-
-	return writer.Write(response)
+	}, nil
 }

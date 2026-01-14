@@ -41,29 +41,32 @@ type Summary struct {
 
 // CallersResponse is the output for the callers command.
 type CallersResponse struct {
-	Query          QueryInfo  `json:"query"`
-	Target         TargetInfo `json:"target"`
-	Results        []Result   `json:"results"`
-	Summary        Summary    `json:"summary"`
-	OtherFuzzyMatches []string `json:"other_fuzzy_matches,omitempty"`
+	Query             QueryInfo  `json:"query"`
+	Target            TargetInfo `json:"target,omitempty"`
+	Results           []Result   `json:"results,omitempty"`
+	Summary           Summary    `json:"summary,omitempty"`
+	OtherFuzzyMatches []string   `json:"other_fuzzy_matches,omitempty"`
+	Error             string     `json:"error,omitempty"` // populated on error in multi-symbol queries
 }
 
 // CalleesResponse is the output for the callees command.
 type CalleesResponse struct {
-	Query          QueryInfo  `json:"query"`
-	Target         TargetInfo `json:"target"`
-	Results        []Result   `json:"results"`
-	Summary        Summary    `json:"summary"`
-	OtherFuzzyMatches []string `json:"other_fuzzy_matches,omitempty"`
+	Query             QueryInfo  `json:"query"`
+	Target            TargetInfo `json:"target,omitempty"`
+	Results           []Result   `json:"results,omitempty"`
+	Summary           Summary    `json:"summary,omitempty"`
+	OtherFuzzyMatches []string   `json:"other_fuzzy_matches,omitempty"`
+	Error             string     `json:"error,omitempty"` // populated on error in multi-symbol queries
 }
 
 // RefsResponse is the output for the refs command.
 type RefsResponse struct {
-	Query          QueryInfo  `json:"query"`
-	Target         TargetInfo `json:"target"`
-	Results        []Result   `json:"results"`
-	Summary        Summary    `json:"summary"`
-	OtherFuzzyMatches []string `json:"other_fuzzy_matches,omitempty"`
+	Query             QueryInfo  `json:"query"`
+	Target            TargetInfo `json:"target,omitempty"`
+	Results           []Result   `json:"results,omitempty"`
+	Summary           Summary    `json:"summary,omitempty"`
+	OtherFuzzyMatches []string   `json:"other_fuzzy_matches,omitempty"`
+	Error             string     `json:"error,omitempty"` // populated on error in multi-symbol queries
 }
 
 // TreeNode represents a node in the call tree.
@@ -143,11 +146,12 @@ type ImpactSummary struct {
 
 // ImpactResponse is the output for the impact command.
 type ImpactResponse struct {
-	Query          QueryInfo     `json:"query"`
-	Target         TargetInfo    `json:"target"`
-	Impact         Impact        `json:"impact"`
-	Summary        ImpactSummary `json:"summary"`
-	OtherFuzzyMatches []string   `json:"other_fuzzy_matches,omitempty"`
+	Query             QueryInfo     `json:"query"`
+	Target            TargetInfo    `json:"target,omitempty"`
+	Impact            Impact        `json:"impact,omitempty"`
+	Summary           ImpactSummary `json:"summary,omitempty"`
+	OtherFuzzyMatches []string      `json:"other_fuzzy_matches,omitempty"`
+	Error             string        `json:"error,omitempty"` // populated on error in multi-symbol queries
 }
 
 // ImplementsResponse is the output for the implements command.

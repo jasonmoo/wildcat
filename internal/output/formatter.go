@@ -202,13 +202,9 @@ func (f *DotFormatter) Name() string        { return "dot" }
 func (f *DotFormatter) Description() string { return "Graphviz DOT format (for call trees)" }
 
 func (f *DotFormatter) Format(result any) ([]byte, error) {
-	// Convert to JSON and back to map for consistent access
+	// Convert to JSON and back for consistent access
 	jsonBytes, err := json.Marshal(result)
 	if err != nil {
-		return nil, err
-	}
-	var data map[string]any
-	if err := json.Unmarshal(jsonBytes, &data); err != nil {
 		return nil, err
 	}
 
@@ -216,6 +212,29 @@ func (f *DotFormatter) Format(result any) ([]byte, error) {
 	buf.WriteString("digraph callgraph {\n")
 	buf.WriteString("  rankdir=LR;\n")
 	buf.WriteString("  node [shape=box, fontname=\"Courier\"];\n")
+
+	// Check if it's an array (multi-symbol query)
+	var dataArray []map[string]any
+	if err := json.Unmarshal(jsonBytes, &dataArray); err == nil && len(dataArray) > 0 {
+		for _, data := range dataArray {
+			f.formatSingleDot(&buf, data)
+		}
+	} else {
+		// Single response
+		var data map[string]any
+		json.Unmarshal(jsonBytes, &data)
+		f.formatSingleDot(&buf, data)
+	}
+
+	buf.WriteString("}\n")
+	return buf.Bytes(), nil
+}
+
+func (f *DotFormatter) formatSingleDot(buf *bytes.Buffer, data map[string]any) {
+	// Skip error responses
+	if _, ok := data["error"].(string); ok {
+		return
+	}
 
 	// Extract edges from tree response
 	if edges, ok := data["edges"].([]any); ok {
@@ -258,9 +277,6 @@ func (f *DotFormatter) Format(result any) ([]byte, error) {
 			}
 		}
 	}
-
-	buf.WriteString("}\n")
-	return buf.Bytes(), nil
 }
 
 // MarkdownFormatter outputs Markdown tables and lists.
@@ -272,11 +288,39 @@ func (f *MarkdownFormatter) Description() string { return "Markdown tables and l
 func (f *MarkdownFormatter) Format(result any) ([]byte, error) {
 	var buf bytes.Buffer
 
-	data, ok := result.(map[string]any)
-	if !ok {
-		// Try JSON marshal and convert to map
-		jsonBytes, _ := json.Marshal(result)
-		json.Unmarshal(jsonBytes, &data)
+	// Try JSON marshal and convert to determine type
+	jsonBytes, _ := json.Marshal(result)
+
+	// Check if it's an array (multi-symbol query)
+	var dataArray []map[string]any
+	if err := json.Unmarshal(jsonBytes, &dataArray); err == nil && len(dataArray) > 0 {
+		// Format each response
+		for i, data := range dataArray {
+			if i > 0 {
+				buf.WriteString("\n---\n\n")
+			}
+			f.formatSingleResponse(&buf, data)
+		}
+		return buf.Bytes(), nil
+	}
+
+	// Single response
+	var data map[string]any
+	json.Unmarshal(jsonBytes, &data)
+	f.formatSingleResponse(&buf, data)
+
+	return buf.Bytes(), nil
+}
+
+func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[string]any) {
+	// Check for error response
+	if errMsg, ok := data["error"].(string); ok && errMsg != "" {
+		if query, ok := data["query"].(map[string]any); ok {
+			target, _ := query["target"].(string)
+			buf.WriteString(fmt.Sprintf("# Error: %s\n\n", target))
+		}
+		buf.WriteString(fmt.Sprintf("**Error:** %s\n\n", errMsg))
+		return
 	}
 
 	// Get query info for title
@@ -311,7 +355,7 @@ func (f *MarkdownFormatter) Format(result any) ([]byte, error) {
 	// Format tree if present
 	if tree, ok := data["tree"].(map[string]any); ok {
 		buf.WriteString("## Call Tree\n\n")
-		writeMarkdownTree(&buf, tree, 0)
+		writeMarkdownTree(buf, tree, 0)
 		buf.WriteString("\n")
 	}
 
@@ -322,8 +366,6 @@ func (f *MarkdownFormatter) Format(result any) ([]byte, error) {
 			buf.WriteString(fmt.Sprintf("- **%s**: %v\n", key, val))
 		}
 	}
-
-	return buf.Bytes(), nil
 }
 
 func writeMarkdownTree(buf *bytes.Buffer, node map[string]any, depth int) {
