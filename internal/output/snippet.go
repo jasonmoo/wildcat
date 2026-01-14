@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -57,38 +58,48 @@ func (e *SnippetExtractor) Extract(filePath string, line, contextLines int) (str
 // For Go files, it tries to find a meaningful enclosing AST node (function,
 // type declaration, loop, etc.) and returns the whole unit if it's small enough.
 // Falls back to line-based extraction for non-Go files or large units.
-// line is 1-indexed.
-func (e *SnippetExtractor) ExtractSmart(filePath string, line int) (string, error) {
+// line is 1-indexed. Returns snippet content and line range.
+func (e *SnippetExtractor) ExtractSmart(filePath string, line int) (string, int, int, error) {
 	// Only use AST for Go files
 	if !strings.HasSuffix(filePath, ".go") {
-		return e.Extract(filePath, line, SmartSnippetFallbackContext)
+		snippet, err := e.Extract(filePath, line, SmartSnippetFallbackContext)
+		start := max(1, line-SmartSnippetFallbackContext)
+		end := line + SmartSnippetFallbackContext
+		return snippet, start, end, err
 	}
 
 	// Try AST-based extraction
-	snippet, err := e.extractASTSnippet(filePath, line)
+	snippet, start, end, err := e.extractASTSnippet(filePath, line)
 	if err != nil {
 		// Fall back to line-based on any AST error
-		return e.Extract(filePath, line, SmartSnippetFallbackContext)
+		snippet, err := e.Extract(filePath, line, SmartSnippetFallbackContext)
+		start := max(1, line-SmartSnippetFallbackContext)
+		end := line + SmartSnippetFallbackContext
+		return snippet, start, end, err
 	}
 
-	return snippet, nil
+	return snippet, start, end, nil
 }
 
 // extractASTSnippet finds an enclosing AST node and extracts it if small enough.
 // When the enclosing scope is too large, it falls back to a window that stays
 // within the scope boundaries (never crossing into adjacent functions).
-func (e *SnippetExtractor) extractASTSnippet(filePath string, targetLine int) (string, error) {
+// Returns snippet content and line range.
+func (e *SnippetExtractor) extractASTSnippet(filePath string, targetLine int) (string, int, int, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
 	if err != nil {
-		return "", err
+		return "", 0, 0, err
 	}
 
 	// Find the enclosing node
 	startLine, endLine, isTopLevel := e.findEnclosingNode(fset, f, targetLine)
 	if startLine == 0 {
 		// No suitable node found, use fallback (no scope to bound)
-		return e.Extract(filePath, targetLine, SmartSnippetFallbackContext)
+		snippet, err := e.Extract(filePath, targetLine, SmartSnippetFallbackContext)
+		start := max(1, targetLine-SmartSnippetFallbackContext)
+		end := targetLine + SmartSnippetFallbackContext
+		return snippet, start, end, err
 	}
 
 	lineCount := endLine - startLine + 1
@@ -105,7 +116,8 @@ func (e *SnippetExtractor) extractASTSnippet(filePath string, targetLine int) (s
 	}
 
 	if showWhole {
-		return e.ExtractRange(filePath, startLine, endLine)
+		snippet, err := e.ExtractRange(filePath, startLine, endLine)
+		return snippet, startLine, endLine, err
 	}
 
 	// Fall back to scope-bounded window
@@ -126,7 +138,8 @@ func (e *SnippetExtractor) extractASTSnippet(filePath string, targetLine int) (s
 		windowStart = max(endLine-windowSize+1, startLine)
 	}
 
-	return e.ExtractRange(filePath, windowStart, windowEnd)
+	snippet, err := e.ExtractRange(filePath, windowStart, windowEnd)
+	return snippet, windowStart, windowEnd, err
 }
 
 // findEnclosingNode finds the best enclosing AST node for a target line.
@@ -300,4 +313,278 @@ func AbsolutePath(path string) string {
 		return path
 	}
 	return abs
+}
+
+// MergeOverlappingResults merges results that have overlapping or adjacent snippets.
+// Results in the same file within mergeDistance lines are combined into a single
+// result with a merged snippet covering all reference lines.
+func (e *SnippetExtractor) MergeOverlappingResults(results []Result) []Result {
+	if len(results) <= 1 {
+		return results
+	}
+
+	// Group by file
+	byFile := make(map[string][]Result)
+	for _, r := range results {
+		byFile[r.File] = append(byFile[r.File], r)
+	}
+
+	var merged []Result
+	for file, fileResults := range byFile {
+		if len(fileResults) == 1 {
+			merged = append(merged, fileResults[0])
+			continue
+		}
+
+		// Sort by line
+		sortResultsByLine(fileResults)
+
+		// Merge adjacent results
+		mergedFile := e.mergeAdjacentResults(file, fileResults)
+		merged = append(merged, mergedFile...)
+	}
+
+	// Sort final results by file then line for consistent output
+	sortResultsByFileLine(merged)
+	return merged
+}
+
+// mergeAdjacentResults merges results within the same top-level declaration.
+// Results in different declarations (functions, types, etc.) stay separate.
+func (e *SnippetExtractor) mergeAdjacentResults(file string, results []Result) []Result {
+	// For Go files, group by top-level declaration
+	if strings.HasSuffix(file, ".go") {
+		return e.mergeByDeclaration(file, results)
+	}
+
+	// For non-Go files, fall back to line proximity
+	return e.mergeByProximity(file, results)
+}
+
+// mergeByDeclaration groups results by their enclosing top-level declaration.
+func (e *SnippetExtractor) mergeByDeclaration(file string, results []Result) []Result {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, file, nil, parser.ParseComments)
+	if err != nil {
+		return e.mergeByProximity(file, results)
+	}
+
+	// Find top-level declaration ranges
+	type declRange struct {
+		start, end int
+	}
+	var decls []declRange
+
+	for _, decl := range f.Decls {
+		start := fset.Position(decl.Pos()).Line
+		end := fset.Position(decl.End()).Line
+		decls = append(decls, declRange{start, end})
+	}
+
+	// Group results by which declaration contains them
+	groups := make(map[int][]Result) // key is decl index
+	for _, r := range results {
+		declIdx := -1
+		for i, d := range decls {
+			if r.Line >= d.start && r.Line <= d.end {
+				declIdx = i
+				break
+			}
+		}
+		groups[declIdx] = append(groups[declIdx], r)
+	}
+
+	// Create merged result for each group
+	var merged []Result
+	for _, groupResults := range groups {
+		if len(groupResults) == 1 {
+			merged = append(merged, groupResults[0])
+		} else {
+			sortResultsByLine(groupResults)
+			lines := make([]int, len(groupResults))
+			for i, r := range groupResults {
+				lines[i] = r.Line
+			}
+			merged = append(merged, e.finalizeGroup(file, groupResults[0], lines))
+		}
+	}
+
+	return merged
+}
+
+// mergeByProximity merges results that are close enough to have overlapping snippets.
+func (e *SnippetExtractor) mergeByProximity(file string, results []Result) []Result {
+	mergeDistance := SmartSnippetMaxLines
+
+	var merged []Result
+	current := results[0]
+	currentLines := []int{current.Line}
+	currentMaxLine := current.Line
+
+	for i := 1; i < len(results); i++ {
+		r := results[i]
+
+		if r.Line-currentMaxLine <= mergeDistance {
+			currentLines = append(currentLines, r.Line)
+			if r.Line > currentMaxLine {
+				currentMaxLine = r.Line
+			}
+			if r.InTest {
+				current.InTest = true
+			}
+		} else {
+			merged = append(merged, e.finalizeGroup(file, current, currentLines))
+			current = r
+			currentLines = []int{r.Line}
+			currentMaxLine = r.Line
+		}
+	}
+
+	merged = append(merged, e.finalizeGroup(file, current, currentLines))
+	return merged
+}
+
+// finalizeGroup creates a merged result from a group of lines.
+func (e *SnippetExtractor) finalizeGroup(file string, base Result, lines []int) Result {
+	if len(lines) == 1 {
+		// Single result, no merge needed
+		return base
+	}
+
+	// Multiple lines - extract a snippet covering all of them
+	minLine := lines[0]
+	maxLine := lines[len(lines)-1]
+
+	// Extract smart snippet for the range
+	snippet, snippetStart, snippetEnd, err := e.extractMergedSnippet(file, minLine, maxLine)
+	if err != nil {
+		// Fallback to base snippet with estimated range
+		snippet = base.Snippet
+		snippetStart = minLine
+		snippetEnd = maxLine
+	}
+
+	return Result{
+		File:         file,
+		Lines:        lines, // Line is omitted when Lines is set
+		Snippet:      snippet,
+		SnippetStart: snippetStart,
+		SnippetEnd:   snippetEnd,
+		InTest:       base.InTest,
+	}
+}
+
+// extractMergedSnippet extracts a snippet covering multiple reference lines.
+// Returns the snippet content and its line range.
+func (e *SnippetExtractor) extractMergedSnippet(file string, minLine, maxLine int) (string, int, int, error) {
+	// For Go files, try to find enclosing AST nodes
+	if strings.HasSuffix(file, ".go") {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, file, nil, parser.ParseComments)
+		if err == nil {
+			// Find enclosing scopes for both min and max lines, then union them
+			startLine, endLine := e.findEnclosingUnion(fset, f, minLine, maxLine)
+			if startLine > 0 {
+				// Check if the combined scope is reasonable
+				if endLine-startLine+1 <= SmartSnippetMaxLines*3 {
+					snippet, err := e.ExtractRange(file, startLine, endLine)
+					return snippet, startLine, endLine, err
+				}
+				// Scope too large, extract just the lines we need plus context
+				extractStart := max(startLine, minLine-SmartSnippetFallbackContext)
+				extractEnd := min(endLine, maxLine+SmartSnippetFallbackContext)
+				snippet, err := e.ExtractRange(file, extractStart, extractEnd)
+				return snippet, extractStart, extractEnd, err
+			}
+		}
+	}
+
+	// Fallback: extract range with context
+	extractEnd := maxLine + SmartSnippetFallbackContext
+	snippet, err := e.ExtractRange(file, minLine, extractEnd)
+	return snippet, minLine, extractEnd, err
+}
+
+// findEnclosingUnion finds enclosing scopes for both lines and returns their union.
+// This handles the case where minLine and maxLine are in different scopes.
+func (e *SnippetExtractor) findEnclosingUnion(fset *token.FileSet, f *ast.File, minLine, maxLine int) (int, int) {
+	// First try to find a single node containing both
+	start, end := e.findEnclosingRange(fset, f, minLine, maxLine)
+	if start > 0 {
+		return start, end
+	}
+
+	// Find enclosing scope for each line separately and union them
+	minStart, minEnd, _ := e.findEnclosingNode(fset, f, minLine)
+	maxStart, maxEnd, _ := e.findEnclosingNode(fset, f, maxLine)
+
+	if minStart == 0 && maxStart == 0 {
+		return 0, 0 // No scopes found
+	}
+	if minStart == 0 {
+		return maxStart, maxEnd
+	}
+	if maxStart == 0 {
+		return minStart, minEnd
+	}
+
+	// Union the two ranges
+	return min(minStart, maxStart), max(minEnd, maxEnd)
+}
+
+// findEnclosingRange finds the smallest AST node containing both minLine and maxLine.
+func (e *SnippetExtractor) findEnclosingRange(fset *token.FileSet, f *ast.File, minLine, maxLine int) (int, int) {
+	var bestStart, bestEnd int
+	var bestSize int = 1<<31 - 1
+
+	ast.Inspect(f, func(n ast.Node) bool {
+		if n == nil {
+			return true
+		}
+
+		startPos := fset.Position(n.Pos())
+		endPos := fset.Position(n.End())
+
+		// Check if this node contains both lines
+		if startPos.Line > minLine || endPos.Line < maxLine {
+			return true
+		}
+
+		nodeSize := endPos.Line - startPos.Line + 1
+		isCandidate := false
+
+		switch n.(type) {
+		case *ast.FuncDecl, *ast.GenDecl:
+			isCandidate = true
+		case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt, *ast.IfStmt:
+			isCandidate = true
+		}
+
+		if isCandidate && nodeSize < bestSize {
+			bestStart = startPos.Line
+			bestEnd = endPos.Line
+			bestSize = nodeSize
+		}
+
+		return true
+	})
+
+	return bestStart, bestEnd
+}
+
+// sortResultsByLine sorts results by line number.
+func sortResultsByLine(results []Result) {
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Line < results[j].Line
+	})
+}
+
+// sortResultsByFileLine sorts results by file then line.
+func sortResultsByFileLine(results []Result) {
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].File != results[j].File {
+			return results[i].File < results[j].File
+		}
+		return results[i].Line < results[j].Line
+	})
 }

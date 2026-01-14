@@ -330,26 +330,112 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		buf.WriteString(fmt.Sprintf("# %s: %s\n\n", strings.Title(cmd), target))
 	}
 
-	// Format results as table
+	// Format results as table with snippets
 	if results, ok := data["results"].([]any); ok && len(results) > 0 {
-		buf.WriteString("| Symbol | File | Line |\n")
-		buf.WriteString("|--------|------|------|\n")
+		buf.WriteString("| Symbol | File | Line | Snippet |\n")
+		buf.WriteString("|--------|------|------|------|\n")
 
 		for _, r := range results {
 			if row, ok := r.(map[string]any); ok {
 				symbol, _ := row["symbol"].(string)
 				file, _ := row["file"].(string)
-				line, _ := row["line"].(float64)
+
+				// Handle both single line and merged lines array
+				lineStr := ""
+				if line, ok := row["line"].(float64); ok && line > 0 {
+					lineStr = fmt.Sprintf("%.0f", line)
+				} else if lines, ok := row["lines"].([]any); ok && len(lines) > 0 {
+					// Format merged lines as range or list
+					if len(lines) == 1 {
+						lineStr = fmt.Sprintf("%.0f", lines[0].(float64))
+					} else {
+						first := lines[0].(float64)
+						last := lines[len(lines)-1].(float64)
+						lineStr = fmt.Sprintf("%.0f-%.0f", first, last)
+					}
+				}
 
 				// Shorten file path
 				if len(file) > 40 {
 					file = "..." + file[len(file)-37:]
 				}
 
-				buf.WriteString(fmt.Sprintf("| %s | %s | %.0f |\n", symbol, file, line))
+				// Get snippet range for display
+				snippetRange := ""
+				if start, ok := row["snippet_start"].(float64); ok {
+					if end, ok := row["snippet_end"].(float64); ok {
+						snippetRange = fmt.Sprintf("L%.0f-%.0f", start, end)
+					}
+				}
+
+				buf.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", symbol, file, lineStr, snippetRange))
 			}
 		}
 		buf.WriteString("\n")
+
+		// Add detailed snippets section
+		hasSnippets := false
+		for _, r := range results {
+			if row, ok := r.(map[string]any); ok {
+				if snippet, ok := row["snippet"].(string); ok && snippet != "" {
+					hasSnippets = true
+					break
+				}
+			}
+		}
+
+		if hasSnippets {
+			buf.WriteString("## Snippets\n\n")
+			for i, r := range results {
+				if row, ok := r.(map[string]any); ok {
+					snippet, _ := row["snippet"].(string)
+					if snippet == "" {
+						continue
+					}
+
+					file, _ := row["file"].(string)
+					snippetStart, _ := row["snippet_start"].(float64)
+					snippetEnd, _ := row["snippet_end"].(float64)
+
+					// Create header with file and line range
+					header := filepath.Base(file)
+					if snippetStart > 0 {
+						header = fmt.Sprintf("%s:%.0f-%.0f", header, snippetStart, snippetEnd)
+					}
+
+					buf.WriteString(fmt.Sprintf("### %d. %s\n\n", i+1, header))
+					buf.WriteString("```go\n")
+					buf.WriteString(snippet)
+					if !strings.HasSuffix(snippet, "\n") {
+						buf.WriteString("\n")
+					}
+					buf.WriteString("```\n\n")
+				}
+			}
+		}
+	}
+
+	// Format implementations (for implements command)
+	if impls, ok := data["implementations"].([]any); ok && len(impls) > 0 {
+		f.formatResultsTable(buf, impls, "Implementations")
+	}
+
+	// Format interfaces (for satisfies command)
+	if ifaces, ok := data["interfaces"].([]any); ok && len(ifaces) > 0 {
+		f.formatResultsTable(buf, ifaces, "Interfaces")
+	}
+
+	// Format impact sections
+	if impact, ok := data["impact"].(map[string]any); ok {
+		if callers, ok := impact["callers"].([]any); ok && len(callers) > 0 {
+			f.formatResultsTable(buf, callers, "Callers")
+		}
+		if refs, ok := impact["references"].([]any); ok && len(refs) > 0 {
+			f.formatResultsTable(buf, refs, "References")
+		}
+		if impls, ok := impact["implementations"].([]any); ok && len(impls) > 0 {
+			f.formatResultsTable(buf, impls, "Implementations")
+		}
 	}
 
 	// Format tree if present
@@ -364,6 +450,90 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		buf.WriteString("## Summary\n\n")
 		for key, val := range summary {
 			buf.WriteString(fmt.Sprintf("- **%s**: %v\n", key, val))
+		}
+	}
+}
+
+// formatResultsTable formats a slice of results as a markdown table with snippets
+func (f *MarkdownFormatter) formatResultsTable(buf *bytes.Buffer, results []any, title string) {
+	buf.WriteString(fmt.Sprintf("## %s\n\n", title))
+	buf.WriteString("| Symbol | File | Line | Snippet |\n")
+	buf.WriteString("|--------|------|------|------|\n")
+
+	for _, r := range results {
+		if row, ok := r.(map[string]any); ok {
+			symbol, _ := row["symbol"].(string)
+			file, _ := row["file"].(string)
+
+			// Handle both single line and merged lines array
+			lineStr := ""
+			if line, ok := row["line"].(float64); ok && line > 0 {
+				lineStr = fmt.Sprintf("%.0f", line)
+			} else if lines, ok := row["lines"].([]any); ok && len(lines) > 0 {
+				if len(lines) == 1 {
+					lineStr = fmt.Sprintf("%.0f", lines[0].(float64))
+				} else {
+					first := lines[0].(float64)
+					last := lines[len(lines)-1].(float64)
+					lineStr = fmt.Sprintf("%.0f-%.0f", first, last)
+				}
+			}
+
+			// Shorten file path
+			if len(file) > 40 {
+				file = "..." + file[len(file)-37:]
+			}
+
+			// Get snippet range for display
+			snippetRange := ""
+			if start, ok := row["snippet_start"].(float64); ok {
+				if end, ok := row["snippet_end"].(float64); ok {
+					snippetRange = fmt.Sprintf("L%.0f-%.0f", start, end)
+				}
+			}
+
+			buf.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", symbol, file, lineStr, snippetRange))
+		}
+	}
+	buf.WriteString("\n")
+
+	// Add snippets section
+	hasSnippets := false
+	for _, r := range results {
+		if row, ok := r.(map[string]any); ok {
+			if snippet, ok := row["snippet"].(string); ok && snippet != "" {
+				hasSnippets = true
+				break
+			}
+		}
+	}
+
+	if hasSnippets {
+		buf.WriteString(fmt.Sprintf("### %s Snippets\n\n", title))
+		for i, r := range results {
+			if row, ok := r.(map[string]any); ok {
+				snippet, _ := row["snippet"].(string)
+				if snippet == "" {
+					continue
+				}
+
+				file, _ := row["file"].(string)
+				snippetStart, _ := row["snippet_start"].(float64)
+				snippetEnd, _ := row["snippet_end"].(float64)
+
+				header := filepath.Base(file)
+				if snippetStart > 0 {
+					header = fmt.Sprintf("%s:%.0f-%.0f", header, snippetStart, snippetEnd)
+				}
+
+				buf.WriteString(fmt.Sprintf("#### %d. %s\n\n", i+1, header))
+				buf.WriteString("```go\n")
+				buf.WriteString(snippet)
+				if !strings.HasSuffix(snippet, "\n") {
+					buf.WriteString("\n")
+				}
+				buf.WriteString("```\n\n")
+			}
 		}
 	}
 }

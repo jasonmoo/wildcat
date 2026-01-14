@@ -171,9 +171,11 @@ func getImplementsForSymbol(ctx context.Context, client *lsp.Client, symbolArg s
 
 		if !implementsCompact {
 			line := impl.Range.Start.Line + 1
-			snippet, err := extractor.ExtractSmart(file, line)
+			snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line)
 			if err == nil {
 				result.Snippet = snippet
+				result.SnippetStart = snippetStart
+				result.SnippetEnd = snippetEnd
 			}
 		}
 
@@ -182,6 +184,18 @@ func getImplementsForSymbol(ctx context.Context, client *lsp.Client, symbolArg s
 		}
 
 		results = append(results, result)
+	}
+
+	// Merge overlapping snippets
+	originalCount := len(results)
+	if !implementsCompact {
+		results = extractor.MergeOverlappingResults(results)
+		inTests = 0
+		for _, r := range results {
+			if r.InTest {
+				inTests++
+			}
+		}
 	}
 
 	return &output.ImplementsResponse{
@@ -198,7 +212,7 @@ func getImplementsForSymbol(ctx context.Context, client *lsp.Client, symbolArg s
 		},
 		Implementations: results,
 		Summary: output.Summary{
-			Count:   len(results),
+			Count:   originalCount,
 			InTests: inTests,
 		},
 	}, nil

@@ -184,9 +184,11 @@ func getRefsForSymbol(ctx context.Context, client *lsp.Client, symbolArg string)
 
 		if !refsCompact {
 			line := ref.Range.Start.Line + 1
-			snippet, err := extractor.ExtractSmart(file, line)
+			snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line)
 			if err == nil {
 				result.Snippet = snippet
+				result.SnippetStart = snippetStart
+				result.SnippetEnd = snippetEnd
 			}
 		}
 
@@ -203,6 +205,19 @@ func getRefsForSymbol(ctx context.Context, client *lsp.Client, symbolArg string)
 		packages = append(packages, p)
 	}
 
+	// Merge overlapping snippets
+	originalCount := len(results)
+	if !refsCompact {
+		results = extractor.MergeOverlappingResults(results)
+		// Recalculate inTests after merge
+		inTests = 0
+		for _, r := range results {
+			if r.InTest {
+				inTests++
+			}
+		}
+	}
+
 	return &output.RefsResponse{
 		Query: output.QueryInfo{
 			Command:  "refs",
@@ -216,7 +231,7 @@ func getRefsForSymbol(ctx context.Context, client *lsp.Client, symbolArg string)
 		},
 		Results: results,
 		Summary: output.Summary{
-			Count:     len(results),
+			Count:     originalCount,
 			Packages:  packages,
 			InTests:   inTests,
 			Truncated: refsLimit > 0 && len(refs) > refsLimit,

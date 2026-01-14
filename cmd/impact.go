@@ -184,8 +184,10 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 						Line:   caller.Line,
 						Reason: "calls this function",
 					}
-					if snippet, err := extractor.ExtractSmart(caller.File, caller.Line); err == nil {
+					if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(caller.File, caller.Line); err == nil {
 						cat.Snippet = snippet
+						cat.SnippetStart = snippetStart
+						cat.SnippetEnd = snippetEnd
 					}
 					impact.Callers = append(impact.Callers, cat)
 					if caller.InTest {
@@ -214,8 +216,10 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 				Line:   line,
 				Reason: "references this symbol",
 			}
-			if snippet, err := extractor.ExtractSmart(file, line); err == nil {
+			if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line); err == nil {
 				cat.Snippet = snippet
+				cat.SnippetStart = snippetStart
+				cat.SnippetEnd = snippetEnd
 			}
 			impact.References = append(impact.References, cat)
 			if isTest {
@@ -243,8 +247,10 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 					Line:   line,
 					Reason: "implements this interface",
 				}
-				if snippet, err := extractor.ExtractSmart(file, line); err == nil {
+				if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line); err == nil {
 					cat.Snippet = snippet
+					cat.SnippetStart = snippetStart
+					cat.SnippetEnd = snippetEnd
 				}
 				impact.Implementations = append(impact.Implementations, cat)
 				if isTest {

@@ -175,10 +175,11 @@ func getSatisfiesForSymbol(ctx context.Context, client *lsp.Client, symbolArg st
 
 		if !satisfiesCompact {
 			line := st.Range.Start.Line + 1
-			snippet, err := extractor.ExtractSmart(file, line)
+			snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line)
 			if err == nil {
-				// Extract just the interface name for cleaner output
-				_ = snippet // We have it if needed
+				result.Snippet = snippet
+				result.SnippetStart = snippetStart
+				result.SnippetEnd = snippetEnd
 			}
 		}
 

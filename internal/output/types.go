@@ -20,15 +20,18 @@ type TargetInfo struct {
 
 // Result represents a single result item (caller, callee, reference, etc.).
 type Result struct {
-	Symbol   string   `json:"symbol"`
-	Package  string   `json:"package,omitempty"`
-	File     string   `json:"file"`
-	Line     int      `json:"line"`
-	LineEnd  int      `json:"line_end,omitempty"`
-	Snippet  string   `json:"snippet,omitempty"`
-	CallExpr string   `json:"call_expr,omitempty"`
-	Args     []string `json:"args,omitempty"`
-	InTest   bool     `json:"in_test"`
+	Symbol       string   `json:"symbol,omitempty"`
+	Package      string   `json:"package,omitempty"`
+	File         string   `json:"file"`
+	Line         int      `json:"line,omitempty"`          // Reference line (omitted when Lines is set)
+	Lines        []int    `json:"lines,omitempty"`         // All reference lines when merged
+	LineEnd      int      `json:"line_end,omitempty"`
+	Snippet      string   `json:"snippet,omitempty"`
+	SnippetStart int      `json:"snippet_start,omitempty"` // First line of snippet
+	SnippetEnd   int      `json:"snippet_end,omitempty"`   // Last line of snippet
+	CallExpr     string   `json:"call_expr,omitempty"`
+	Args         []string `json:"args,omitempty"`
+	InTest       bool     `json:"in_test,omitempty"`
 }
 
 // Summary provides aggregate information about the results.
@@ -112,11 +115,13 @@ type TreeResponse struct {
 
 // ImpactCategory represents a category of impact.
 type ImpactCategory struct {
-	Symbol  string `json:"symbol"`
-	File    string `json:"file"`
-	Line    int    `json:"line"`
-	Reason  string `json:"reason,omitempty"`
-	Snippet string `json:"snippet,omitempty"`
+	Symbol       string `json:"symbol,omitempty"`
+	File         string `json:"file"`
+	Line         int    `json:"line"`
+	Reason       string `json:"reason,omitempty"`
+	Snippet      string `json:"snippet,omitempty"`
+	SnippetStart int    `json:"snippet_start,omitempty"`
+	SnippetEnd   int    `json:"snippet_end,omitempty"`
 }
 
 // ImpactDependent represents a dependent package.
@@ -174,10 +179,13 @@ type SatisfiesResponse struct {
 
 // InterfaceResult represents an interface that a type satisfies.
 type InterfaceResult struct {
-	Symbol  string   `json:"symbol"`
-	File    string   `json:"file"`
-	Line    int      `json:"line"`
-	Methods []string `json:"methods,omitempty"`
+	Symbol       string   `json:"symbol"`
+	File         string   `json:"file"`
+	Line         int      `json:"line"`
+	Methods      []string `json:"methods,omitempty"`
+	Snippet      string   `json:"snippet,omitempty"`
+	SnippetStart int      `json:"snippet_start,omitempty"`
+	SnippetEnd   int      `json:"snippet_end,omitempty"`
 }
 
 // DepsResponse is the output for the deps command.

@@ -206,9 +206,11 @@ func getCallersForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		// Extract snippet if not compact
 		if !callersCompact && len(caller.CallRanges) > 0 {
 			line := caller.CallRanges[0].Start.Line + 1
-			snippet, err := extractor.ExtractSmart(caller.File, line)
+			snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(caller.File, line)
 			if err == nil {
 				result.Snippet = snippet
+				result.SnippetStart = snippetStart
+				result.SnippetEnd = snippetEnd
 			}
 
 			// Extract call expression
@@ -239,6 +241,18 @@ func getCallersForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		packages = append(packages, p)
 	}
 
+	// Merge overlapping snippets
+	originalCount := len(results)
+	if !callersCompact {
+		results = extractor.MergeOverlappingResults(results)
+		inTests = 0
+		for _, r := range results {
+			if r.InTest {
+				inTests++
+			}
+		}
+	}
+
 	return &output.CallersResponse{
 		Query: output.QueryInfo{
 			Command:  "callers",
@@ -252,7 +266,7 @@ func getCallersForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		},
 		Results: results,
 		Summary: output.Summary{
-			Count:     len(results),
+			Count:     originalCount,
 			Packages:  packages,
 			InTests:   inTests,
 			Truncated: callersLimit > 0 && len(callers) > callersLimit,

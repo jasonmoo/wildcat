@@ -200,9 +200,11 @@ func getCalleesForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		if !calleesCompact && len(callee.CallRanges) > 0 {
 			// Extract snippet from the caller's file where the call happens
 			line := callee.CallRanges[0].Start.Line + 1
-			snippet, err := extractor.ExtractSmart(targetFile, line)
+			snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(targetFile, line)
 			if err == nil {
 				result.Snippet = snippet
+				result.SnippetStart = snippetStart
+				result.SnippetEnd = snippetEnd
 			}
 		}
 
@@ -219,6 +221,18 @@ func getCalleesForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		packages = append(packages, p)
 	}
 
+	// Merge overlapping snippets
+	originalCount := len(results)
+	if !calleesCompact {
+		results = extractor.MergeOverlappingResults(results)
+		inTests = 0
+		for _, r := range results {
+			if r.InTest {
+				inTests++
+			}
+		}
+	}
+
 	return &output.CalleesResponse{
 		Query: output.QueryInfo{
 			Command:  "callees",
@@ -232,7 +246,7 @@ func getCalleesForSymbol(ctx context.Context, client *lsp.Client, symbolArg stri
 		},
 		Results: results,
 		Summary: output.Summary{
-			Count:     len(results),
+			Count:     originalCount,
 			Packages:  packages,
 			InTests:   inTests,
 			Truncated: calleesLimit > 0 && len(callees) > calleesLimit,
