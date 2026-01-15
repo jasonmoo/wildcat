@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jasonmoo/wildcat/internal/errors"
@@ -28,21 +29,24 @@ Query Syntax:
   cfg            Abbreviation match - matches "Config"
 
 Examples:
-  wildcat symbols Resolve           # functions/types matching Resolve
-  wildcat symbols NewClient         # exact or fuzzy matches
-  wildcat symbols --limit 5 Config  # top 5 matches for Config`,
+  wildcat symbols Resolve                        # functions/types matching Resolve
+  wildcat symbols NewClient                      # exact or fuzzy matches
+  wildcat symbols --limit 5 Config               # top 5 matches for Config
+  wildcat symbols --package "internal/*" Config  # filter to internal packages`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSymbols,
 }
 
 var (
-	symbolsLimit int
+	symbolsLimit   int
+	symbolsPackage string
 )
 
 func init() {
 	rootCmd.AddCommand(symbolsCmd)
 
 	symbolsCmd.Flags().IntVar(&symbolsLimit, "limit", 20, "Maximum results (max 100)")
+	symbolsCmd.Flags().StringVar(&symbolsPackage, "package", "", "Filter by package pattern (glob: internal/*, github.com/user/*)")
 }
 
 func runSymbols(cmd *cobra.Command, args []string) error {
@@ -107,6 +111,11 @@ func runSymbols(cmd *cobra.Command, args []string) error {
 		)
 	}
 
+	// Apply package filter if specified
+	if symbolsPackage != "" {
+		symbols = filterSymbolsByPackage(symbols, symbolsPackage)
+	}
+
 	// Apply limit
 	limit := symbolsLimit
 	if limit <= 0 {
@@ -155,4 +164,36 @@ func runSymbols(cmd *cobra.Command, args []string) error {
 	}
 
 	return writer.Write(response)
+}
+
+// filterSymbolsByPackage filters symbols by package pattern.
+// Pattern supports glob-style matching:
+//   - "internal/*" matches packages starting with "internal/"
+//   - "github.com/user/*" matches packages starting with "github.com/user/"
+//   - "exact/path" matches only that exact package
+func filterSymbolsByPackage(symbols []lsp.SymbolInformation, pattern string) []lsp.SymbolInformation {
+	// Handle wildcard suffix patterns as prefix matching
+	prefix := ""
+	if strings.HasSuffix(pattern, "/*") {
+		prefix = strings.TrimSuffix(pattern, "*")
+	} else if strings.HasSuffix(pattern, "*") {
+		prefix = strings.TrimSuffix(pattern, "*")
+	}
+
+	filtered := make([]lsp.SymbolInformation, 0, len(symbols))
+	for _, sym := range symbols {
+		pkg := sym.ContainerName
+		if prefix != "" {
+			// Prefix matching for wildcard patterns
+			if strings.HasPrefix(pkg, prefix) {
+				filtered = append(filtered, sym)
+			}
+		} else {
+			// Exact match
+			if pkg == pattern {
+				filtered = append(filtered, sym)
+			}
+		}
+	}
+	return filtered
 }
