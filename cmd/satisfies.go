@@ -160,11 +160,20 @@ func getSatisfiesForSymbol(ctx context.Context, client *lsp.Client, symbolArg st
 	extractor := output.NewSnippetExtractor()
 	var results []output.InterfaceResult
 
+	// Get direct deps for filtering indirect dependencies
+	workDir, _ := os.Getwd()
+	directDeps := golang.DirectDeps(workDir)
+
 	for _, st := range supertypes {
 		file := lsp.URIToPath(st.URI)
 
 		// Filter stdlib if requested
 		if satisfiesExcludeStdlib && isStdlibPath(file) {
+			continue
+		}
+
+		// Filter indirect dependencies (only show stdlib + direct deps)
+		if !golang.IsDirectDep(file, directDeps) {
 			continue
 		}
 

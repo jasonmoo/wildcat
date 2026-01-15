@@ -411,6 +411,10 @@ func (c *packageCollector) ensureType(name string) {
 
 // enrichWithInterfaces queries LSP for interface relationships on each type.
 func (c *packageCollector) enrichWithInterfaces(ctx context.Context, client *lsp.Client) {
+	// Get direct deps for filtering indirect dependencies
+	workDir, _ := os.Getwd()
+	directDeps := golang.DirectDeps(workDir)
+
 	for typeName, info := range c.types {
 		if info.file == "" {
 			continue // Type not defined in this package
@@ -424,8 +428,14 @@ func (c *packageCollector) enrichWithInterfaces(ctx context.Context, client *lsp
 			impls, err := client.Implementation(ctx, uri, pos)
 			if err == nil {
 				for _, impl := range impls {
-					// Extract type name from the implementation location
 					implFile := lsp.URIToPath(impl.URI)
+
+					// Filter indirect dependencies
+					if !golang.IsDirectDep(implFile, directDeps) {
+						continue
+					}
+
+					// Extract type name from the implementation location
 					implName := extractTypeNameAtLocation(implFile, impl.Range.Start.Line)
 					if implName != "" {
 						info.implementedBy = append(info.implementedBy, implName)
@@ -440,6 +450,13 @@ func (c *packageCollector) enrichWithInterfaces(ctx context.Context, client *lsp
 				if err == nil {
 					seen := make(map[string]string) // key -> shortest name
 					for _, st := range supertypes {
+						stFile := lsp.URIToPath(st.URI)
+
+						// Filter indirect dependencies
+						if !golang.IsDirectDep(stFile, directDeps) {
+							continue
+						}
+
 						// Skip unexported interfaces (not useful to show)
 						// Exception: "error" is the builtin error interface
 						if len(st.Name) == 0 {

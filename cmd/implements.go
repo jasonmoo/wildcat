@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jasonmoo/wildcat/internal/errors"
+	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/lsp"
 	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/jasonmoo/wildcat/internal/symbols"
@@ -165,11 +166,20 @@ func getImplementsForSymbol(ctx context.Context, client *lsp.Client, symbolArg s
 	var results []output.Result
 	inTests := 0
 
+	// Get direct deps for filtering indirect dependencies
+	workDir, _ := os.Getwd()
+	directDeps := golang.DirectDeps(workDir)
+
 	for _, impl := range impls {
 		file := lsp.URIToPath(impl.URI)
 		isTest := output.IsTestFile(file)
 
 		if implementsExcludeTests && isTest {
+			continue
+		}
+
+		// Filter indirect dependencies (only show stdlib + direct deps + local)
+		if !golang.IsDirectDep(file, directDeps) {
 			continue
 		}
 
