@@ -354,6 +354,7 @@ func renderTypeSpec(fset *token.FileSet, tok token.Token, spec *ast.TypeSpec) st
 }
 
 // renderValueSpec renders a const or var specification.
+// For constants with multiline values, truncates to first line.
 func renderValueSpec(fset *token.FileSet, tok token.Token, spec *ast.ValueSpec) string {
 	spec.Doc = nil
 	spec.Comment = nil
@@ -368,7 +369,16 @@ func renderValueSpec(fset *token.FileSet, tok token.Token, spec *ast.ValueSpec) 
 	if err := cfg.Fprint(&buf, fset, decl); err != nil {
 		return ""
 	}
-	return buf.String()
+
+	result := buf.String()
+
+	// Truncate multiline constants (but not vars which may be struct literals)
+	if tok == token.CONST && strings.Contains(result, "\n") {
+		firstLine := strings.SplitN(result, "\n", 2)[0]
+		return firstLine + "..."
+	}
+
+	return result
 }
 
 func (c *packageCollector) ensureType(name string) {
@@ -649,8 +659,11 @@ func renderPackageMarkdown(r *output.PackageResponse) string {
 			}
 
 			// Methods
-			for _, m := range t.Methods {
-				writeSymbolMd(&sb, m.Signature, m.Location)
+			if len(t.Methods) > 0 {
+				sb.WriteString(fmt.Sprintf("# Methods (%d)\n", len(t.Methods)))
+				for _, m := range t.Methods {
+					writeSymbolMd(&sb, m.Signature, m.Location)
+				}
 			}
 		}
 	}
