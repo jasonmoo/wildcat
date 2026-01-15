@@ -382,7 +382,17 @@ func (t *Traverser) buildPathsDown(ctx context.Context, item lsp.CallHierarchyIt
 		if opts.ExcludeTests && output.IsTestFile(callFile) {
 			continue
 		}
-		if opts.ExcludeStdlib && t.isStdlib(call.To.URI) {
+		// Skip stdlib callees but still record the call site as a leaf
+		if t.isStdlib(call.To.URI) {
+			myCallSite := 0
+			if len(call.FromRanges) > 0 {
+				myCallSite = call.FromRanges[0].Start.Line + 1
+			}
+			name := baseName
+			if myCallSite > 0 {
+				name = fmt.Sprintf("%s:%d", baseName, myCallSite)
+			}
+			paths = append(paths, []string{name})
 			continue
 		}
 
