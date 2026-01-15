@@ -167,10 +167,11 @@ func runSymbols(cmd *cobra.Command, args []string) error {
 }
 
 // filterSymbolsByPackage filters symbols by package pattern.
-// Pattern supports glob-style matching:
+// Pattern supports:
 //   - "internal/*" matches packages starting with "internal/"
 //   - "github.com/user/*" matches packages starting with "github.com/user/"
-//   - "exact/path" matches only that exact package
+//   - "internal/lsp" matches packages ending with "/internal/lsp" (suffix match)
+//   - "lsp" matches packages ending with "/lsp" (suffix match for short names)
 func filterSymbolsByPackage(symbols []lsp.SymbolInformation, pattern string) []lsp.SymbolInformation {
 	// Handle wildcard suffix patterns as prefix matching
 	prefix := ""
@@ -189,8 +190,9 @@ func filterSymbolsByPackage(symbols []lsp.SymbolInformation, pattern string) []l
 				filtered = append(filtered, sym)
 			}
 		} else {
-			// Exact match
-			if pkg == pattern {
+			// Suffix matching: "internal/lsp" matches "github.com/.../internal/lsp"
+			// Also handles exact matches
+			if pkg == pattern || strings.HasSuffix(pkg, "/"+pattern) {
 				filtered = append(filtered, sym)
 			}
 		}

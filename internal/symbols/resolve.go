@@ -2,15 +2,17 @@ package symbols
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/errors"
+	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/lsp"
 )
 
 // ResolvedSymbol represents a successfully resolved symbol.
 type ResolvedSymbol struct {
-	Name     string       // Full symbol name
+	Name     string // Full symbol name
 	Kind     lsp.SymbolKind
 	URI      string       // File URI
 	Position lsp.Position // Position in file
@@ -19,20 +21,39 @@ type ResolvedSymbol struct {
 
 // Resolver resolves symbol queries using an LSP client.
 type Resolver struct {
-	client *lsp.Client
+	client  *lsp.Client
+	workDir string
 }
 
 // NewResolver creates a new symbol resolver.
-func NewResolver(client *lsp.Client) *Resolver {
-	return &Resolver{client: client}
+func NewDefaultResolver(client *lsp.Client) *Resolver {
+	workDir, _ := os.Getwd()
+	return &Resolver{client: client, workDir: workDir}
+}
+
+// NewResolver creates a new symbol resolver.
+func NewResolver(client *lsp.Client, workDir string) *Resolver {
+	return &Resolver{client: client, workDir: workDir}
 }
 
 // Resolve finds a symbol matching the query.
 // Returns an error with suggestions if not found or ambiguous.
 func (r *Resolver) Resolve(ctx context.Context, query *Query) (*ResolvedSymbol, error) {
+	// Determine search term and resolved package path
+	searchTerm := query.Raw
+	resolvedPkg := ""
+
+	// If package is path-qualified (contains "/"), resolve it and search by name only
+	// gopls doesn't understand path prefixes like "internal/lsp.Client"
+	if query.Package != "" && strings.Contains(query.Package, "/") {
+		if resolved, err := golang.ResolvePackagePath(query.Package, r.workDir); err == nil {
+			resolvedPkg = resolved
+			searchTerm = query.Name // Search "Client" not "internal/lsp.Client"
+		}
+	}
+
 	// Search for the symbol using workspace/symbol
-	// Pass the raw query - gopls handles qualified names like "Type.Method" natively
-	symbols, err := r.client.WorkspaceSymbol(ctx, query.Raw)
+	symbols, err := r.client.WorkspaceSymbol(ctx, searchTerm)
 	if err != nil {
 		return nil, errors.NewLSPError("workspace/symbol", err)
 	}
@@ -45,7 +66,7 @@ func (r *Resolver) Resolve(ctx context.Context, query *Query) (*ResolvedSymbol, 
 	// Filter by package/type if specified
 	var matches []lsp.SymbolInformation
 	for _, sym := range symbols {
-		if r.matchesQuery(sym, query) {
+		if r.matchesQuery(sym, query, resolvedPkg) {
 			matches = append(matches, sym)
 		}
 	}
@@ -78,14 +99,25 @@ func (r *Resolver) Resolve(ctx context.Context, query *Query) (*ResolvedSymbol, 
 
 // FindAll finds all symbols matching the query.
 func (r *Resolver) FindAll(ctx context.Context, query *Query) ([]ResolvedSymbol, error) {
-	symbols, err := r.client.WorkspaceSymbol(ctx, query.Raw)
+	// Determine search term and resolved package path
+	searchTerm := query.Raw
+	resolvedPkg := ""
+
+	if query.Package != "" && strings.Contains(query.Package, "/") {
+		if resolved, err := golang.ResolvePackagePath(query.Package, r.workDir); err == nil {
+			resolvedPkg = resolved
+			searchTerm = query.Name
+		}
+	}
+
+	symbols, err := r.client.WorkspaceSymbol(ctx, searchTerm)
 	if err != nil {
 		return nil, errors.NewLSPError("workspace/symbol", err)
 	}
 
 	var results []ResolvedSymbol
 	for _, sym := range symbols {
-		if r.matchesQuery(sym, query) {
+		if r.matchesQuery(sym, query, resolvedPkg) {
 			results = append(results, ResolvedSymbol{
 				Name:     r.formatSymbol(sym),
 				Kind:     sym.Kind,
@@ -100,7 +132,8 @@ func (r *Resolver) FindAll(ctx context.Context, query *Query) ([]ResolvedSymbol,
 }
 
 // matchesQuery checks if a symbol matches the query.
-func (r *Resolver) matchesQuery(sym lsp.SymbolInformation, query *Query) bool {
+// resolvedPkg is the fully resolved import path when query had a path-qualified package.
+func (r *Resolver) matchesQuery(sym lsp.SymbolInformation, query *Query, resolvedPkg string) bool {
 	// If sym.Name matches the full raw query, it's an exact match - no further filtering needed
 	// gopls handles qualified queries like "Type.Method" and "pkg.Function" natively
 	if sym.Name == query.Raw {
@@ -109,8 +142,13 @@ func (r *Resolver) matchesQuery(sym lsp.SymbolInformation, query *Query) bool {
 
 	// Fallback: check if just the name part matches (for unqualified queries)
 	if sym.Name == query.Name {
-		// Apply additional filters only for unqualified matches
-		if query.Package != "" {
+		// If we have a resolved package path, require exact match
+		if resolvedPkg != "" {
+			if sym.ContainerName != resolvedPkg {
+				return false
+			}
+		} else if query.Package != "" {
+			// Original behavior for non-path-qualified packages
 			if !strings.Contains(strings.ToLower(sym.ContainerName), strings.ToLower(query.Package)) {
 				if !strings.Contains(strings.ToLower(sym.Location.URI), strings.ToLower(query.Package)) {
 					return false

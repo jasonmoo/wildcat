@@ -65,6 +65,15 @@ func runDeps(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
+	// Resolve package path (handles bare paths like "internal/lsp")
+	if pkgPath != "." {
+		resolved, err := golang.ResolvePackagePath(pkgPath, workDir)
+		if err != nil {
+			return writer.WriteError("package_not_found", err.Error(), nil, nil)
+		}
+		pkgPath = resolved
+	}
+
 	// Get target package info
 	goCmd := exec.Command("go", "list", "-json", pkgPath)
 	goCmd.Dir = workDir

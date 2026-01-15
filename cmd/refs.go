@@ -143,7 +143,7 @@ func getRefsForSymbol(ctx context.Context, client *lsp.Client, symbolArg string)
 	}
 
 	// Resolve symbol
-	resolver := symbols.NewResolver(client)
+	resolver := symbols.NewDefaultResolver(client)
 	resolved, err := resolver.Resolve(ctx, query)
 	if err != nil {
 		return nil, err

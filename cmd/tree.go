@@ -113,7 +113,7 @@ func runTree(cmd *cobra.Command, args []string) error {
 	time.Sleep(200 * time.Millisecond)
 
 	// Resolve symbol
-	resolver := symbols.NewResolver(client)
+	resolver := symbols.NewDefaultResolver(client)
 	resolved, err := resolver.Resolve(ctx, query)
 	if err != nil {
 		if we, ok := err.(*errors.WildcatError); ok {

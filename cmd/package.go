@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/lsp"
 	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/spf13/cobra"
@@ -60,6 +61,15 @@ func runPackage(cmd *cobra.Command, args []string) error {
 	workDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	// Resolve package path (handles bare paths like "internal/lsp")
+	if pkgPath != "." {
+		resolved, err := golang.ResolvePackagePath(pkgPath, workDir)
+		if err != nil {
+			return writer.WriteError("package_not_found", err.Error(), nil, nil)
+		}
+		pkgPath = resolved
 	}
 
 	// Get package info via go list
