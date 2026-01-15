@@ -97,8 +97,14 @@ func runSymbols(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Shutdown(ctx)
 
-	// Give LSP server time to index
-	time.Sleep(200 * time.Millisecond)
+	if err := client.WaitForReady(ctx); err != nil {
+		return writer.WriteError(
+			string(errors.CodeLSPError),
+			fmt.Sprintf("LSP server not ready: %v", err),
+			nil,
+			nil,
+		)
+	}
 
 	// Query workspace symbols via gopls fuzzy matching
 	symbols, err := client.WorkspaceSymbol(ctx, query)

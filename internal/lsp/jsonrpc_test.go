@@ -112,26 +112,21 @@ func TestConn_SendReceive(t *testing.T) {
 	conn.Close()
 }
 
-func TestConn_ReadResponse(t *testing.T) {
+func TestConn_ReadMessageBody(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		wantID  int64
-		wantErr bool
+		name     string
+		input    string
+		wantBody string
+		wantErr  bool
 	}{
 		{
-			name:   "valid response",
-			input:  "Content-Length: 38\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}",
-			wantID: 1,
+			name:     "valid message",
+			input:    "Content-Length: 38\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}",
+			wantBody: `{"jsonrpc":"2.0","id":1,"result":null}`,
 		},
 		{
 			name:    "missing content length",
 			input:   "\r\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}",
-			wantErr: true,
-		},
-		{
-			name:    "invalid json",
-			input:   "Content-Length: 10\r\n\r\n{invalid}",
 			wantErr: true,
 		},
 	}
@@ -141,7 +136,7 @@ func TestConn_ReadResponse(t *testing.T) {
 			reader := strings.NewReader(tt.input)
 			conn := NewConn(reader, &bytes.Buffer{})
 
-			resp, err := conn.readResponse()
+			body, err := conn.readMessageBody()
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -153,8 +148,8 @@ func TestConn_ReadResponse(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if resp.ID != tt.wantID {
-				t.Errorf("got ID %d, want %d", resp.ID, tt.wantID)
+			if string(body) != tt.wantBody {
+				t.Errorf("got body %q, want %q", string(body), tt.wantBody)
 			}
 		})
 	}

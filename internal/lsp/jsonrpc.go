@@ -27,6 +27,16 @@ type Response struct {
 	Error   *ResponseError  `json:"error,omitempty"`
 }
 
+// Notification represents a JSON-RPC 2.0 notification from the server.
+type Notification struct {
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+// NotificationHandler is called when a notification is received from the server.
+type NotificationHandler func(method string, params json.RawMessage)
+
 // ResponseError represents a JSON-RPC 2.0 error.
 type ResponseError struct {
 	Code    int    `json:"code"`
@@ -49,6 +59,10 @@ type Conn struct {
 	pending   map[int64]chan *Response
 	pendingMu sync.Mutex
 
+	// notifyHandler handles incoming notifications from the server
+	notifyHandler NotificationHandler
+	notifyMu      sync.RWMutex
+
 	closed atomic.Bool
 }
 
@@ -60,6 +74,13 @@ func NewConn(r io.Reader, w io.Writer) *Conn {
 		pending: make(map[int64]chan *Response),
 	}
 	return c
+}
+
+// SetNotificationHandler sets the handler for incoming server notifications.
+func (c *Conn) SetNotificationHandler(handler NotificationHandler) {
+	c.notifyMu.Lock()
+	c.notifyHandler = handler
+	c.notifyMu.Unlock()
 }
 
 // Call sends a request and waits for the response.
@@ -113,6 +134,24 @@ func (c *Conn) Call(method string, params any, result any) error {
 	return nil
 }
 
+// sendResponse sends a response to a server-initiated request.
+func (c *Conn) sendResponse(id int64, result any, err *ResponseError) error {
+	resp := Response{
+		JSONRPC: "2.0",
+		ID:      id,
+	}
+	if err != nil {
+		resp.Error = err
+	} else if result != nil {
+		data, e := json.Marshal(result)
+		if e != nil {
+			return fmt.Errorf("marshaling result: %w", e)
+		}
+		resp.Result = data
+	}
+	return c.send(resp)
+}
+
 // Notify sends a notification (no response expected).
 func (c *Conn) Notify(method string, params any) error {
 	if c.closed.Load() {
@@ -128,7 +167,7 @@ func (c *Conn) Notify(method string, params any) error {
 	return c.send(req)
 }
 
-// ReadLoop reads responses and dispatches them to waiting callers.
+// ReadLoop reads messages and dispatches them to waiting callers or notification handlers.
 // This should be called in a goroutine.
 func (c *Conn) ReadLoop() error {
 	for {
@@ -136,12 +175,64 @@ func (c *Conn) ReadLoop() error {
 			return nil
 		}
 
-		resp, err := c.readResponse()
+		body, err := c.readMessageBody()
 		if err != nil {
 			if c.closed.Load() {
 				return nil
 			}
-			return fmt.Errorf("reading response: %w", err)
+			return fmt.Errorf("reading message: %w", err)
+		}
+
+		// Peek at the message to determine type
+		var peek struct {
+			ID     *int64 `json:"id"`
+			Method string `json:"method"`
+		}
+		if err := json.Unmarshal(body, &peek); err != nil {
+			continue // Skip malformed messages
+		}
+
+		// Server-to-client request (has method AND id)
+		if peek.Method != "" && peek.ID != nil {
+			// Respond to server requests we care about
+			if peek.Method == "window/workDoneProgress/create" {
+				// Acknowledge progress token creation
+				c.sendResponse(*peek.ID, nil, nil)
+			}
+			// Dispatch to notification handler too (for logging/tracking)
+			c.notifyMu.RLock()
+			handler := c.notifyHandler
+			c.notifyMu.RUnlock()
+			if handler != nil {
+				var req Request
+				if err := json.Unmarshal(body, &req); err == nil {
+					if params, err := json.Marshal(req.Params); err == nil {
+						handler(peek.Method, params)
+					}
+				}
+			}
+			continue
+		}
+
+		// Notification from server (has method, no id)
+		if peek.Method != "" && peek.ID == nil {
+			var notif Notification
+			if err := json.Unmarshal(body, &notif); err != nil {
+				continue
+			}
+			c.notifyMu.RLock()
+			handler := c.notifyHandler
+			c.notifyMu.RUnlock()
+			if handler != nil {
+				handler(notif.Method, notif.Params)
+			}
+			continue
+		}
+
+		// Response to our request (has id, no method)
+		var resp Response
+		if err := json.Unmarshal(body, &resp); err != nil {
+			continue
 		}
 
 		// Dispatch to waiting caller
@@ -150,9 +241,8 @@ func (c *Conn) ReadLoop() error {
 		c.pendingMu.Unlock()
 
 		if ok {
-			ch <- resp
+			ch <- &resp
 		}
-		// Ignore responses for unknown IDs (could be notifications we don't handle)
 	}
 }
 
@@ -190,8 +280,8 @@ func (c *Conn) send(msg any) error {
 	return nil
 }
 
-// readResponse reads a single LSP response.
-func (c *Conn) readResponse() (*Response, error) {
+// readMessageBody reads a single LSP message and returns the raw body.
+func (c *Conn) readMessageBody() ([]byte, error) {
 	// Read headers
 	var contentLength int
 	for {
@@ -224,10 +314,5 @@ func (c *Conn) readResponse() (*Response, error) {
 		return nil, fmt.Errorf("reading body: %w", err)
 	}
 
-	var resp Response
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("unmarshaling response: %w", err)
-	}
-
-	return &resp, nil
+	return body, nil
 }

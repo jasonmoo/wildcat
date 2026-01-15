@@ -206,6 +206,7 @@ type InitializeParams struct {
 type Capabilities struct {
 	TextDocument TextDocumentClientCapabilities `json:"textDocument,omitempty"`
 	Workspace    WorkspaceClientCapabilities    `json:"workspace,omitempty"`
+	Window       WindowClientCapabilities       `json:"window,omitempty"`
 }
 
 // TextDocumentClientCapabilities defines capabilities for text document features.
@@ -285,4 +286,38 @@ type DocumentSymbol struct {
 // DocumentSymbolParams is the parameter for textDocument/documentSymbol.
 type DocumentSymbolParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+// ProgressParams is the parameter for $/progress notifications.
+type ProgressParams struct {
+	Token string `json:"token"`
+	Value any    `json:"value"`
+}
+
+// WorkDoneProgressBegin signals the start of a long-running operation.
+type WorkDoneProgressBegin struct {
+	Kind        string `json:"kind"` // Always "begin"
+	Title       string `json:"title"`
+	Cancellable bool   `json:"cancellable,omitempty"`
+	Message     string `json:"message,omitempty"`
+	Percentage  int    `json:"percentage,omitempty"`
+}
+
+// WorkDoneProgressReport signals progress during a long-running operation.
+type WorkDoneProgressReport struct {
+	Kind        string `json:"kind"` // Always "report"
+	Cancellable bool   `json:"cancellable,omitempty"`
+	Message     string `json:"message,omitempty"`
+	Percentage  int    `json:"percentage,omitempty"`
+}
+
+// WorkDoneProgressEnd signals the end of a long-running operation.
+type WorkDoneProgressEnd struct {
+	Kind    string `json:"kind"` // Always "end"
+	Message string `json:"message,omitempty"`
+}
+
+// WindowClientCapabilities defines capabilities for window features.
+type WindowClientCapabilities struct {
+	WorkDoneProgress bool `json:"workDoneProgress,omitempty"`
 }

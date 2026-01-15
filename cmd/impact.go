@@ -90,7 +90,14 @@ func runImpact(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Shutdown(ctx)
 
-	time.Sleep(200 * time.Millisecond)
+	if err := client.WaitForReady(ctx); err != nil {
+		return writer.WriteError(
+			string(errors.CodeLSPError),
+			fmt.Sprintf("LSP server not ready: %v", err),
+			nil,
+			nil,
+		)
+	}
 
 	// Process each symbol
 	var responses []output.ImpactResponse

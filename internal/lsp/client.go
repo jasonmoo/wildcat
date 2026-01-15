@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,13 @@ type Client struct {
 	server      *Server
 	rootURI     string
 	initialized bool
+
+	// Progress tracking for LSP server readiness
+	activeProgress map[string]bool // tokens with "begin" but not yet "end"
+	serverReady    chan struct{}
+
+	// DebugLog, if set, receives debug messages about LSP notifications
+	DebugLog func(format string, args ...any)
 }
 
 // NewClient creates a new LSP client with the given server configuration.
@@ -23,10 +31,17 @@ func NewClient(ctx context.Context, config ServerConfig) (*Client, error) {
 
 	rootURI := "file://" + config.WorkDir
 
-	return &Client{
-		server:  server,
-		rootURI: rootURI,
-	}, nil
+	c := &Client{
+		server:         server,
+		rootURI:        rootURI,
+		activeProgress: make(map[string]bool),
+		serverReady:    make(chan struct{}),
+	}
+
+	// Set up notification handler for progress tracking
+	server.Conn().SetNotificationHandler(c.handleNotification)
+
+	return c, nil
 }
 
 // Initialize performs the LSP initialize handshake.
@@ -55,6 +70,9 @@ func (c *Client) Initialize(ctx context.Context) error {
 					DynamicRegistration: false,
 				},
 			},
+			Window: WindowClientCapabilities{
+				WorkDoneProgress: true,
+			},
 		},
 	}
 
@@ -70,6 +88,59 @@ func (c *Client) Initialize(ctx context.Context) error {
 
 	c.initialized = true
 	return nil
+}
+
+// handleNotification processes incoming notifications from the LSP server.
+func (c *Client) handleNotification(method string, params json.RawMessage) {
+	if c.DebugLog != nil {
+		c.DebugLog("[LSP NOTIFY] method=%s params=%s", method, string(params))
+	}
+
+	if method != "$/progress" {
+		return
+	}
+
+	var progress ProgressParams
+	if err := json.Unmarshal(params, &progress); err != nil {
+		return
+	}
+
+	// Parse the value to determine the kind
+	var kindPeek struct {
+		Kind string `json:"kind"`
+	}
+	valueBytes, err := json.Marshal(progress.Value)
+	if err != nil {
+		return
+	}
+	if err := json.Unmarshal(valueBytes, &kindPeek); err != nil {
+		return
+	}
+
+	switch kindPeek.Kind {
+	case "begin":
+		c.activeProgress[progress.Token] = true
+	case "end":
+		delete(c.activeProgress, progress.Token)
+	}
+
+	if len(c.activeProgress) == 0 {
+		select {
+		case <-c.serverReady:
+		default:
+			close(c.serverReady)
+		}
+	}
+}
+
+// WaitForReady blocks until the LSP server has finished initial indexing.
+func (c *Client) WaitForReady(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.serverReady:
+		return nil
+	}
 }
 
 // Shutdown gracefully shuts down the LSP server.
