@@ -335,6 +335,24 @@ func renderTypeSpec(tok token.Token, spec *ast.TypeSpec) string {
 	spec.Doc = nil
 	spec.Comment = nil
 
+	// Strip comments from struct fields and interface methods
+	switch t := spec.Type.(type) {
+	case *ast.StructType:
+		if t.Fields != nil {
+			for _, field := range t.Fields.List {
+				field.Doc = nil
+				field.Comment = nil
+			}
+		}
+	case *ast.InterfaceType:
+		if t.Methods != nil {
+			for _, method := range t.Methods.List {
+				method.Doc = nil
+				method.Comment = nil
+			}
+		}
+	}
+
 	decl := &ast.GenDecl{
 		Tok:   tok,
 		Specs: []ast.Spec{spec},
