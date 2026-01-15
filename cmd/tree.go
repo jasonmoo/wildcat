@@ -161,8 +161,5 @@ func runTree(cmd *cobra.Command, args []string) error {
 		)
 	}
 
-	// Update query info
-	tree.Query.Root = resolved.Name
-
 	return writer.Write(tree)
 }

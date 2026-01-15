@@ -588,3 +588,4 @@ func sortResultsByFileLine(results []Result) {
 		return results[i].Line < results[j].Line
 	})
 }
+

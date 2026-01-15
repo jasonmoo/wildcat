@@ -72,27 +72,9 @@ type RefsResponse struct {
 	Error             string     `json:"error,omitempty"` // populated on error in multi-symbol queries
 }
 
-// TreeNode represents a node in the call tree.
-type TreeNode struct {
-	File      string   `json:"file"`
-	Line      int      `json:"line"`
-	Signature string   `json:"signature,omitempty"`
-	Calls     []string `json:"calls,omitempty"`
-	CalledBy  []string `json:"called_by,omitempty"`
-}
-
-// TreeEdge represents an edge in the call tree.
-type TreeEdge struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	File string `json:"file"`
-	Line int    `json:"line"`
-}
-
 // TreeSummary provides aggregate information about the tree.
 type TreeSummary struct {
-	NodeCount       int  `json:"node_count"`
-	EdgeCount       int  `json:"edge_count"`
+	PathCount       int  `json:"path_count"`
 	MaxDepthReached int  `json:"max_depth_reached"`
 	Truncated       bool `json:"truncated"`
 }
@@ -100,17 +82,23 @@ type TreeSummary struct {
 // TreeQuery describes the tree query parameters.
 type TreeQuery struct {
 	Command   string `json:"command"`
-	Root      string `json:"root"`
+	Target    string `json:"target"`
 	Depth     int    `json:"depth"`
 	Direction string `json:"direction"`
 }
 
+// TreeFunction contains information about a function in the call tree.
+type TreeFunction struct {
+	Signature string `json:"signature"`
+	Location  string `json:"location"` // file:start:end
+}
+
 // TreeResponse is the output for the tree command.
 type TreeResponse struct {
-	Query   TreeQuery           `json:"query"`
-	Nodes   map[string]TreeNode `json:"nodes"`
-	Edges   []TreeEdge          `json:"edges"`
-	Summary TreeSummary         `json:"summary"`
+	Query     TreeQuery               `json:"query"`
+	Paths     [][]string              `json:"paths"`
+	Functions map[string]TreeFunction `json:"functions"`
+	Summary   TreeSummary             `json:"summary"`
 }
 
 // ImpactCategory represents a category of impact.

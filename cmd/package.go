@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
-	"go/printer"
 	"go/token"
 	"os"
 	"os/exec"
@@ -288,7 +288,7 @@ func (c *packageCollector) extractFromAST(pf *parsedFile, sym lsp.DocumentSymbol
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			if declLine == targetLine || pf.fset.Position(d.Name.Pos()).Line == targetLine {
-				return renderFuncDecl(pf.fset, d)
+				return renderFuncDecl(d)
 			}
 
 		case *ast.GenDecl:
@@ -299,13 +299,13 @@ func (c *packageCollector) extractFromAST(pf *parsedFile, sym lsp.DocumentSymbol
 				switch s := spec.(type) {
 				case *ast.TypeSpec:
 					if specLine == targetLine && s.Name.Name == sym.Name {
-						return renderTypeSpec(pf.fset, d.Tok, s)
+						return renderTypeSpec(d.Tok, s)
 					}
 				case *ast.ValueSpec:
 					if specLine == targetLine {
 						for _, name := range s.Names {
 							if name.Name == sym.Name {
-								return renderValueSpec(pf.fset, d.Tok, s)
+								return renderValueSpec(d.Tok, s)
 							}
 						}
 					}
@@ -318,36 +318,30 @@ func (c *packageCollector) extractFromAST(pf *parsedFile, sym lsp.DocumentSymbol
 }
 
 // renderFuncDecl renders a function declaration without its body.
-func renderFuncDecl(fset *token.FileSet, decl *ast.FuncDecl) string {
-	// Clone and strip body
+func renderFuncDecl(decl *ast.FuncDecl) string {
 	cleaned := *decl
 	cleaned.Doc = nil
 	cleaned.Body = nil
 
 	var buf bytes.Buffer
-	cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}
-	if err := cfg.Fprint(&buf, fset, &cleaned); err != nil {
+	if err := format.Node(&buf, token.NewFileSet(), &cleaned); err != nil {
 		return ""
 	}
 	return buf.String()
 }
 
 // renderTypeSpec renders a type specification.
-func renderTypeSpec(fset *token.FileSet, tok token.Token, spec *ast.TypeSpec) string {
-	// Strip comments and tags
+func renderTypeSpec(tok token.Token, spec *ast.TypeSpec) string {
 	spec.Doc = nil
 	spec.Comment = nil
-	stripTypeComments(spec.Type)
 
-	// Create a GenDecl wrapper
 	decl := &ast.GenDecl{
 		Tok:   tok,
 		Specs: []ast.Spec{spec},
 	}
 
 	var buf bytes.Buffer
-	cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}
-	if err := cfg.Fprint(&buf, fset, decl); err != nil {
+	if err := format.Node(&buf, token.NewFileSet(), decl); err != nil {
 		return ""
 	}
 	return buf.String()
@@ -355,7 +349,7 @@ func renderTypeSpec(fset *token.FileSet, tok token.Token, spec *ast.TypeSpec) st
 
 // renderValueSpec renders a const or var specification.
 // For constants with multiline values, truncates to first line.
-func renderValueSpec(fset *token.FileSet, tok token.Token, spec *ast.ValueSpec) string {
+func renderValueSpec(tok token.Token, spec *ast.ValueSpec) string {
 	spec.Doc = nil
 	spec.Comment = nil
 
@@ -365,8 +359,7 @@ func renderValueSpec(fset *token.FileSet, tok token.Token, spec *ast.ValueSpec) 
 	}
 
 	var buf bytes.Buffer
-	cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}
-	if err := cfg.Fprint(&buf, fset, decl); err != nil {
+	if err := format.Node(&buf, token.NewFileSet(), decl); err != nil {
 		return ""
 	}
 
@@ -496,39 +489,6 @@ func (c *packageCollector) build(importPath, name, dir string) *output.PackageRe
 			Types:     len(types),
 			Methods:   methodCount,
 		},
-	}
-}
-
-// stripTypeComments removes comments, tags, and normalizes positions to remove blank lines.
-func stripTypeComments(expr ast.Expr) {
-	switch t := expr.(type) {
-	case *ast.StructType:
-		if t.Fields != nil {
-			// Normalize positions so printer doesn't insert blank lines
-			pos := t.Fields.Opening + 1
-			for _, field := range t.Fields.List {
-				field.Tag = nil
-				field.Doc = nil
-				field.Comment = nil
-				// Set consecutive positions
-				for _, name := range field.Names {
-					name.NamePos = pos
-				}
-				pos++
-			}
-		}
-	case *ast.InterfaceType:
-		if t.Methods != nil {
-			pos := t.Methods.Opening + 1
-			for _, method := range t.Methods.List {
-				method.Doc = nil
-				method.Comment = nil
-				for _, name := range method.Names {
-					name.NamePos = pos
-				}
-				pos++
-			}
-		}
 	}
 }
 

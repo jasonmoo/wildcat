@@ -2,7 +2,13 @@
 package traverse
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"go/ast"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/lsp"
@@ -174,17 +180,51 @@ func (t *Traverser) isStdlib(uri string) bool {
 		(!strings.Contains(path, "/") && !strings.HasPrefix(path, "."))
 }
 
-// BuildTree builds a call tree structure.
-func (t *Traverser) BuildTree(ctx context.Context, item lsp.CallHierarchyItem, opts Options) (*output.TreeResponse, error) {
-	nodes := make(map[string]output.TreeNode)
-	var edges []output.TreeEdge
+// symbolName returns a qualified symbol name like "pkg.Symbol".
+func symbolName(item lsp.CallHierarchyItem) string {
+	file := lsp.URIToPath(item.URI)
+	pkg := packageFromPath(file)
+	if pkg != "" {
+		return pkg + "." + item.Name
+	}
+	return item.Name
+}
 
-	visited := make(map[string]bool)
+// packageFromPath extracts a short package name from a file path.
+func packageFromPath(path string) string {
+	// Extract directory containing the file
+	idx := strings.LastIndex(path, "/")
+	if idx == -1 {
+		return ""
+	}
+	dir := path[:idx]
+
+	// Get just the last component (package directory name)
+	idx = strings.LastIndex(dir, "/")
+	if idx == -1 {
+		return dir
+	}
+	return dir[idx+1:]
+}
+
+// BuildTree builds a call tree structure as paths.
+func (t *Traverser) BuildTree(ctx context.Context, item lsp.CallHierarchyItem, opts Options) (*output.TreeResponse, error) {
+	functions := make(map[string]output.TreeFunction)
 	maxDepth := 0
 
-	err := t.buildTreeRecursive(ctx, item, opts, 0, visited, nodes, &edges, &maxDepth)
-	if err != nil {
-		return nil, err
+	// Build all paths
+	var paths [][]string
+	visited := make(map[string]bool)
+
+	// Target has no call site (it's the endpoint)
+	targetName := symbolName(item)
+
+	if opts.Direction == Up {
+		// For "up", paths end with target (no call site)
+		paths = t.buildPathsUp(ctx, item, opts, 0, 0, visited, functions, &maxDepth)
+	} else {
+		// For "down", paths start with target (with call site to first callee)
+		paths = t.buildPathsDown(ctx, item, opts, 0, 0, visited, functions, &maxDepth)
 	}
 
 	direction := "down"
@@ -195,114 +235,224 @@ func (t *Traverser) BuildTree(ctx context.Context, item lsp.CallHierarchyItem, o
 	return &output.TreeResponse{
 		Query: output.TreeQuery{
 			Command:   "tree",
-			Root:      item.Name,
+			Target:    targetName,
 			Depth:     opts.MaxDepth,
 			Direction: direction,
 		},
-		Nodes: nodes,
-		Edges: edges,
+		Paths:     paths,
+		Functions: functions,
 		Summary: output.TreeSummary{
-			NodeCount:       len(nodes),
-			EdgeCount:       len(edges),
+			PathCount:       len(paths),
 			MaxDepthReached: maxDepth,
 			Truncated:       opts.MaxDepth > 0 && maxDepth >= opts.MaxDepth,
 		},
 	}, nil
 }
 
-// buildTreeRecursive builds the tree structure recursively.
-func (t *Traverser) buildTreeRecursive(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool, nodes map[string]output.TreeNode, edges *[]output.TreeEdge, maxDepth *int) error {
+// buildPathsUp builds paths from callers to the target (paths end with target).
+// callSite is the line where this item calls its callee (0 if this is the target/endpoint).
+func (t *Traverser) buildPathsUp(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, callSite int, visited map[string]bool, functions map[string]output.TreeFunction, maxDepth *int) [][]string {
+	// Build the path element name, including call site if we have one
+	baseName := symbolName(item)
+	name := baseName
+	if callSite > 0 {
+		name = fmt.Sprintf("%s:%d", baseName, callSite)
+	}
+
+	// Record function info (keyed by base name, not call site)
+	file := lsp.URIToPath(item.URI)
+	if _, exists := functions[baseName]; !exists {
+		line := item.Range.Start.Line + 1
+		sig := extractSignature(file, line)
+		if sig == "" {
+			sig = item.Name
+		}
+		functions[baseName] = output.TreeFunction{
+			Signature: sig,
+			Location:  fmt.Sprintf("%s:%d:%d", file, line, item.Range.End.Line+1),
+		}
+	}
+
 	if depth > *maxDepth {
 		*maxDepth = depth
 	}
 
 	if opts.MaxDepth > 0 && depth >= opts.MaxDepth {
-		return nil
+		return [][]string{{name}}
 	}
 
 	key := item.URI + ":" + item.Name
 	if visited[key] {
-		return nil
+		return [][]string{{name}}
 	}
 	visited[key] = true
+	defer func() { visited[key] = false }() // Allow revisiting on different paths
 
+	calls, err := t.client.IncomingCalls(ctx, item)
+	if err != nil || len(calls) == 0 {
+		return [][]string{{name}}
+	}
+
+	var paths [][]string
+	for _, call := range calls {
+		callFile := lsp.URIToPath(call.From.URI)
+
+		if opts.ExcludeTests && output.IsTestFile(callFile) {
+			continue
+		}
+		if opts.ExcludeStdlib && t.isStdlib(call.From.URI) {
+			continue
+		}
+
+		// The caller's call site is where it calls the current item
+		callerCallSite := 0
+		if len(call.FromRanges) > 0 {
+			callerCallSite = call.FromRanges[0].Start.Line + 1
+		}
+
+		// Recurse to get paths from this caller
+		subPaths := t.buildPathsUp(ctx, call.From, opts, depth+1, callerCallSite, visited, functions, maxDepth)
+		for _, subPath := range subPaths {
+			// Append current item to each sub-path
+			path := append(subPath, name)
+			paths = append(paths, path)
+		}
+	}
+
+	if len(paths) == 0 {
+		return [][]string{{name}}
+	}
+	return paths
+}
+
+// buildPathsDown builds paths from target to callees (paths start with target).
+// callSite is the line where this item is called from (0 if this is the target/root).
+func (t *Traverser) buildPathsDown(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, callSite int, visited map[string]bool, functions map[string]output.TreeFunction, maxDepth *int) [][]string {
+	baseName := symbolName(item)
 	file := lsp.URIToPath(item.URI)
 
-	// Add node if not exists
-	if _, exists := nodes[item.Name]; !exists {
-		nodes[item.Name] = output.TreeNode{
-			File: file,
-			Line: item.Range.Start.Line + 1,
+	// Record function info (keyed by base name, not call site)
+	if _, exists := functions[baseName]; !exists {
+		line := item.Range.Start.Line + 1
+		sig := extractSignature(file, line)
+		if sig == "" {
+			sig = item.Name
+		}
+		functions[baseName] = output.TreeFunction{
+			Signature: sig,
+			Location:  fmt.Sprintf("%s:%d:%d", file, line, item.Range.End.Line+1),
 		}
 	}
 
-	if opts.Direction == Up {
-		calls, err := t.client.IncomingCalls(ctx, item)
-		if err != nil {
-			return err
-		}
-
-		node := nodes[item.Name]
-		for _, call := range calls {
-			if opts.ExcludeTests && output.IsTestFile(lsp.URIToPath(call.From.URI)) {
-				continue
-			}
-			if opts.ExcludeStdlib && t.isStdlib(call.From.URI) {
-				continue
-			}
-
-			node.CalledBy = append(node.CalledBy, call.From.Name)
-
-			// Add edge
-			for _, r := range call.FromRanges {
-				*edges = append(*edges, output.TreeEdge{
-					From: call.From.Name,
-					To:   item.Name,
-					File: lsp.URIToPath(call.From.URI),
-					Line: r.Start.Line + 1,
-				})
-			}
-
-			// Recurse
-			if err := t.buildTreeRecursive(ctx, call.From, opts, depth+1, visited, nodes, edges, maxDepth); err != nil {
-				return err
-			}
-		}
-		nodes[item.Name] = node
-	} else {
-		calls, err := t.client.OutgoingCalls(ctx, item)
-		if err != nil {
-			return err
-		}
-
-		node := nodes[item.Name]
-		for _, call := range calls {
-			if opts.ExcludeTests && output.IsTestFile(lsp.URIToPath(call.To.URI)) {
-				continue
-			}
-			if opts.ExcludeStdlib && t.isStdlib(call.To.URI) {
-				continue
-			}
-
-			node.Calls = append(node.Calls, call.To.Name)
-
-			// Add edge
-			for _, r := range call.FromRanges {
-				*edges = append(*edges, output.TreeEdge{
-					From: item.Name,
-					To:   call.To.Name,
-					File: file,
-					Line: r.Start.Line + 1,
-				})
-			}
-
-			// Recurse
-			if err := t.buildTreeRecursive(ctx, call.To, opts, depth+1, visited, nodes, edges, maxDepth); err != nil {
-				return err
-			}
-		}
-		nodes[item.Name] = node
+	if depth > *maxDepth {
+		*maxDepth = depth
 	}
 
-	return nil
+	if opts.MaxDepth > 0 && depth >= opts.MaxDepth {
+		// At depth limit, return with call site if we have one
+		name := baseName
+		if callSite > 0 {
+			name = fmt.Sprintf("%s:%d", baseName, callSite)
+		}
+		return [][]string{{name}}
+	}
+
+	key := item.URI + ":" + item.Name
+	if visited[key] {
+		name := baseName
+		if callSite > 0 {
+			name = fmt.Sprintf("%s:%d", baseName, callSite)
+		}
+		return [][]string{{name}}
+	}
+	visited[key] = true
+	defer func() { visited[key] = false }() // Allow revisiting on different paths
+
+	calls, err := t.client.OutgoingCalls(ctx, item)
+	if err != nil || len(calls) == 0 {
+		// This is a leaf node, no call site to next element
+		name := baseName
+		if callSite > 0 {
+			name = fmt.Sprintf("%s:%d", baseName, callSite)
+		}
+		return [][]string{{name}}
+	}
+
+	var paths [][]string
+	for _, call := range calls {
+		callFile := lsp.URIToPath(call.To.URI)
+
+		if opts.ExcludeTests && output.IsTestFile(callFile) {
+			continue
+		}
+		if opts.ExcludeStdlib && t.isStdlib(call.To.URI) {
+			continue
+		}
+
+		// The call site for this item is where it calls this callee
+		myCallSite := 0
+		if len(call.FromRanges) > 0 {
+			myCallSite = call.FromRanges[0].Start.Line + 1
+		}
+
+		// Build name with our call site to this callee
+		name := fmt.Sprintf("%s:%d", baseName, myCallSite)
+
+		// Recurse to get paths from this callee (callee doesn't know its call site yet)
+		subPaths := t.buildPathsDown(ctx, call.To, opts, depth+1, 0, visited, functions, maxDepth)
+		for _, subPath := range subPaths {
+			// Prepend current item (with call site) to each sub-path
+			path := append([]string{name}, subPath...)
+			paths = append(paths, path)
+		}
+	}
+
+	if len(paths) == 0 {
+		name := baseName
+		if callSite > 0 {
+			name = fmt.Sprintf("%s:%d", baseName, callSite)
+		}
+		return [][]string{{name}}
+	}
+	return paths
+}
+
+// extractSignature extracts a clean one-line function signature from a Go source file.
+func extractSignature(filePath string, line int) string {
+	if !strings.HasSuffix(filePath, ".go") {
+		return ""
+	}
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filePath, nil, 0)
+	if err != nil {
+		return ""
+	}
+
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+
+		pos := fset.Position(fn.Pos())
+		if pos.Line >= line-1 && pos.Line <= line+1 {
+			return renderFuncSignature(fn)
+		}
+	}
+
+	return ""
+}
+
+// renderFuncSignature renders a function declaration as a normalized one-line signature.
+func renderFuncSignature(decl *ast.FuncDecl) string {
+	cleaned := *decl
+	cleaned.Doc = nil
+	cleaned.Body = nil
+
+	var buf bytes.Buffer
+	if err := format.Node(&buf, token.NewFileSet(), &cleaned); err != nil {
+		return ""
+	}
+	return buf.String()
 }
