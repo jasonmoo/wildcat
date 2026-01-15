@@ -1,7 +1,7 @@
 # Wildcat CLI
 
 ## Project Overview
-Go CLI tool built for hackathon. Code quality is scored, and a mid-hackathon "curve ball" requirement will be introduced.
+Static analysis CLI for AI agents. Uses gopls to provide symbol-based code queries with structured JSON output.
 
 ## Design Principles
 - **Composability first**: Use interfaces to decouple components. Design for change.
@@ -18,10 +18,16 @@ Go CLI tool built for hackathon. Code quality is scored, and a mid-hackathon "cu
 
 ## Project Structure
 ```
-cmd/           # CLI commands
+cmd/           # CLI commands (cobra)
 internal/      # Private packages
   config/      # Configuration handling
-pkg/           # Public packages (if needed)
+  errors/      # Error types and codes
+  golang/      # Go-specific helpers (stdlib detection, etc.)
+  lsp/         # LSP client and protocol types
+  output/      # Output formatting and writers
+  servers/     # Language server specs
+  symbols/     # Symbol parsing and resolution
+  traverse/    # Call graph traversal
 ```
 
 ## Testing
@@ -35,6 +41,10 @@ go build -o wildcat .
 ./wildcat
 ```
 
+Use wildcat while developing wildcat to further inform how the tool should
+work and hone the workflows.
+
+----
 
 NOTE: bd has been provided as a mechanism of memory for you. Track your
 work and insights and communicate with future Claudes here. Please be
@@ -217,6 +227,7 @@ approval for commands.
 The following commands do not require user approval:
 
 - Bash(bd:*)
+- Bash(wildcat:*)
 - Bash(go build:*)
 - Bash(go test:*)
 - Bash(go doc:*)
@@ -244,10 +255,15 @@ The following commands do not require user approval:
 - WebSearch
 - WebFetch(domain:github.com)
 - WebFetch(domain:github.io)
+- WebFetch(domain:microsoft.github.io)
+- WebFetch(domain:raw.githubusercontent.com)
+- WebFetch(domain:go.dev.googlesource.com)
 
 - Bash(tree:*)
 - Bash(find:*)
 - Bash(dirname:*)
+- Bash(grep:*)
+- Bash(ls:*)
 
 When executing commands that take a -C <dir>, avoid that pattern and instead
 cd into the target dir.  This will enable the command to be used without approval.

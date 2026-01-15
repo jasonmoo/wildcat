@@ -6,12 +6,11 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "wildcat",
-	Short: "Language-agnostic static analysis CLI for AI agents",
-	Long: `Wildcat is a language-agnostic static analysis CLI optimized for AI agents.
+	Short: "Static analysis CLI for AI agents",
+	Long: `Wildcat is a static analysis CLI optimized for AI agents.
 
-Uses LSP (Language Server Protocol) to provide symbol-based queries with
-structured JSON output. Supports multiple languages including Go, Python,
-TypeScript, Rust, and C/C++.
+Uses gopls (Go Language Server) to provide symbol-based queries with
+structured JSON output. Built on LSP for future multi-language support.
 
 Output is designed for AI tool integration with consistent JSON structure,
 absolute paths, and actionable error messages.`,

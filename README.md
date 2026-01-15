@@ -1,6 +1,6 @@
 # Wildcat
 
-Code analysis built for AI agents. Language-agnostic via LSP.
+Code analysis built for AI agents. Go support via gopls.
 
 ## The Problem
 
@@ -26,7 +26,7 @@ callHierarchy/incomingCalls(item)             # Step 3: Get direct callers
 
 ## The Solution
 
-Wildcat is purpose-built for AI agents. One query, actionable results. Works with any language that has an LSP server.
+Wildcat is purpose-built for AI agents. One query, actionable results.
 
 ```bash
 wildcat callers config.Load
@@ -120,20 +120,9 @@ Self-correcting suggestions:
 }
 ```
 
-### Multi-Language Support
+### Language Support
 
-Wildcat works with any language that has an LSP server supporting call hierarchy (LSP 3.16+):
-
-| Language | Server | Status |
-|----------|--------|--------|
-| Go | gopls | ✅ Full support |
-| Python | pyright | ✅ Full support |
-| TypeScript/JavaScript | typescript-language-server | ✅ Full support |
-| Rust | rust-analyzer | ✅ Full support |
-| C/C++ | clangd | ✅ Full support |
-| Java | jdtls | ✅ Full support |
-
-Wildcat auto-detects the language and starts the appropriate server.
+Currently supports Go via gopls. The LSP-based architecture enables future expansion to other languages.
 
 ## Commands
 

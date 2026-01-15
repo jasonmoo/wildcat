@@ -14,7 +14,7 @@ var (
 )
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&globalLanguage, "language", "l", "", "Language (go, python, typescript, rust, c)")
+	rootCmd.PersistentFlags().StringVarP(&globalLanguage, "language", "l", "", "Language (currently only 'go' supported)")
 }
 
 // GetWriter returns an output writer with the configured format.

@@ -73,7 +73,7 @@ func printFullReadme() {
 	fmt.Fprint(os.Stdout, `# Wildcat - Static Analysis for AI Agents
 
 Wildcat provides symbol-based code analysis optimized for AI tool integration.
-It uses LSP (Language Server Protocol) for language-agnostic support.
+It uses gopls (Go Language Server) with an LSP-based architecture.
 
 ## When to Use Wildcat
 
@@ -169,7 +169,7 @@ Fuzzy search for symbols across the workspace. Results are ranked by relevance.
 | --exclude-tests | Exclude test files from results |
 | --depth N | Limit traversal depth |
 | --context N | Lines of context in snippets (default 3) |
-| -l, --language | Force language (go, python, typescript, rust, c) |
+| -l, --language | Language (currently only 'go' supported) |
 
 ## Workflow Patterns
 

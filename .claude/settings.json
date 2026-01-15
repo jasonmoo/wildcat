@@ -33,10 +33,15 @@
             "WebSearch",
             "WebFetch(domain:github.com)",
             "WebFetch(domain:github.io)",
+            "WebFetch(domain:microsoft.github.io)",
+            "WebFetch(domain:raw.githubusercontent.com)",
+            "WebFetch(domain:go.dev.googlesource.com)",
 
             "Bash(tree:*)",
             "Bash(find:*)",
-            "Bash(dirname:*)"
+            "Bash(dirname:*)",
+            "Bash(grep:*)",
+            "Bash(ls:*)"
         ],
         "ask": ["Bash(curl:*)", "Bash(git push:*)", "Bash(gh pr:*)"],
         "deny": ["Read(.env*)"]
