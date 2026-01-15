@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jasonmoo/wildcat/internal/errors"
+	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/lsp"
 	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/jasonmoo/wildcat/internal/symbols"
@@ -210,12 +211,5 @@ func getSatisfiesForSymbol(ctx context.Context, client *lsp.Client, symbolArg st
 
 // isStdlibPath checks if a path is from the standard library.
 func isStdlibPath(path string) bool {
-	// Standard library paths typically contain /go/src/ or similar
-	// and don't contain github.com or other module paths
-	if len(path) == 0 {
-		return false
-	}
-	// Simple heuristic: if it doesn't contain a dot in the package path, it's likely stdlib
-	// More robust: check if it's under GOROOT
-	return false // TODO: implement properly
+	return golang.IsStdlibPath(path)
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -157,13 +158,7 @@ func findImportedBy(workDir, targetImportPath string) ([]output.DepResult, error
 
 // isStdlib checks if an import path is from the standard library.
 func isStdlib(importPath string) bool {
-	// Standard library packages don't have dots in their first path component
-	firstSlash := strings.Index(importPath, "/")
-	if firstSlash == -1 {
-		return !strings.Contains(importPath, ".")
-	}
-	firstPart := importPath[:firstSlash]
-	return !strings.Contains(firstPart, ".")
+	return golang.IsStdlibImport(importPath)
 }
 
 // findImportLocation finds where a package is imported in source files.

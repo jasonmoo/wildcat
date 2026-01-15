@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"strings"
 
+	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/lsp"
 	"github.com/jasonmoo/wildcat/internal/output"
 )
@@ -173,11 +174,7 @@ func (t *Traverser) callInfoFromOutgoing(call lsp.CallHierarchyOutgoingCall) Cal
 
 // isStdlib checks if a URI is from the standard library.
 func (t *Traverser) isStdlib(uri string) bool {
-	path := lsp.URIToPath(uri)
-	// Standard library is typically in GOROOT
-	return strings.Contains(path, "/go/src/") ||
-		strings.Contains(path, "/golang.org/") ||
-		(!strings.Contains(path, "/") && !strings.HasPrefix(path, "."))
+	return golang.IsStdlibPath(lsp.URIToPath(uri))
 }
 
 // symbolName returns a qualified symbol name like "pkg.Symbol".
