@@ -59,9 +59,10 @@ func printCompactReadme() {
 ## Scope Filtering (default: project)
 - search: --scope all (include deps), --scope internal/lsp
 - symbol: --scope package (target only), --scope cmd,lsp
+- exclude: --scope '!internal/lsp' (project minus package)
 
 ## Common Flags
-- --scope SCOPE          Filter packages (project, or comma-separated)
+- --scope SCOPE          Filter packages (project, packages, !pkg to exclude)
 - --exclude-tests        Exclude test files
 - --exclude-stdlib       Exclude standard library
 - --depth N              Tree traversal depth

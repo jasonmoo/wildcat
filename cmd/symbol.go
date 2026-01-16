@@ -33,6 +33,7 @@ Examples:
   wildcat symbol config.Config                  # callers across project (default)
   wildcat symbol --scope package Server.Start   # callers in target package only
   wildcat symbol --scope cmd,lsp Handler        # callers in specific packages
+  wildcat symbol --scope '!internal/lsp' Config  # exclude a package
   wildcat symbol FileURI URIToPath              # multiple symbols`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSymbol,
@@ -47,7 +48,7 @@ func init() {
 	rootCmd.AddCommand(symbolCmd)
 
 	symbolCmd.Flags().BoolVar(&symbolExcludeTests, "exclude-tests", false, "Exclude test files")
-	symbolCmd.Flags().StringVar(&symbolScope, "scope", "project", "Scope: 'project' (default), 'package' (target only), or comma-separated")
+	symbolCmd.Flags().StringVar(&symbolScope, "scope", "project", "Scope: 'project', 'package', packages, or !pkg to exclude")
 }
 
 func runSymbol(cmd *cobra.Command, args []string) error {
@@ -318,20 +319,23 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 	}
 
 	// Resolve scope packages to full import paths
-	// nil means "project" scope (match all with project prefix)
-	scopePackages := resolveScopePackages(scope, targetPkgInfo.importPath, workDir)
+	scopeResolved := resolveScopePackages(scope, targetPkgInfo.importPath, workDir)
 
 	// Track filtered packages and their test counts for query summary
 	var filteredTests int
 	for _, dir := range pkgDirs {
 		pd := pkgMap[dir]
 		// Filter by scope
-		if scopePackages == nil {
+		if scopeResolved.includes == nil {
 			// Project scope: match packages with project prefix
 			if !strings.HasPrefix(pd.info.importPath, projectRoot) {
 				continue
 			}
-		} else if !scopePackages[pd.info.importPath] {
+		} else if !scopeResolved.includes[pd.info.importPath] {
+			continue
+		}
+		// Apply excludes
+		if scopeResolved.excludes[pd.info.importPath] {
 			continue
 		}
 		packages = append(packages, output.PackageUsage{
@@ -497,29 +501,62 @@ func getPackageInfo(dir string) pkgInfo {
 	return pkgInfo{importPath: absDir, dir: absDir}
 }
 
-// resolveScopePackages resolves scope to a set of allowed package import paths.
+// resolvedScope holds resolved include/exclude package paths.
+type resolvedScope struct {
+	includes    map[string]bool // nil means project scope (check prefix)
+	excludes    map[string]bool // packages to exclude
+	packageOnly bool            // true if scope is "package" (target only)
+}
+
+// resolveScopePackages resolves scope to include/exclude package import paths.
 // Scope can be:
 //   - "": default to target package only
-//   - "project": returns nil (caller checks project prefix)
-//   - "pkg1,pkg2,...": comma-separated list of packages (resolved via golang.ResolvePackagePath)
-func resolveScopePackages(scope, targetPkgImportPath, workDir string) map[string]bool {
+//   - "project": project scope (caller checks project prefix)
+//   - "pkg1,pkg2,...": comma-separated packages
+//   - "!pkg": exclude package (can combine with others)
+//
+// Examples:
+//
+//	"project,!internal/test" -> project scope minus internal/test
+//	"cmd,lsp,!lsp/test"      -> cmd and lsp minus lsp/test
+func resolveScopePackages(scope, targetPkgImportPath, workDir string) resolvedScope {
 	if scope == "package" || scope == "" {
 		// Target package only
-		return map[string]bool{targetPkgImportPath: true}
-	}
-	if scope == "project" {
-		return nil // signals project scope - caller checks prefix
-	}
-	// Comma-separated list of packages - resolve each one
-	result := make(map[string]bool)
-	for _, pkg := range strings.Split(scope, ",") {
-		pkg = strings.TrimSpace(pkg)
-		if pkg == "" {
-			continue
+		return resolvedScope{
+			includes:    map[string]bool{targetPkgImportPath: true},
+			packageOnly: true,
 		}
+	}
+
+	// Parse scope into includes and excludes
+	filter := parseScopeFilter(scope)
+
+	// Resolve excludes
+	excludes := make(map[string]bool)
+	for _, pkg := range filter.excludes {
 		if resolved, err := golang.ResolvePackagePath(pkg, workDir); err == nil {
-			result[resolved] = true
+			excludes[resolved] = true
 		}
 	}
-	return result
+
+	// No explicit includes means project scope
+	if len(filter.includes) == 0 {
+		return resolvedScope{
+			includes: nil, // signals project scope
+			excludes: excludes,
+		}
+	}
+
+	// Resolve includes
+	includes := make(map[string]bool)
+	for _, pkg := range filter.includes {
+		if resolved, err := golang.ResolvePackagePath(pkg, workDir); err == nil {
+			includes[resolved] = true
+		}
+	}
+
+	return resolvedScope{
+		includes: includes,
+		excludes: excludes,
+	}
 }

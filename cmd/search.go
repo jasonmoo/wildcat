@@ -32,6 +32,7 @@ Examples:
   wildcat search Resolve                        # project packages (default)
   wildcat search --scope all Config             # include external dependencies
   wildcat search --scope internal/lsp Client    # specific package
+  wildcat search --scope '!internal/lsp' Config  # exclude a package
   wildcat search --limit 5 Config               # top 5 matches`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSearch,
@@ -46,7 +47,7 @@ func init() {
 	rootCmd.AddCommand(searchCmd)
 
 	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Maximum results (max 100)")
-	searchCmd.Flags().StringVar(&searchScope, "scope", "project", "Scope: 'project' (default), 'all', or comma-separated packages")
+	searchCmd.Flags().StringVar(&searchScope, "scope", "project", "Scope: 'project', 'all', packages, or !pkg to exclude")
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
@@ -224,43 +225,89 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	return writer.Write(response)
 }
 
-// filterSymbolsByScope filters symbols to those in specified packages.
-// Scope can be "project" (all project packages) or comma-separated package paths.
-func filterSymbolsByScope(symbols []lsp.SymbolInformation, scope, workDir string) []lsp.SymbolInformation {
-	// Handle "project" scope - filter to project packages by prefix
-	if scope == "project" {
-		projectRoot, err := golang.ResolvePackagePath(".", workDir)
-		if err != nil {
-			return symbols // Can't determine project root, return all
+// scopeFilter holds parsed include/exclude package patterns.
+type scopeFilter struct {
+	includes []string // packages to include (empty means "project")
+	excludes []string // packages to exclude (! prefixed)
+}
+
+// parseScopeFilter parses a scope string into includes and excludes.
+// Excludes are prefixed with !. If no includes specified, defaults to project scope.
+// Examples:
+//
+//	"project"                  -> includes=[], excludes=[] (project scope)
+//	"cmd,lsp"                  -> includes=[cmd,lsp], excludes=[]
+//	"project,!internal/test"   -> includes=[], excludes=[internal/test]
+//	"!internal/test"           -> includes=[], excludes=[internal/test] (implicit project)
+//	"cmd,lsp,!lsp/test"        -> includes=[cmd,lsp], excludes=[lsp/test]
+func parseScopeFilter(scope string) scopeFilter {
+	var filter scopeFilter
+	for _, part := range strings.Split(scope, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "project" {
+			continue
 		}
+		if strings.HasPrefix(part, "!") {
+			filter.excludes = append(filter.excludes, strings.TrimPrefix(part, "!"))
+		} else {
+			filter.includes = append(filter.includes, part)
+		}
+	}
+	return filter
+}
+
+// filterSymbolsByScope filters symbols to those in specified packages.
+// Scope can be "project" (all project packages), comma-separated package paths,
+// or include exclusions with ! prefix (e.g., "project,!internal/test").
+func filterSymbolsByScope(symbols []lsp.SymbolInformation, scope, workDir string) []lsp.SymbolInformation {
+	filter := parseScopeFilter(scope)
+
+	// Resolve project root for project scope or exclusion matching
+	projectRoot, err := golang.ResolvePackagePath(".", workDir)
+	if err != nil {
+		return symbols // Can't determine project root, return all
+	}
+
+	// Resolve excludes to full import paths
+	excludes := make(map[string]bool)
+	for _, pkg := range filter.excludes {
+		if resolved, err := golang.ResolvePackagePath(pkg, workDir); err == nil {
+			excludes[resolved] = true
+		}
+	}
+
+	// If no explicit includes, use project scope
+	if len(filter.includes) == 0 {
 		filtered := make([]lsp.SymbolInformation, 0, len(symbols))
 		for _, sym := range symbols {
-			if strings.HasPrefix(sym.ContainerName, projectRoot) {
-				filtered = append(filtered, sym)
+			if !strings.HasPrefix(sym.ContainerName, projectRoot) {
+				continue
 			}
+			if excludes[sym.ContainerName] {
+				continue
+			}
+			filtered = append(filtered, sym)
 		}
 		return filtered
 	}
 
-	// Comma-separated list of packages
-	packages := make(map[string]bool)
-	for _, pkg := range strings.Split(scope, ",") {
-		pkg = strings.TrimSpace(pkg)
-		if pkg == "" {
-			continue
-		}
-		// Resolve to full import path
+	// Resolve includes to full import paths
+	includes := make(map[string]bool)
+	for _, pkg := range filter.includes {
 		if resolved, err := golang.ResolvePackagePath(pkg, workDir); err == nil {
-			packages[resolved] = true
+			includes[resolved] = true
 		}
-		// If resolution fails, skip silently
 	}
 
 	filtered := make([]lsp.SymbolInformation, 0, len(symbols))
 	for _, sym := range symbols {
-		if packages[sym.ContainerName] {
-			filtered = append(filtered, sym)
+		if !includes[sym.ContainerName] {
+			continue
 		}
+		if excludes[sym.ContainerName] {
+			continue
+		}
+		filtered = append(filtered, sym)
 	}
 	return filtered
 }
