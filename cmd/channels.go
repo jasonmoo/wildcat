@@ -17,7 +17,7 @@ import (
 )
 
 var channelsCmd = &cobra.Command{
-	Use:   "channels <package> ...",
+	Use:   "channels [package] ...",
 	Short: "Show channel operations in packages",
 	Long: `Report all channel operations grouped by package and element type.
 
@@ -25,10 +25,9 @@ Shows makes, sends, receives, closes, and select cases for channels.
 Useful for understanding concurrency patterns without precise pointer analysis.
 
 Examples:
-  wildcat channels .                       # Current package
+  wildcat channels                         # Current package
   wildcat channels ./internal/lsp          # Specific package
   wildcat channels internal/lsp internal/output  # Multiple packages`,
-	Args: cobra.MinimumNArgs(1),
 	RunE: runChannels,
 }
 
@@ -43,11 +42,13 @@ func init() {
 
 // ChannelGroup groups operations by element type (single-line format: "snippet // file.go:line")
 type ChannelGroup struct {
-	ElementType string   `json:"element_type"`
-	Makes       []string `json:"makes,omitempty"`
-	Sends       []string `json:"sends,omitempty"`
-	Receives    []string `json:"receives,omitempty"`
-	Closes      []string `json:"closes,omitempty"`
+	ElementType    string   `json:"element_type"`
+	Makes          []string `json:"makes,omitempty"`
+	Sends          []string `json:"sends,omitempty"`
+	Receives       []string `json:"receives,omitempty"`
+	Closes         []string `json:"closes,omitempty"`
+	SelectSends    []string `json:"select_sends,omitempty"`
+	SelectReceives []string `json:"select_receives,omitempty"`
 }
 
 // PackageChannels groups channel operations by package
@@ -82,7 +83,10 @@ func runChannels(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	// Resolve package paths
+	// Resolve package paths (default to current directory)
+	if len(args) == 0 {
+		args = []string{"."}
+	}
 	pkgPaths := make([]string, 0, len(args))
 	for _, arg := range args {
 		resolved, err := golang.ResolvePackagePath(arg, workDir)
@@ -94,9 +98,6 @@ func runChannels(cmd *cobra.Command, args []string) error {
 
 	// Build query target string for output
 	queryTarget := strings.Join(pkgPaths, ", ")
-	if len(pkgPaths) == 1 && pkgPaths[0] == "." {
-		queryTarget = "."
-	}
 
 	// Load packages with type information
 	cfg := &packages.Config{
@@ -176,7 +177,7 @@ func runChannels(cmd *cobra.Command, args []string) error {
 
 // opInfo holds a single channel operation
 type opInfo struct {
-	kind     string // make, send, receive, close, range
+	kind     string // make, send, receive, close, range, select_send, select_receive
 	elemType string
 	line     string // "snippet // file.go:line"
 }
@@ -197,15 +198,62 @@ func (c *channelCollector) processFile(fset *token.FileSet, info *types.Info, pk
 	if _, ok := c.ops[pkgPath]; !ok {
 		c.ops[pkgPath] = nil
 	}
+
+	// Track nodes that are part of select cases so we don't double-count them
+	selectNodes := make(map[ast.Node]bool)
+
+	// First pass: identify all select statement channel operations
+	ast.Inspect(f, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectStmt); ok {
+			for _, stmt := range sel.Body.List {
+				if comm, ok := stmt.(*ast.CommClause); ok && comm.Comm != nil {
+					switch node := comm.Comm.(type) {
+					case *ast.SendStmt:
+						selectNodes[node] = true
+						if elemType := c.channelElemType(info, node.Chan); elemType != "" {
+							c.addOp(fset, pkgPath, filename, "select_send", node, elemType)
+						}
+					case *ast.ExprStmt:
+						// <-ch in select (value discarded)
+						if recv, ok := node.X.(*ast.UnaryExpr); ok && recv.Op == token.ARROW {
+							selectNodes[recv] = true
+							if elemType := c.channelElemType(info, recv.X); elemType != "" {
+								c.addOp(fset, pkgPath, filename, "select_receive", recv, elemType)
+							}
+						}
+					case *ast.AssignStmt:
+						// x := <-ch or x, ok := <-ch in select
+						if len(node.Rhs) == 1 {
+							if recv, ok := node.Rhs[0].(*ast.UnaryExpr); ok && recv.Op == token.ARROW {
+								selectNodes[recv] = true
+								if elemType := c.channelElemType(info, recv.X); elemType != "" {
+									c.addOp(fset, pkgPath, filename, "select_receive", recv, elemType)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+
+	// Second pass: collect non-select channel operations
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.SendStmt:
+			if selectNodes[node] {
+				return true // already handled as select case
+			}
 			// ch <- value
 			if elemType := c.channelElemType(info, node.Chan); elemType != "" {
 				c.addOp(fset, pkgPath, filename, "send", node, elemType)
 			}
 
 		case *ast.UnaryExpr:
+			if selectNodes[node] {
+				return true // already handled as select case
+			}
 			// <-ch
 			if node.Op == token.ARROW {
 				if elemType := c.channelElemType(info, node.X); elemType != "" {
