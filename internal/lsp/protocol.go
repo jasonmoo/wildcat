@@ -110,6 +110,33 @@ type SymbolInformation struct {
 	ContainerName string     `json:"containerName,omitempty"`
 }
 
+// FullName returns a fully qualified "import/path.Symbol" format.
+// Uses the full ContainerName as the import path prefix.
+func (s SymbolInformation) FullName() string {
+	if s.ContainerName == "" {
+		return s.Name
+	}
+
+	// If Name already starts with full ContainerName, it's already fully qualified
+	if strings.HasPrefix(s.Name, s.ContainerName+".") {
+		return s.Name
+	}
+
+	// Get short package name to check if Name has it
+	shortPkg := s.ContainerName
+	if idx := strings.LastIndex(s.ContainerName, "/"); idx >= 0 {
+		shortPkg = s.ContainerName[idx+1:]
+	}
+
+	// If Name has the short package prefix, strip it and use full path
+	if strings.HasPrefix(s.Name, shortPkg+".") {
+		name := strings.TrimPrefix(s.Name, shortPkg+".")
+		return s.ContainerName + "." + name
+	}
+
+	return s.ContainerName + "." + s.Name
+}
+
 // ShortName returns a consistent "pkg.Symbol" format.
 // Uses the last segment of ContainerName as the package prefix.
 func (s SymbolInformation) ShortName() string {

@@ -152,10 +152,9 @@ type SearchQuery struct {
 
 // SearchResult represents a single search result.
 type SearchResult struct {
-	Symbol   string `json:"symbol"`
+	Symbol   string `json:"symbol"`   // fully qualified: import/path.Symbol
 	Kind     string `json:"kind"`
 	Location string `json:"location"` // file:line:line_end
-	Package  string `json:"package,omitempty"`
 }
 
 // SearchSummary provides aggregate information about search results.

@@ -121,6 +121,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		symbols = filterSymbolsByScope(symbols, searchScope, workDir)
 	}
 
+	// Filter out /internal/ packages from external dependencies
+	symbols = filterExternalInternal(symbols)
+
 	// Apply limit
 	limit := searchLimit
 	if limit <= 0 {
@@ -147,10 +150,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		location := fmt.Sprintf("%s:%d:%d", file, startLine, endLine)
 
 		result := output.SearchResult{
-			Symbol:   sym.ShortName(),
+			Symbol:   sym.FullName(),
 			Kind:     kind,
 			Location: location,
-			Package:  sym.ContainerName,
 		}
 		results = append(results, result)
 	}
@@ -192,6 +194,25 @@ func filterSymbolsByScope(symbols []lsp.SymbolInformation, scope, workDir string
 		if packages[sym.ContainerName] {
 			filtered = append(filtered, sym)
 		}
+	}
+	return filtered
+}
+
+// filterExternalInternal removes symbols from /internal/ paths in external packages and stdlib.
+// Project-local /internal/ paths are kept; only external dependencies and stdlib internals are filtered.
+func filterExternalInternal(symbols []lsp.SymbolInformation) []lsp.SymbolInformation {
+	filtered := make([]lsp.SymbolInformation, 0, len(symbols))
+	for _, sym := range symbols {
+		path := lsp.URIToPath(sym.Location.URI)
+		// Skip stdlib internal packages (e.g., "internal/poll", "internal/reflectlite")
+		if strings.HasPrefix(sym.ContainerName, "internal/") {
+			continue
+		}
+		// Skip external dependencies with /internal/ in their import path
+		if strings.Contains(path, "/go/pkg/mod/") && strings.Contains(sym.ContainerName, "/internal/") {
+			continue
+		}
+		filtered = append(filtered, sym)
 	}
 	return filtered
 }
