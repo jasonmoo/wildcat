@@ -288,6 +288,12 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		}
 	}
 
+	// Merge locations within same declaration scope
+	for dir, pd := range pkgMap {
+		pd.callers = extractor.MergeLocations(dir, pd.callers)
+		pd.references = extractor.MergeLocations(dir, pd.references)
+	}
+
 	// Get project module root for scope filtering
 	projectRoot := ""
 	if modPath, err := golang.ResolvePackagePath(".", workDir); err == nil {

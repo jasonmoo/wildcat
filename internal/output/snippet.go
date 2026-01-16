@@ -315,6 +315,213 @@ func AbsolutePath(path string) string {
 	return abs
 }
 
+// MergeLocations merges locations within the same AST declaration scope.
+// Locations in different top-level declarations stay separate.
+// baseDir is the package directory (needed to construct full paths for AST parsing).
+func (e *SnippetExtractor) MergeLocations(baseDir string, locations []Location) []Location {
+	if len(locations) <= 1 {
+		return locations
+	}
+
+	// Group by filename
+	byFile := make(map[string][]Location)
+	for _, loc := range locations {
+		fileName, _ := parseLocation(loc.Location)
+		byFile[fileName] = append(byFile[fileName], loc)
+	}
+
+	var merged []Location
+	for fileName, fileLocs := range byFile {
+		if len(fileLocs) == 1 {
+			merged = append(merged, fileLocs[0])
+			continue
+		}
+
+		// Sort by line
+		sortLocationsByLine(fileLocs)
+
+		// Merge within declaration scopes
+		fullPath := filepath.Join(baseDir, fileName)
+		mergedFile := e.mergeLocationsByDeclaration(fullPath, fileName, fileLocs)
+		merged = append(merged, mergedFile...)
+	}
+
+	// Sort final results by location for consistent output
+	sortLocationsByLocation(merged)
+	return merged
+}
+
+// mergeLocationsByDeclaration groups locations by their enclosing top-level declaration.
+func (e *SnippetExtractor) mergeLocationsByDeclaration(fullPath, fileName string, locations []Location) []Location {
+	// For Go files, use AST to find declaration scopes
+	if strings.HasSuffix(fullPath, ".go") {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, fullPath, nil, parser.ParseComments)
+		if err == nil {
+			return e.mergeLocationsByAST(fset, f, fullPath, fileName, locations)
+		}
+	}
+
+	// For non-Go files, fall back to proximity
+	return e.mergeLocationsByProximity(fullPath, fileName, locations)
+}
+
+// mergeLocationsByAST merges locations within the same top-level AST declaration.
+func (e *SnippetExtractor) mergeLocationsByAST(fset *token.FileSet, f *ast.File, fullPath, fileName string, locations []Location) []Location {
+	// Find top-level declaration ranges
+	type declRange struct {
+		start, end int
+	}
+	var decls []declRange
+	for _, decl := range f.Decls {
+		start := fset.Position(decl.Pos()).Line
+		end := fset.Position(decl.End()).Line
+		decls = append(decls, declRange{start, end})
+	}
+
+	// Group locations by which declaration contains them
+	groups := make(map[int][]Location) // key is decl index (-1 for outside any decl)
+	for _, loc := range locations {
+		_, line := parseLocation(loc.Location)
+		declIdx := -1
+		for i, d := range decls {
+			if line >= d.start && line <= d.end {
+				declIdx = i
+				break
+			}
+		}
+		groups[declIdx] = append(groups[declIdx], loc)
+	}
+
+	// Create merged location for each group
+	var merged []Location
+	for _, groupLocs := range groups {
+		if len(groupLocs) == 1 {
+			merged = append(merged, groupLocs[0])
+		} else {
+			sortLocationsByLine(groupLocs)
+			merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, groupLocs))
+		}
+	}
+
+	return merged
+}
+
+// mergeLocationsByProximity merges locations that are close enough to have overlapping snippets.
+func (e *SnippetExtractor) mergeLocationsByProximity(fullPath, fileName string, locations []Location) []Location {
+	mergeDistance := SmartSnippetMaxLines
+
+	var merged []Location
+	currentGroup := []Location{locations[0]}
+	_, currentMaxLine := parseLocation(locations[0].Location)
+
+	for i := 1; i < len(locations); i++ {
+		loc := locations[i]
+		_, line := parseLocation(loc.Location)
+
+		if line-currentMaxLine <= mergeDistance {
+			currentGroup = append(currentGroup, loc)
+			if line > currentMaxLine {
+				currentMaxLine = line
+			}
+		} else {
+			merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, currentGroup))
+			currentGroup = []Location{loc}
+			currentMaxLine = line
+		}
+	}
+
+	merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, currentGroup))
+	return merged
+}
+
+// finalizeLocationGroup creates a merged Location from a group of locations.
+func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, locations []Location) Location {
+	if len(locations) == 1 {
+		return locations[0]
+	}
+
+	// Collect all line numbers
+	lines := make([]int, len(locations))
+	for i, loc := range locations {
+		_, lines[i] = parseLocation(loc.Location)
+	}
+	minLine := lines[0]
+	maxLine := lines[len(lines)-1]
+
+	// Extract merged snippet
+	snippet, snippetStart, snippetEnd, err := e.extractMergedSnippet(fullPath, minLine, maxLine)
+	if err != nil {
+		// Fallback to first location's snippet
+		return locations[0]
+	}
+
+	// Build comma-separated line list
+	lineStrs := make([]string, len(lines))
+	for i, l := range lines {
+		lineStrs[i] = fmt.Sprintf("%d", l)
+	}
+
+	// Collect symbols (use first non-empty)
+	symbol := ""
+	for _, loc := range locations {
+		if loc.Symbol != "" {
+			symbol = loc.Symbol
+			break
+		}
+	}
+
+	return Location{
+		Location: fmt.Sprintf("%s:%s", fileName, strings.Join(lineStrs, ",")),
+		Symbol:   symbol,
+		Snippet: Snippet{
+			Location: fmt.Sprintf("%s:%d:%d", fileName, snippetStart, snippetEnd),
+			Source:   snippet,
+		},
+	}
+}
+
+// parseLocation extracts filename and line from "file.go:123" or "file.go:123,124,125".
+// Returns the filename and the first line number.
+func parseLocation(loc string) (string, int) {
+	idx := strings.LastIndex(loc, ":")
+	if idx == -1 {
+		return loc, 0
+	}
+	fileName := loc[:idx]
+	linesPart := loc[idx+1:]
+
+	// Handle comma-separated lines, take first
+	if commaIdx := strings.Index(linesPart, ","); commaIdx != -1 {
+		linesPart = linesPart[:commaIdx]
+	}
+
+	line := 0
+	fmt.Sscanf(linesPart, "%d", &line)
+	return fileName, line
+}
+
+// sortLocationsByLine sorts locations by their first line number.
+func sortLocationsByLine(locations []Location) {
+	sort.Slice(locations, func(i, j int) bool {
+		_, lineI := parseLocation(locations[i].Location)
+		_, lineJ := parseLocation(locations[j].Location)
+		return lineI < lineJ
+	})
+}
+
+// sortLocationsByLocation sorts locations by filename then line.
+func sortLocationsByLocation(locations []Location) {
+	sort.Slice(locations, func(i, j int) bool {
+		fileI, lineI := parseLocation(locations[i].Location)
+		fileJ, lineJ := parseLocation(locations[j].Location)
+		if fileI != fileJ {
+			return fileI < fileJ
+		}
+		return lineI < lineJ
+	})
+}
+
 // MergeOverlappingResults merges results that have overlapping or adjacent snippets.
 // Results in the same file within mergeDistance lines are combined into a single
 // result with a merged snippet covering all reference lines.
