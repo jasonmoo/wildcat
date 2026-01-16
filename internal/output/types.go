@@ -71,51 +71,57 @@ type TreeResponse struct {
 	Summary   TreeSummary             `json:"summary"`
 }
 
-// SymbolLocation represents a location where a symbol is used.
+// Snippet represents a code snippet with its location.
+type Snippet struct {
+	Location string `json:"location"` // "file.go:start:end"
+	Source   string `json:"source"`
+}
+
+// Location represents a reference location within a package.
+type Location struct {
+	Location string  `json:"location"` // "file.go:line"
+	Symbol   string  `json:"symbol"`
+	Snippet  Snippet `json:"snippet"`
+}
+
+// PackageUsage contains callers and references within a single package.
+type PackageUsage struct {
+	Package    string     `json:"package"`
+	Dir        string     `json:"dir"`
+	Callers    []Location `json:"callers,omitempty"`
+	References []Location `json:"references,omitempty"`
+}
+
+// SymbolLocation represents a location for cross-package type relationships.
+// Used for implementations and satisfies which need full paths.
 type SymbolLocation struct {
-	Symbol       string `json:"symbol,omitempty"`
-	File         string `json:"file"`
-	Line         int    `json:"line"`
-	Snippet      string `json:"snippet,omitempty"`
-	SnippetStart int    `json:"snippet_start,omitempty"`
-	SnippetEnd   int    `json:"snippet_end,omitempty"`
-}
-
-// SymbolDependent represents a dependent package.
-type SymbolDependent struct {
-	Package    string `json:"package"`
-	ImportLine int    `json:"import_line"`
-	File       string `json:"file"`
-}
-
-// SymbolUsage contains all usage information for a symbol.
-type SymbolUsage struct {
-	Callers         []SymbolLocation  `json:"callers,omitempty"`
-	References      []SymbolLocation  `json:"references,omitempty"`
-	Implementations []SymbolLocation  `json:"implementations,omitempty"` // types implementing this interface
-	Satisfies       []SymbolLocation  `json:"satisfies,omitempty"`       // interfaces this type satisfies
-	Dependents      []SymbolDependent `json:"dependents,omitempty"`
+	Location string  `json:"location"` // full path: "/home/.../file.go:line"
+	Symbol   string  `json:"symbol"`
+	Snippet  Snippet `json:"snippet"`
 }
 
 // SymbolSummary provides aggregate information about symbol usage.
 type SymbolSummary struct {
-	TotalLocations    int `json:"total_locations"`
-	Callers           int `json:"callers"`
-	References        int `json:"references"`
-	Implementations   int `json:"implementations"`
-	Satisfies         int `json:"satisfies"`
-	DependentPackages int `json:"dependent_packages"`
-	InTests           int `json:"in_tests"`
+	Callers         int `json:"callers"`
+	References      int `json:"references"`
+	Implementations int `json:"implementations"`
+	Satisfies       int `json:"satisfies"`
+	InTests         int `json:"in_tests"`
 }
 
 // SymbolResponse is the output for the symbol command.
 type SymbolResponse struct {
-	Query             QueryInfo     `json:"query"`
-	Target            TargetInfo    `json:"target,omitempty"`
-	Usage             SymbolUsage   `json:"usage,omitempty"`
-	Summary           SymbolSummary `json:"summary,omitempty"`
-	OtherFuzzyMatches []string      `json:"other_fuzzy_matches,omitempty"`
-	Error             string        `json:"error,omitempty"` // populated on error in multi-symbol queries
+	Query             QueryInfo        `json:"query"`
+	Target            TargetInfo       `json:"target"`
+	ImportedBy        []string         `json:"imported_by"`
+	Packages          []PackageUsage   `json:"packages"`
+	Implementations   []SymbolLocation `json:"implementations,omitempty"`
+	Satisfies         []SymbolLocation `json:"satisfies,omitempty"`
+	QuerySummary      SymbolSummary    `json:"query_summary"`
+	PackageSummary    SymbolSummary    `json:"package_summary"`
+	ProjectSummary    SymbolSummary    `json:"project_summary"`
+	OtherFuzzyMatches []string         `json:"other_fuzzy_matches"`
+	Error             string           `json:"error,omitempty"`
 }
 
 // DepResult represents a package dependency.

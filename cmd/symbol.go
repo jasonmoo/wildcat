@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/jasonmoo/wildcat/internal/errors"
@@ -134,6 +136,8 @@ func runSymbol(cmd *cobra.Command, args []string) error {
 }
 
 func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg string) (*output.SymbolResponse, error) {
+	workDir, _ := os.Getwd()
+
 	// Parse symbol
 	query, err := symbols.Parse(symbolArg)
 	if err != nil {
@@ -167,162 +171,240 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		kind = "constant"
 	}
 
-	usage := output.SymbolUsage{}
-	var callersCount, refsCount, implsCount, inTestsCount int
+	// Get target file info
+	targetFile := lsp.URIToPath(resolved.URI)
+	targetDir := filepath.Dir(targetFile)
+	targetPkgInfo := getPackageInfo(targetDir)
+
 	extractor := output.NewSnippetExtractor()
 
-	// Get transitive callers (for functions/methods)
+	// Collect all callers and references, grouped by directory
+	type locationInfo struct {
+		file    string
+		line    int
+		symbol  string
+		inTest  bool
+		isCaller bool
+	}
+	allLocations := []locationInfo{}
+	callerLocations := make(map[string]bool) // for deduping refs
+
+	// Get callers (for functions/methods)
 	if resolved.Kind == lsp.SymbolKindFunction || resolved.Kind == lsp.SymbolKindMethod {
 		items, err := client.PrepareCallHierarchy(ctx, resolved.URI, resolved.Position)
 		if err == nil && len(items) > 0 {
 			traverser := traverse.NewTraverser(client)
 			opts := traverse.Options{
 				Direction:    traverse.Up,
-				MaxDepth:     1, // Direct callers only
+				MaxDepth:     1,
 				ExcludeTests: symbolExcludeTests,
 			}
 
 			callers, err := traverser.GetCallers(ctx, items[0], opts)
 			if err == nil {
 				for _, caller := range callers {
-					// Use call site line if available
 					callLine := caller.Line
 					if len(caller.CallRanges) > 0 {
 						callLine = caller.CallRanges[0].Start.Line + 1
 					}
-
-					cat := output.SymbolLocation{
-						Symbol: caller.Symbol,
-						File:   output.AbsolutePath(caller.File),
-						Line:   callLine,
-											}
-					if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(caller.File, callLine); err == nil {
-						cat.Snippet = snippet
-						cat.SnippetStart = snippetStart
-						cat.SnippetEnd = snippetEnd
-					}
-					usage.Callers = append(usage.Callers, cat)
-					if caller.InTest {
-						inTestsCount++
-					}
+					absFile := output.AbsolutePath(caller.File)
+					key := fmt.Sprintf("%s:%d", absFile, callLine)
+					callerLocations[key] = true
+					allLocations = append(allLocations, locationInfo{
+						file:     caller.File,
+						line:     callLine,
+						symbol:   caller.Symbol,
+						inTest:   caller.InTest,
+						isCaller: true,
+					})
 				}
-				callersCount = len(callers)
 			}
 		}
 	}
 
-	// Build set of caller locations to dedupe references
-	callerLocations := make(map[string]bool)
-	for _, caller := range usage.Callers {
-		key := fmt.Sprintf("%s:%d", caller.File, caller.Line)
-		callerLocations[key] = true
-	}
-
-	// Get all references (excluding those already in callers)
+	// Get references (excluding those already in callers)
 	refs, err := client.References(ctx, resolved.URI, resolved.Position, false)
 	if err == nil {
 		for _, ref := range refs {
 			file := lsp.URIToPath(ref.URI)
 			isTest := output.IsTestFile(file)
-
 			if symbolExcludeTests && isTest {
 				continue
 			}
-
 			line := ref.Range.Start.Line + 1
 			absFile := output.AbsolutePath(file)
-
-			// Skip if already covered by callers
 			key := fmt.Sprintf("%s:%d", absFile, line)
 			if callerLocations[key] {
 				continue
 			}
-
-			cat := output.SymbolLocation{
-				File:   absFile,
-				Line:   line,
-							}
-			if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line); err == nil {
-				cat.Snippet = snippet
-				cat.SnippetStart = snippetStart
-				cat.SnippetEnd = snippetEnd
-			}
-			usage.References = append(usage.References, cat)
-			if isTest {
-				inTestsCount++
-			}
+			allLocations = append(allLocations, locationInfo{
+				file:     file,
+				line:     line,
+				symbol:   "", // references don't have a symbol name
+				inTest:   isTest,
+				isCaller: false,
+			})
 		}
-		refsCount = len(usage.References)
+	}
+
+	// Group locations by package directory
+	type pkgData struct {
+		info       pkgInfo
+		callers    []output.Location
+		references []output.Location
+		inTests    int
+	}
+	pkgMap := make(map[string]*pkgData)
+
+	for _, loc := range allLocations {
+		dir := filepath.Dir(loc.file)
+		if _, ok := pkgMap[dir]; !ok {
+			pkgMap[dir] = &pkgData{info: getPackageInfo(dir)}
+		}
+		pd := pkgMap[dir]
+
+		// Build location
+		fileName := filepath.Base(loc.file)
+		snippet, snippetStart, snippetEnd, _ := extractor.ExtractSmart(loc.file, loc.line)
+		oloc := output.Location{
+			Location: fmt.Sprintf("%s:%d", fileName, loc.line),
+			Symbol:   loc.symbol,
+			Snippet: output.Snippet{
+				Location: fmt.Sprintf("%s:%d:%d", fileName, snippetStart, snippetEnd),
+				Source:   snippet,
+			},
+		}
+
+		if loc.isCaller {
+			pd.callers = append(pd.callers, oloc)
+		} else {
+			pd.references = append(pd.references, oloc)
+		}
+		if loc.inTest {
+			pd.inTests++
+		}
+	}
+
+	// Build PackageUsage list, with target package first
+	var packages []output.PackageUsage
+	var pkgDirs []string
+	for dir := range pkgMap {
+		pkgDirs = append(pkgDirs, dir)
+	}
+	sort.Strings(pkgDirs)
+
+	// Move target package to front
+	for i, dir := range pkgDirs {
+		if dir == targetDir {
+			pkgDirs = append([]string{dir}, append(pkgDirs[:i], pkgDirs[i+1:]...)...)
+			break
+		}
+	}
+
+	for _, dir := range pkgDirs {
+		pd := pkgMap[dir]
+		packages = append(packages, output.PackageUsage{
+			Package:    pd.info.importPath,
+			Dir:        pd.info.dir,
+			Callers:    pd.callers,
+			References: pd.references,
+		})
 	}
 
 	// Get implementations (for interfaces)
+	var implementations []output.SymbolLocation
 	if resolved.Kind == lsp.SymbolKindInterface {
 		impls, err := client.Implementation(ctx, resolved.URI, resolved.Position)
 		if err == nil {
 			for _, impl := range impls {
 				file := lsp.URIToPath(impl.URI)
 				isTest := output.IsTestFile(file)
-
 				if symbolExcludeTests && isTest {
 					continue
 				}
-
 				line := impl.Range.Start.Line + 1
-				cat := output.SymbolLocation{
-					File:   output.AbsolutePath(file),
-					Line:   line,
-									}
-				if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line); err == nil {
-					cat.Snippet = snippet
-					cat.SnippetStart = snippetStart
-					cat.SnippetEnd = snippetEnd
-				}
-				usage.Implementations = append(usage.Implementations, cat)
-				if isTest {
-					inTestsCount++
-				}
+				absFile := output.AbsolutePath(file)
+				fileName := filepath.Base(file)
+				snippet, snippetStart, snippetEnd, _ := extractor.ExtractSmart(file, line)
+				implementations = append(implementations, output.SymbolLocation{
+					Location: fmt.Sprintf("%s:%d", absFile, line),
+					Symbol:   "", // TODO: get type name
+					Snippet: output.Snippet{
+						Location: fmt.Sprintf("%s:%d:%d", fileName, snippetStart, snippetEnd),
+						Source:   snippet,
+					},
+				})
 			}
-			implsCount = len(usage.Implementations)
 		}
 	}
 
-	// Get satisfies (for types - what interfaces they implement)
-	var satisfiesCount int
+	// Get satisfies (for types)
+	var satisfies []output.SymbolLocation
 	if resolved.Kind == lsp.SymbolKindStruct || resolved.Kind == lsp.SymbolKindClass {
 		items, err := client.PrepareTypeHierarchy(ctx, resolved.URI, resolved.Position)
 		if err == nil && len(items) > 0 {
 			supertypes, err := client.Supertypes(ctx, items[0])
 			if err == nil {
-				workDir, _ := os.Getwd()
 				directDeps := golang.DirectDeps(workDir)
-
 				for _, st := range supertypes {
 					file := lsp.URIToPath(st.URI)
-
-					// Filter indirect dependencies
 					if !golang.IsDirectDep(file, directDeps) {
 						continue
 					}
-
 					line := st.Range.Start.Line + 1
-					cat := output.SymbolLocation{
-						Symbol: st.Name,
-						File:   output.AbsolutePath(file),
-						Line:   line,
-											}
-					if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line); err == nil {
-						cat.Snippet = snippet
-						cat.SnippetStart = snippetStart
-						cat.SnippetEnd = snippetEnd
-					}
-					usage.Satisfies = append(usage.Satisfies, cat)
+					absFile := output.AbsolutePath(file)
+					fileName := filepath.Base(file)
+					snippet, snippetStart, snippetEnd, _ := extractor.ExtractSmart(file, line)
+					satisfies = append(satisfies, output.SymbolLocation{
+						Location: fmt.Sprintf("%s:%d", absFile, line),
+						Symbol:   st.Name,
+						Snippet: output.Snippet{
+							Location: fmt.Sprintf("%s:%d:%d", fileName, snippetStart, snippetEnd),
+							Source:   snippet,
+						},
+					})
 				}
-				satisfiesCount = len(usage.Satisfies)
 			}
 		}
 	}
 
-	totalLocations := callersCount + refsCount + implsCount + satisfiesCount
+	// Get imported_by - packages that import the target package
+	importedBy, _ := findImportedBy(workDir, targetPkgInfo.importPath)
+	var importedByPkgs []string
+	for _, dep := range importedBy {
+		importedByPkgs = append(importedByPkgs, dep.Package)
+	}
+
+	// Compute summaries
+	var projectCallers, projectRefs, projectTests int
+	var pkgCallers, pkgRefs, pkgTests int
+	for dir, pd := range pkgMap {
+		projectCallers += len(pd.callers)
+		projectRefs += len(pd.references)
+		projectTests += pd.inTests
+		if dir == targetDir {
+			pkgCallers = len(pd.callers)
+			pkgRefs = len(pd.references)
+			pkgTests = pd.inTests
+		}
+	}
+
+	// For now, query summary equals package summary (default scope)
+	querySummary := output.SymbolSummary{
+		Callers:         pkgCallers,
+		References:      pkgRefs,
+		Implementations: len(implementations),
+		Satisfies:       len(satisfies),
+		InTests:         pkgTests,
+	}
+	packageSummary := querySummary
+	projectSummary := output.SymbolSummary{
+		Callers:         projectCallers,
+		References:      projectRefs,
+		Implementations: len(implementations),
+		Satisfies:       len(satisfies),
+		InTests:         projectTests,
+	}
 
 	return &output.SymbolResponse{
 		Query: output.QueryInfo{
@@ -333,18 +415,33 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		Target: output.TargetInfo{
 			Symbol: resolved.Name,
 			Kind:   kind,
-			File:   output.AbsolutePath(lsp.URIToPath(resolved.URI)),
+			File:   output.AbsolutePath(targetFile),
 			Line:   resolved.Position.Line + 1,
 		},
-		Usage: usage,
-		Summary: output.SymbolSummary{
-			TotalLocations:  totalLocations,
-			Callers:         callersCount,
-			References:      refsCount,
-			Implementations: implsCount,
-			Satisfies:       satisfiesCount,
-			InTests:         inTestsCount,
-		},
+		ImportedBy:        importedByPkgs,
+		Packages:          packages,
+		Implementations:   implementations,
+		Satisfies:         satisfies,
+		QuerySummary:      querySummary,
+		PackageSummary:    packageSummary,
+		ProjectSummary:    projectSummary,
 		OtherFuzzyMatches: similarSymbols,
 	}, nil
+}
+
+// pkgInfo holds package metadata
+type pkgInfo struct {
+	importPath string
+	dir        string
+}
+
+// getPackageInfo gets package info for a directory
+func getPackageInfo(dir string) pkgInfo {
+	absDir := output.AbsolutePath(dir)
+	// Try go list to get import path
+	if importPath, err := golang.ResolvePackagePath(dir, dir); err == nil {
+		return pkgInfo{importPath: importPath, dir: absDir}
+	}
+	// Fallback to directory path
+	return pkgInfo{importPath: absDir, dir: absDir}
 }
