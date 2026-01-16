@@ -229,20 +229,27 @@ func (f *MarkdownFormatter) Format(result any) ([]byte, error) {
 
 func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[string]any) {
 	// Check for error response
-	if errMsg, ok := data["error"].(string); ok && errMsg != "" {
-		if query, ok := data["query"].(map[string]any); ok {
-			target, _ := query["target"].(string)
-			buf.WriteString(fmt.Sprintf("# Error: %s\n\n", target))
+	if errData, ok := data["error"].(map[string]any); ok {
+		msg, _ := errData["message"].(string)
+		buf.WriteString(fmt.Sprintf("# Error\n\n**%s**\n\n", msg))
+		if suggestions, ok := errData["suggestions"].([]any); ok && len(suggestions) > 0 {
+			buf.WriteString("Did you mean:\n")
+			for _, s := range suggestions {
+				buf.WriteString(fmt.Sprintf("- %v\n", s))
+			}
 		}
-		buf.WriteString(fmt.Sprintf("**Error:** %s\n\n", errMsg))
 		return
 	}
 
 	// Get query info for title
 	if query, ok := data["query"].(map[string]any); ok {
 		cmd, _ := query["command"].(string)
-		target, _ := query["target"].(string)
-		buf.WriteString(fmt.Sprintf("# %s: %s\n\n", strings.Title(cmd), target))
+		// Try target first (symbol), then pattern (search)
+		title, _ := query["target"].(string)
+		if title == "" {
+			title, _ = query["pattern"].(string)
+		}
+		buf.WriteString(fmt.Sprintf("# %s: %s\n\n", strings.Title(cmd), title))
 	}
 
 	// Format results as table with snippets
@@ -330,6 +337,60 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		}
 	}
 
+	// Format packages array (search and symbol commands)
+	if packages, ok := data["packages"].([]any); ok && len(packages) > 0 {
+		for _, pkg := range packages {
+			pkgMap, ok := pkg.(map[string]any)
+			if !ok {
+				continue
+			}
+			pkgName, _ := pkgMap["package"].(string)
+			pkgDir, _ := pkgMap["dir"].(string)
+
+			buf.WriteString(fmt.Sprintf("## %s\n\n", pkgName))
+			if pkgDir != "" {
+				buf.WriteString(fmt.Sprintf("**Dir:** `%s`\n\n", pkgDir))
+			}
+
+			// Handle search matches
+			if matches, ok := pkgMap["matches"].([]any); ok && len(matches) > 0 {
+				buf.WriteString("| Symbol | Kind | Location |\n")
+				buf.WriteString("|--------|------|----------|\n")
+				for _, m := range matches {
+					if match, ok := m.(map[string]any); ok {
+						symbol, _ := match["symbol"].(string)
+						kind, _ := match["kind"].(string)
+						location, _ := match["location"].(string)
+						buf.WriteString(fmt.Sprintf("| %s | %s | %s |\n", symbol, kind, location))
+					}
+				}
+				buf.WriteString("\n")
+			}
+
+			// Handle symbol callers
+			if callers, ok := pkgMap["callers"].([]any); ok && len(callers) > 0 {
+				f.formatPackageLocations(buf, callers, "Callers")
+			}
+
+			// Handle symbol references
+			if refs, ok := pkgMap["references"].([]any); ok && len(refs) > 0 {
+				f.formatPackageLocations(buf, refs, "References")
+			}
+		}
+	}
+
+	// Format target info (symbol command)
+	if target, ok := data["target"].(map[string]any); ok {
+		symbol, _ := target["symbol"].(string)
+		kind, _ := target["kind"].(string)
+		file, _ := target["file"].(string)
+		line, _ := target["line"].(float64)
+		buf.WriteString("## Definition\n\n")
+		buf.WriteString(fmt.Sprintf("- **Symbol:** %s\n", symbol))
+		buf.WriteString(fmt.Sprintf("- **Kind:** %s\n", kind))
+		buf.WriteString(fmt.Sprintf("- **Location:** %s:%.0f\n\n", file, line))
+	}
+
 	// Format implementations (for implements command)
 	if impls, ok := data["implementations"].([]any); ok && len(impls) > 0 {
 		f.formatResultsTable(buf, impls, "Implementations")
@@ -340,7 +401,7 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		f.formatResultsTable(buf, ifaces, "Interfaces")
 	}
 
-	// Format impact sections
+	// Format impact sections (legacy)
 	if impact, ok := data["impact"].(map[string]any); ok {
 		if callers, ok := impact["callers"].([]any); ok && len(callers) > 0 {
 			f.formatResultsTable(buf, callers, "Callers")
@@ -353,10 +414,85 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		}
 	}
 
-	// Format tree if present
+	// Format tree if present (legacy format)
 	if tree, ok := data["tree"].(map[string]any); ok {
 		buf.WriteString("## Call Tree\n\n")
 		writeMarkdownTree(buf, tree, 0)
+		buf.WriteString("\n")
+	}
+
+	// Format paths (tree command output)
+	if paths, ok := data["paths"].([]any); ok && len(paths) > 0 {
+		buf.WriteString("## Call Paths\n\n")
+		for i, path := range paths {
+			if pathArr, ok := path.([]any); ok && len(pathArr) > 0 {
+				buf.WriteString(fmt.Sprintf("### Path %d\n\n", i+1))
+				for j, step := range pathArr {
+					stepStr, _ := step.(string)
+					indent := strings.Repeat("  ", j)
+					if j == 0 {
+						buf.WriteString(fmt.Sprintf("%s- `%s`\n", indent, stepStr))
+					} else {
+						buf.WriteString(fmt.Sprintf("%s→ `%s`\n", indent, stepStr))
+					}
+				}
+				buf.WriteString("\n")
+			}
+		}
+	}
+
+	// Format functions (tree command - map format)
+	if functions, ok := data["functions"].(map[string]any); ok && len(functions) > 0 {
+		buf.WriteString("## Functions\n\n")
+		buf.WriteString("| Function | File | Line |\n")
+		buf.WriteString("|----------|------|------|\n")
+		for name, info := range functions {
+			if infoMap, ok := info.(map[string]any); ok {
+				file, _ := infoMap["file"].(string)
+				line, _ := infoMap["line"].(float64)
+				buf.WriteString(fmt.Sprintf("| %s | %s | %.0f |\n", name, filepath.Base(file), line))
+			}
+		}
+		buf.WriteString("\n")
+	}
+
+	// Format package info
+	if pkgInfo, ok := data["package"].(map[string]any); ok {
+		importPath, _ := pkgInfo["import_path"].(string)
+		dir, _ := pkgInfo["dir"].(string)
+		if dir != "" {
+			buf.WriteString(fmt.Sprintf("**Dir:** `%s`\n\n", dir))
+		}
+		if importPath != "" && importPath != dir {
+			buf.WriteString(fmt.Sprintf("**Import:** `%s`\n\n", importPath))
+		}
+	}
+
+	// Format package symbols (constants, functions, types)
+	f.formatPackageSymbols(buf, data, "constants", "Constants")
+	f.formatPackageSymbols(buf, data, "functions", "Functions")
+	f.formatPackageSymbols(buf, data, "types", "Types")
+
+	// Format imports/imported_by
+	if imports, ok := data["imports"].([]any); ok && len(imports) > 0 {
+		buf.WriteString("## Imports\n\n")
+		for _, imp := range imports {
+			if impMap, ok := imp.(map[string]any); ok {
+				path, _ := impMap["path"].(string)
+				buf.WriteString(fmt.Sprintf("- `%s`\n", path))
+			}
+		}
+		buf.WriteString("\n")
+	}
+
+	if importedBy, ok := data["imported_by"].([]any); ok && len(importedBy) > 0 {
+		buf.WriteString("## Imported By\n\n")
+		for _, imp := range importedBy {
+			if impMap, ok := imp.(map[string]any); ok {
+				path, _ := impMap["path"].(string)
+				buf.WriteString(fmt.Sprintf("- `%s`\n", path))
+			}
+		}
 		buf.WriteString("\n")
 	}
 
@@ -445,6 +581,83 @@ func (f *MarkdownFormatter) formatResultsTable(buf *bytes.Buffer, results []any,
 				buf.WriteString("```go\n")
 				buf.WriteString(snippet)
 				if !strings.HasSuffix(snippet, "\n") {
+					buf.WriteString("\n")
+				}
+				buf.WriteString("```\n\n")
+			}
+		}
+	}
+}
+
+// formatPackageSymbols formats package command symbol arrays (constants, functions, types)
+func (f *MarkdownFormatter) formatPackageSymbols(buf *bytes.Buffer, data map[string]any, key, title string) {
+	symbols, ok := data[key].([]any)
+	if !ok || len(symbols) == 0 {
+		return
+	}
+
+	buf.WriteString(fmt.Sprintf("## %s\n\n", title))
+	buf.WriteString("| Signature | Location |\n")
+	buf.WriteString("|-----------|----------|\n")
+
+	for _, sym := range symbols {
+		if symMap, ok := sym.(map[string]any); ok {
+			sig, _ := symMap["signature"].(string)
+			loc, _ := symMap["location"].(string)
+			// Escape pipes in signature
+			sig = strings.ReplaceAll(sig, "|", "\\|")
+			buf.WriteString(fmt.Sprintf("| `%s` | %s |\n", sig, loc))
+		}
+	}
+	buf.WriteString("\n")
+}
+
+// formatPackageLocations formats Location items from symbol command packages
+func (f *MarkdownFormatter) formatPackageLocations(buf *bytes.Buffer, locations []any, title string) {
+	buf.WriteString(fmt.Sprintf("### %s\n\n", title))
+	buf.WriteString("| Location | Symbol |\n")
+	buf.WriteString("|----------|--------|\n")
+
+	for _, loc := range locations {
+		if locMap, ok := loc.(map[string]any); ok {
+			location, _ := locMap["location"].(string)
+			symbol, _ := locMap["symbol"].(string)
+			buf.WriteString(fmt.Sprintf("| %s | %s |\n", location, symbol))
+		}
+	}
+	buf.WriteString("\n")
+
+	// Add snippets if present
+	hasSnippets := false
+	for _, loc := range locations {
+		if locMap, ok := loc.(map[string]any); ok {
+			if snippet, ok := locMap["snippet"].(map[string]any); ok {
+				if _, ok := snippet["source"].(string); ok {
+					hasSnippets = true
+					break
+				}
+			}
+		}
+	}
+
+	if hasSnippets {
+		buf.WriteString(fmt.Sprintf("#### %s Snippets\n\n", title))
+		for i, loc := range locations {
+			if locMap, ok := loc.(map[string]any); ok {
+				snippet, ok := locMap["snippet"].(map[string]any)
+				if !ok {
+					continue
+				}
+				source, _ := snippet["source"].(string)
+				if source == "" {
+					continue
+				}
+				snippetLoc, _ := snippet["location"].(string)
+
+				buf.WriteString(fmt.Sprintf("##### %d. %s\n\n", i+1, snippetLoc))
+				buf.WriteString("```go\n")
+				buf.WriteString(source)
+				if !strings.HasSuffix(source, "\n") {
 					buf.WriteString("\n")
 				}
 				buf.WriteString("```\n\n")

@@ -104,21 +104,21 @@ wildcat symbol internal/server.Start # path/package.Function
 Control which packages are included in results:
 
 ```bash
-# search: default is all packages (including dependencies)
-wildcat search Config
-wildcat search --scope project Config         # only project packages
+# search: default is project packages
+wildcat search Config                         # project packages (default)
+wildcat search --scope all Config             # include external dependencies
 wildcat search --scope internal/lsp Config    # specific package
 
-# symbol: default is target package only
-wildcat symbol lsp.Client                     # callers in lsp package
-wildcat symbol --scope project lsp.Client     # callers across project
+# symbol: default is project packages
+wildcat symbol lsp.Client                     # callers across project (default)
+wildcat symbol --scope package lsp.Client     # callers in target package only
 wildcat symbol --scope cmd,internal/lsp Client # specific packages
 ```
 
-| Command | Default scope | `--scope project` |
-|---------|---------------|-------------------|
-| search | all (including deps) | project packages only |
-| symbol | target package | all project packages |
+| Command | Default | Other scopes |
+|---------|---------|--------------|
+| search | project | `all`, comma-separated packages |
+| symbol | project | `package` (target only), comma-separated |
 
 ## Features
 

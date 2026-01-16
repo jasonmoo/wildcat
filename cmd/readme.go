@@ -56,9 +56,9 @@ func printCompactReadme() {
 - Method                 Type.Method, Server.Start
 - Full path              path/to/pkg.Function
 
-## Scope Filtering
-- search (default: all)        --scope project, --scope internal/lsp
-- symbol (default: target pkg) --scope project, --scope cmd,lsp
+## Scope Filtering (default: project)
+- search: --scope all (include deps), --scope internal/lsp
+- symbol: --scope package (target only), --scope cmd,lsp
 
 ## Common Flags
 - --scope SCOPE          Filter packages (project, or comma-separated)
@@ -93,14 +93,14 @@ Uses gopls (Go Language Server) for semantic understanding of Go code.
 
 ### search - Find symbols
 `+"`"+`wildcat search Config`+"`"+`
-`+"`"+`wildcat search --scope project Config`+"`"+`
+`+"`"+`wildcat search --scope all Config`+"`"+`
 
 Fuzzy search across the workspace. Returns functions, types, methods, constants.
-Default shows all packages (including dependencies). Use --scope to filter.
+Default shows project packages. Use --scope all to include dependencies.
 
 ### symbol - Complete symbol analysis
 `+"`"+`wildcat symbol lsp.Client`+"`"+`
-`+"`"+`wildcat symbol --scope project lsp.Client`+"`"+`
+`+"`"+`wildcat symbol --scope package lsp.Client`+"`"+`
 
 Everything about a symbol in one query:
 - Definition location
@@ -109,7 +109,7 @@ Everything about a symbol in one query:
 - Implements (for interfaces): types that implement it
 - Satisfies (for types): interfaces it implements
 
-Default shows callers in target package only. Use --scope project for all project packages.
+Default shows callers across project. Use --scope package for target package only.
 
 ### package - Package profile
 `+"`"+`wildcat package ./internal/output`+"`"+`
@@ -152,10 +152,10 @@ Channel operations grouped by type: makes, sends, receives, closes, selects.
 
 ## Scope Filtering
 
-| Command | Default | --scope project |
-|---------|---------|-----------------|
-| search | all (including deps) | project packages only |
-| symbol | target package only | all project packages |
+| Command | Default | Other scopes |
+|---------|---------|--------------|
+| search | project | all (include deps), comma-separated |
+| symbol | project | package (target only), comma-separated |
 
 ## Workflow Patterns
 

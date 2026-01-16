@@ -29,11 +29,10 @@ Query Syntax:
   cfg            Abbreviation match - matches "Config"
 
 Examples:
-  wildcat search Resolve                        # functions/types matching Resolve
-  wildcat search NewClient                      # exact or fuzzy matches
-  wildcat search --limit 5 Config               # top 5 matches for Config
-  wildcat search --scope project Config         # only project packages
-  wildcat search --scope internal/lsp Client    # specific package`,
+  wildcat search Resolve                        # project packages (default)
+  wildcat search --scope all Config             # include external dependencies
+  wildcat search --scope internal/lsp Client    # specific package
+  wildcat search --limit 5 Config               # top 5 matches`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSearch,
 }
@@ -47,7 +46,7 @@ func init() {
 	rootCmd.AddCommand(searchCmd)
 
 	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Maximum results (max 100)")
-	searchCmd.Flags().StringVar(&searchScope, "scope", "", "Scope: 'project', or comma-separated packages (default: all)")
+	searchCmd.Flags().StringVar(&searchScope, "scope", "project", "Scope: 'project' (default), 'all', or comma-separated packages")
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
@@ -118,8 +117,8 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		)
 	}
 
-	// Apply scope filter if specified
-	if searchScope != "" {
+	// Apply scope filter (default is "project", "all" skips filtering)
+	if searchScope != "all" {
 		symbols = filterSymbolsByScope(symbols, searchScope, workDir)
 	}
 

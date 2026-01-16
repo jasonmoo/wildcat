@@ -30,10 +30,10 @@ Returns:
   - Interface relationships (satisfies/implements)
 
 Examples:
-  wildcat symbol config.Config
-  wildcat symbol Server.Start
-  wildcat symbol Handler
-  wildcat symbol FileURI URIToPath    # multiple symbols`,
+  wildcat symbol config.Config                  # callers across project (default)
+  wildcat symbol --scope package Server.Start   # callers in target package only
+  wildcat symbol --scope cmd,lsp Handler        # callers in specific packages
+  wildcat symbol FileURI URIToPath              # multiple symbols`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSymbol,
 }
@@ -47,7 +47,7 @@ func init() {
 	rootCmd.AddCommand(symbolCmd)
 
 	symbolCmd.Flags().BoolVar(&symbolExcludeTests, "exclude-tests", false, "Exclude test files")
-	symbolCmd.Flags().StringVar(&symbolScope, "scope", "", "Scope: 'project' (all), or comma-separated packages (default: target package)")
+	symbolCmd.Flags().StringVar(&symbolScope, "scope", "project", "Scope: 'project' (default), 'package' (target only), or comma-separated")
 }
 
 func runSymbol(cmd *cobra.Command, args []string) error {
@@ -503,7 +503,8 @@ func getPackageInfo(dir string) pkgInfo {
 //   - "project": returns nil (caller checks project prefix)
 //   - "pkg1,pkg2,...": comma-separated list of packages (resolved via golang.ResolvePackagePath)
 func resolveScopePackages(scope, targetPkgImportPath, workDir string) map[string]bool {
-	if scope == "" {
+	if scope == "package" || scope == "" {
+		// Target package only
 		return map[string]bool{targetPkgImportPath: true}
 	}
 	if scope == "project" {
