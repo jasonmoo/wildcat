@@ -17,7 +17,7 @@ import (
 )
 
 var channelsCmd = &cobra.Command{
-	Use:   "channels [packages...]",
+	Use:   "channels <package> ...",
 	Short: "Show channel operations in packages",
 	Long: `Report all channel operations grouped by package and element type.
 
@@ -25,9 +25,10 @@ Shows makes, sends, receives, closes, and select cases for channels.
 Useful for understanding concurrency patterns without precise pointer analysis.
 
 Examples:
-  wildcat channels                         # Current package
+  wildcat channels .                       # Current package
   wildcat channels ./internal/lsp          # Specific package
   wildcat channels internal/lsp internal/output  # Multiple packages`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runChannels,
 }
 
@@ -82,16 +83,13 @@ func runChannels(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve package paths
-	pkgPaths := []string{"."}
-	if len(args) > 0 {
-		pkgPaths = make([]string, 0, len(args))
-		for _, arg := range args {
-			resolved, err := golang.ResolvePackagePath(arg, workDir)
-			if err != nil {
-				return writer.WriteError("package_not_found", fmt.Sprintf("cannot resolve %q: %v", arg, err), nil, nil)
-			}
-			pkgPaths = append(pkgPaths, resolved)
+	pkgPaths := make([]string, 0, len(args))
+	for _, arg := range args {
+		resolved, err := golang.ResolvePackagePath(arg, workDir)
+		if err != nil {
+			return writer.WriteError("package_not_found", fmt.Sprintf("cannot resolve %q: %v", arg, err), nil, nil)
 		}
+		pkgPaths = append(pkgPaths, resolved)
 	}
 
 	// Build query target string for output
