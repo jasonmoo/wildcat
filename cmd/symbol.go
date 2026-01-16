@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jasonmoo/wildcat/internal/errors"
+	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/lsp"
 	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/jasonmoo/wildcat/internal/symbols"
@@ -288,7 +289,44 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		}
 	}
 
-	totalLocations := callersCount + refsCount + implsCount
+	// Get satisfies (for types - what interfaces they implement)
+	var satisfiesCount int
+	if resolved.Kind == lsp.SymbolKindStruct || resolved.Kind == lsp.SymbolKindClass {
+		items, err := client.PrepareTypeHierarchy(ctx, resolved.URI, resolved.Position)
+		if err == nil && len(items) > 0 {
+			supertypes, err := client.Supertypes(ctx, items[0])
+			if err == nil {
+				workDir, _ := os.Getwd()
+				directDeps := golang.DirectDeps(workDir)
+
+				for _, st := range supertypes {
+					file := lsp.URIToPath(st.URI)
+
+					// Filter indirect dependencies
+					if !golang.IsDirectDep(file, directDeps) {
+						continue
+					}
+
+					line := st.Range.Start.Line + 1
+					cat := output.SymbolLocation{
+						Symbol: st.Name,
+						File:   output.AbsolutePath(file),
+						Line:   line,
+						Reason: "interface satisfied by this type",
+					}
+					if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line); err == nil {
+						cat.Snippet = snippet
+						cat.SnippetStart = snippetStart
+						cat.SnippetEnd = snippetEnd
+					}
+					usage.Satisfies = append(usage.Satisfies, cat)
+				}
+				satisfiesCount = len(usage.Satisfies)
+			}
+		}
+	}
+
+	totalLocations := callersCount + refsCount + implsCount + satisfiesCount
 
 	return &output.SymbolResponse{
 		Query: output.QueryInfo{
@@ -308,6 +346,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 			Callers:         callersCount,
 			References:      refsCount,
 			Implementations: implsCount,
+			Satisfies:       satisfiesCount,
 			InTests:         inTestsCount,
 		},
 		OtherFuzzyMatches: similarSymbols,

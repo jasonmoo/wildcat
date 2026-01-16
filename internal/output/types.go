@@ -123,7 +123,8 @@ type SymbolDependent struct {
 type SymbolUsage struct {
 	Callers         []SymbolLocation  `json:"callers,omitempty"`
 	References      []SymbolLocation  `json:"references,omitempty"`
-	Implementations []SymbolLocation  `json:"implementations,omitempty"`
+	Implementations []SymbolLocation  `json:"implementations,omitempty"` // types implementing this interface
+	Satisfies       []SymbolLocation  `json:"satisfies,omitempty"`       // interfaces this type satisfies
 	Dependents      []SymbolDependent `json:"dependents,omitempty"`
 }
 
@@ -133,6 +134,7 @@ type SymbolSummary struct {
 	Callers           int `json:"callers"`
 	References        int `json:"references"`
 	Implementations   int `json:"implementations"`
+	Satisfies         int `json:"satisfies"`
 	DependentPackages int `json:"dependent_packages"`
 	InTests           int `json:"in_tests"`
 }
@@ -145,35 +147,6 @@ type SymbolResponse struct {
 	Summary           SymbolSummary `json:"summary,omitempty"`
 	OtherFuzzyMatches []string      `json:"other_fuzzy_matches,omitempty"`
 	Error             string        `json:"error,omitempty"` // populated on error in multi-symbol queries
-}
-
-// ImplementsResponse is the output for the implements command.
-type ImplementsResponse struct {
-	Query           QueryInfo  `json:"query"`
-	Interface       TargetInfo `json:"interface,omitempty"`
-	Implementations []Result   `json:"implementations,omitempty"`
-	Summary         Summary    `json:"summary,omitempty"`
-	Error           string     `json:"error,omitempty"` // populated on error in multi-symbol queries
-}
-
-// SatisfiesResponse is the output for the satisfies command.
-type SatisfiesResponse struct {
-	Query      QueryInfo         `json:"query"`
-	Type       TargetInfo        `json:"type,omitempty"`
-	Interfaces []InterfaceResult `json:"interfaces,omitempty"`
-	Summary    Summary           `json:"summary,omitempty"`
-	Error      string            `json:"error,omitempty"` // populated on error in multi-symbol queries
-}
-
-// InterfaceResult represents an interface that a type satisfies.
-type InterfaceResult struct {
-	Symbol       string   `json:"symbol"`
-	File         string   `json:"file"`
-	Line         int      `json:"line"`
-	Methods      []string `json:"methods,omitempty"`
-	Snippet      string   `json:"snippet,omitempty"`
-	SnippetStart int      `json:"snippet_start,omitempty"`
-	SnippetEnd   int      `json:"snippet_end,omitempty"`
 }
 
 // DepResult represents a package dependency.
