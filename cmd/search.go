@@ -280,13 +280,9 @@ func filterSymbolsByScope(symbols []lsp.SymbolInformation, scope, workDir string
 	if len(filter.includes) == 0 {
 		filtered := make([]lsp.SymbolInformation, 0, len(symbols))
 		for _, sym := range symbols {
-			if !strings.HasPrefix(sym.ContainerName, projectRoot) {
-				continue
+			if strings.HasPrefix(sym.ContainerName, projectRoot) && !excludes[sym.ContainerName] {
+				filtered = append(filtered, sym)
 			}
-			if excludes[sym.ContainerName] {
-				continue
-			}
-			filtered = append(filtered, sym)
 		}
 		return filtered
 	}
@@ -301,13 +297,9 @@ func filterSymbolsByScope(symbols []lsp.SymbolInformation, scope, workDir string
 
 	filtered := make([]lsp.SymbolInformation, 0, len(symbols))
 	for _, sym := range symbols {
-		if !includes[sym.ContainerName] {
-			continue
+		if includes[sym.ContainerName] && !excludes[sym.ContainerName] {
+			filtered = append(filtered, sym)
 		}
-		if excludes[sym.ContainerName] {
-			continue
-		}
-		filtered = append(filtered, sym)
 	}
 	return filtered
 }
