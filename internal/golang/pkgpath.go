@@ -1,9 +1,10 @@
 package golang
 
 import (
+	"encoding/json"
 	"fmt"
-	"go/build"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,7 +18,7 @@ import (
 var reservedPatterns = []string{"all", "cmd", "main", "std", "tool"}
 
 // ResolvePackagePath attempts to resolve a user-provided package path to its
-// full import path. It handles:
+// full module-qualified import path. It handles:
 //   - Full import paths: github.com/user/repo/pkg -> as-is
 //   - Relative paths: ./internal/lsp -> resolved to full import path
 //   - Bare paths: internal/lsp -> tries ./internal/lsp if exists locally
@@ -38,10 +39,9 @@ func ResolvePackagePath(path, srcDir string) (string, error) {
 		return "", fmt.Errorf("cannot resolve %q: reserved Go pattern %v (expands to multiple packages); use ./%s for local package", path, reservedPatterns, path)
 	}
 
-	// Try direct import (stdlib, full paths, ./ paths)
-	pkg, err := build.Import(path, srcDir, build.FindOnly)
-	if err == nil {
-		return pkg.ImportPath, nil
+	// Try go list first - it returns the canonical module-qualified import path
+	if importPath, err := goListImportPath(path, srcDir); err == nil {
+		return importPath, nil
 	}
 
 	// If path doesn't start with "." but exists locally, try with "./" prefix
@@ -49,12 +49,29 @@ func ResolvePackagePath(path, srcDir string) (string, error) {
 	if !strings.HasPrefix(path, ".") {
 		localPath := filepath.Join(srcDir, path)
 		if _, statErr := os.Stat(localPath); statErr == nil {
-			pkg, err = build.Import("./"+path, srcDir, build.FindOnly)
-			if err == nil {
-				return pkg.ImportPath, nil
+			if importPath, err := goListImportPath("./"+path, srcDir); err == nil {
+				return importPath, nil
 			}
 		}
 	}
 
-	return "", fmt.Errorf("cannot resolve package %q: %w", path, err)
+	return "", fmt.Errorf("cannot resolve package %q", path)
+}
+
+// goListImportPath uses go list to get the canonical import path for a package.
+func goListImportPath(path, srcDir string) (string, error) {
+	cmd := exec.Command("go", "list", "-json", path)
+	cmd.Dir = srcDir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	var pkg struct {
+		ImportPath string `json:"ImportPath"`
+	}
+	if err := json.Unmarshal(out, &pkg); err != nil {
+		return "", err
+	}
+	return pkg.ImportPath, nil
 }
