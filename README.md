@@ -29,7 +29,7 @@ callHierarchy/incomingCalls(item)             # Step 3: Get direct callers
 Wildcat is purpose-built for AI agents. One query, actionable results.
 
 ```bash
-wildcat callers config.Load
+wildcat symbol config.Load
 ```
 
 ```json
@@ -39,17 +39,16 @@ wildcat callers config.Load
     "file": "/home/user/proj/internal/config/config.go",
     "line": 15
   },
-  "results": [
-    {
-      "symbol": "main.main",
-      "file": "/home/user/proj/main.go",
-      "line": 23,
-      "snippet": "func main() {\n\tcfg, err := config.Load(configPath)\n\tif err != nil {",
-      "snippet_start": 21,
-      "snippet_end": 25,
-      "call_expr": "config.Load(configPath)"
-    }
-  ]
+  "usage": {
+    "callers": [...],
+    "references": [...],
+    "satisfies": [...]
+  },
+  "summary": {
+    "total_locations": 12,
+    "callers": 3,
+    "references": 9
+  }
 }
 ```
 
@@ -57,23 +56,68 @@ wildcat callers config.Load
 - `file`: Absolute path, pass directly to file read/edit tools
 - `line`: Exact location for focused reads
 - `snippet`: Understand context without reading the file
-- `call_expr`: Use directly as match text for edits
+- Everything about a symbol in one query
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `wildcat search <query>` | Fuzzy search for symbols |
+| `wildcat symbol <symbol>` | Complete analysis: callers, refs, interfaces |
+| `wildcat package [path]` | Package profile with all symbols |
+| `wildcat tree <symbol>` | Call graph traversal (up/down) |
+| `wildcat channels [pkg]` | Channel operations and concurrency |
+| `wildcat readme` | AI onboarding instructions |
+
+## Usage
+
+```bash
+# Find symbols by name
+wildcat search Config
+
+# Everything about a symbol: callers, refs, interfaces
+wildcat symbol config.Load
+
+# Package profile: all symbols, imports, dependents
+wildcat package ./internal/server
+
+# Call tree: what does main call?
+wildcat tree main.main --direction down --depth 3
+
+# Call tree: what calls this function?
+wildcat tree db.Query --direction up
+
+# Channel operations in a package
+wildcat channels ./internal/worker
+```
+
+## Symbol Formats
+
+```bash
+wildcat symbol config.Load           # package.Function
+wildcat symbol Server.Start          # Type.Method
+wildcat symbol internal/server.Start # path/package.Function
+```
 
 ## Features
 
-### Symbol-Based Queries
+### Complete Symbol Analysis
 
-Query by symbol name, not file positions:
+One query returns everything about a symbol:
 
 ```bash
-wildcat callers config.Load           # package.Function
-wildcat callers Server.Start          # Type.Method
-wildcat callers internal/server.Start # path/package.Function
+wildcat symbol lsp.Client
 ```
 
-### Transitive Call Graphs
+- Definition location
+- Direct callers (who calls this)
+- All references (type usage, not just calls)
+- Implements (for interfaces): types that implement it
+- Satisfies (for types): interfaces it implements
 
-See the full picture, not just direct relationships:
+### Call Graph Traversal
+
+See the full picture with the `tree` command:
 
 ```bash
 wildcat tree main.main --depth 5 --direction down
@@ -83,28 +127,15 @@ wildcat tree db.Query --depth 3 --direction up
 # What code paths lead to this function?
 ```
 
-### Actionable Output
+### Package Orientation
 
-Every result includes what you need to act:
-
-| Field | Purpose |
-|-------|---------|
-| `file` | Absolute path for read/edit tools |
-| `line` | Line of the reference/call site |
-| `snippet` | Code context without file read |
-| `snippet_start`, `snippet_end` | Line range of the snippet |
-| `call_expr` | Exact call expression text (callers only) |
-| `in_test` | Filter test vs production code |
-
-### Filtering
-
-Focus on what matters:
+Get oriented in any package:
 
 ```bash
-wildcat callers Load --exclude-tests    # Skip test files
-wildcat callers Load --package ./...    # Current module only
-wildcat callers Load --limit 20         # Cap results
+wildcat package ./internal/lsp
 ```
+
+Returns all symbols in godoc order, plus imports and imported-by with locations.
 
 ### Smart Errors
 
@@ -120,55 +151,10 @@ Self-correcting suggestions:
 }
 ```
 
-### Language Support
-
-Currently supports Go via gopls. The LSP-based architecture enables future expansion to other languages.
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `wildcat callers <symbol>` | Who calls this function? |
-| `wildcat callees <symbol>` | What does this function call? |
-| `wildcat tree <symbol>` | Full call tree with depth control |
-| `wildcat refs <symbol>` | All references to symbol |
-| `wildcat impact <symbol>` | What breaks if I change this? |
-| `wildcat implements <iface>` | What implements this interface? |
-| `wildcat satisfies <type>` | What interfaces does this type satisfy? |
-| `wildcat deps [package]` | Package dependency graph (both directions) |
-| `wildcat package [path]` | Package profile with all symbols |
-| `wildcat symbols <query>` | Fuzzy search for symbols |
-| `wildcat readme` | AI onboarding instructions |
-
 ## Installation
 
 ```bash
 go install github.com/jasonmoo/wildcat@latest
-```
-
-## Usage
-
-```bash
-# Find all callers of a function
-wildcat callers config.Load
-
-# Show call tree from main, 4 levels deep
-wildcat tree main.main --depth 4
-
-# What breaks if I change this type?
-wildcat impact config.Config
-
-# Find what implements an interface
-wildcat implements io.Reader
-
-# Find what interfaces a type satisfies
-wildcat satisfies MyServer
-
-# Package dependencies (shows imports and imported_by)
-wildcat deps ./internal/server
-
-# Search for symbols by name
-wildcat symbols Config
 ```
 
 ## Why "Wildcat"?

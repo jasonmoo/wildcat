@@ -45,16 +45,11 @@ func printCompactReadme() {
 	fmt.Fprint(os.Stdout, `# Wildcat Quick Reference
 
 ## Commands
-- wildcat callers <symbol>     Find all callers of a function
-- wildcat callees <symbol>     Find functions called by a function
-- wildcat refs <symbol>        Find all references to a symbol
-- wildcat tree <symbol>        Build call hierarchy tree
-- wildcat impact <symbol>      Analyze change impact
-- wildcat implements <iface>   Find types implementing interface
-- wildcat satisfies <type>     Find interfaces a type satisfies
-- wildcat deps [package]       Show package dependencies
-- wildcat package [path]       Show package profile with symbols
-- wildcat symbols <query>      Search for symbols (fuzzy match)
+- wildcat search <query>       Fuzzy search for symbols
+- wildcat symbol <symbol>      Complete symbol analysis (callers, refs, interfaces)
+- wildcat package [path]       Package profile with all symbols
+- wildcat tree <symbol>        Call graph traversal (up/down)
+- wildcat channels [package]   Channel operations and concurrency
 
 ## Symbol Formats
 - Function               pkg.Function, main.main
@@ -62,10 +57,10 @@ func printCompactReadme() {
 - Full path              path/to/pkg.Function
 
 ## Common Flags
-- --compact              Omit code snippets
 - --exclude-tests        Exclude test files
-- --depth N              Limit traversal depth
-- -o, --output FORMAT    json|yaml|markdown|dot
+- --exclude-stdlib       Exclude standard library
+- --depth N              Tree traversal depth
+- -o, --output FORMAT    json|yaml|markdown
 `)
 }
 
@@ -73,144 +68,108 @@ func printFullReadme() {
 	fmt.Fprint(os.Stdout, `# Wildcat - Static Analysis for AI Agents
 
 Wildcat provides symbol-based code analysis optimized for AI tool integration.
-It uses gopls (Go Language Server) with an LSP-based architecture.
+Uses gopls (Go Language Server) for semantic understanding of Go code.
 
 ## When to Use Wildcat
 
-Use wildcat for **semantic code understanding**:
-- Finding all callers of a function before refactoring
-- Understanding what a function calls (callees)
-- Tracing impact of changing a type or interface
-- Finding interface implementations
-- Exploring package dependencies
+- **search**: Find symbols by name (fuzzy matching)
+- **symbol**: Understand a symbol's full footprint (callers, refs, interfaces)
+- **package**: Get oriented in a package (all symbols, imports, dependents)
+- **tree**: Explore call graphs (who calls what, what calls who)
+- **channels**: Understand concurrency patterns
 
 ## When to Use Alternatives
 
-- **grep/ripgrep**: Text patterns, non-code files, quick string search
-- **gopls directly**: IDE features, diagnostics, formatting, rename
-- **go list**: Module info, build flags, dependency versions
+- **grep/ripgrep**: Text patterns, non-code files
+- **go doc**: Documentation lookup
+- **go list**: Module info, build configuration
 
 ## Commands
 
-### callers - Find who calls a function
-`+"`"+`wildcat callers config.Load`+"`"+`
+### search - Find symbols
+`+"`"+`wildcat search Config`+"`"+`
 
-Returns all functions that call the target. Useful before changing a function's
-signature or behavior.
+Fuzzy search across the workspace. Returns functions, types, methods, constants.
+Use --package to filter by package pattern.
 
-### callees - Find what a function calls
-`+"`"+`wildcat callees main.main --depth 2`+"`"+`
+### symbol - Complete symbol analysis
+`+"`"+`wildcat symbol lsp.Client`+"`"+`
 
-Returns all functions called by the target. Useful for understanding code flow.
-
-### refs - Find all references
-`+"`"+`wildcat refs Config`+"`"+`
-
-Returns all references to a symbol including type usage, not just calls.
-
-### tree - Build call hierarchy
-`+"`"+`wildcat tree Server.Start --direction up --depth 3`+"`"+`
-
-Builds a visual call tree. Use --direction up for callers, down for callees.
-
-### impact - Change impact analysis
-`+"`"+`wildcat impact lsp.Client`+"`"+`
-
-Comprehensive analysis of what would break if you change a symbol. Combines
-callers, references, and interface implementations.
-
-### implements - Find implementations
-`+"`"+`wildcat implements io.Reader`+"`"+`
-
-Find all types that implement an interface.
-
-### satisfies - Find satisfied interfaces
-`+"`"+`wildcat satisfies JSONFormatter`+"`"+`
-
-Find all interfaces that a type satisfies.
-
-### deps - Package dependencies
-`+"`"+`wildcat deps ./internal/lsp`+"`"+`
-
-Show what a package imports and what packages import it (both directions in one call).
+Everything about a symbol in one query:
+- Definition location
+- Direct callers
+- All references
+- Implements (for interfaces): types that implement it
+- Satisfies (for types): interfaces it implements
 
 ### package - Package profile
 `+"`"+`wildcat package ./internal/output`+"`"+`
 
-Show a complete package profile with all symbols in godoc order (constants,
-variables, functions, then types with their methods).
+Complete package map in godoc order: constants, variables, functions, types
+with methods. Includes imports and imported-by with locations.
 
-### symbols - Search for symbols
-`+"`"+`wildcat symbols Config`+"`"+`
+### tree - Call graph traversal
+`+"`"+`wildcat tree main.main --direction down --depth 3`+"`"+`
+`+"`"+`wildcat tree db.Query --direction up --depth 2`+"`"+`
 
-Fuzzy search for symbols across the workspace. Results are ranked by relevance.
+Build call trees in either direction:
+- down: what does this function call?
+- up: what calls this function?
+
+### channels - Concurrency analysis
+`+"`"+`wildcat channels ./internal/lsp`+"`"+`
+
+Channel operations grouped by type: makes, sends, receives, closes, selects.
 
 ## Symbol Formats
 
-| Format | Example | Description |
-|--------|---------|-------------|
-| Function | main | Function in current context |
-| Package.Function | config.Load | Package-qualified function |
-| Type.Method | Server.Start | Method on type (value or pointer receiver) |
-| Full path | github.com/user/pkg.Func | Fully qualified |
-
-## Output Formats
-
-- --output json: Structured JSON (default)
-- --output yaml: YAML format
-- --output markdown: Markdown tables
-- --output dot: Graphviz DOT for visualization
+| Format | Example |
+|--------|---------|
+| Function | config.Load |
+| Method | Server.Start |
+| Type | lsp.Client |
+| Full path | github.com/user/pkg.Func |
 
 ## Common Flags
 
-| Flag | Description |
-|------|-------------|
-| --compact | Omit code snippets for smaller output |
-| --exclude-tests | Exclude test files from results |
-| --depth N | Limit traversal depth |
-| --context N | Lines of context in snippets (default 3) |
-| -l, --language | Language (currently only 'go' supported) |
+| Flag | Commands | Description |
+|------|----------|-------------|
+| --exclude-tests | symbol, tree, channels | Exclude test files |
+| --exclude-stdlib | package, tree | Exclude standard library |
+| --depth N | tree | Traversal depth (default 3) |
+| --direction | tree | up or down (default down) |
+| --package | search | Filter by package pattern |
+| -o json/yaml/markdown | all | Output format |
 
 ## Workflow Patterns
 
-### Before Refactoring a Function
-`+"`"+`bash
-# Check what calls this function
-wildcat callers old.Function
+### Understanding a Symbol
+`+"`"+`wildcat symbol Config`+"`"+`
 
-# Check what it calls (to understand dependencies)
-wildcat callees old.Function
+Single query returns callers, references, and interface relationships.
+
+### Exploring Call Flow
+`+"`"+`bash
+# What does main call?
+wildcat tree main.main --direction down
+
+# What leads to this function?
+wildcat tree handleRequest --direction up
 `+"`"+`
 
-### Understanding New Code
-`+"`"+`bash
-# Start from main and go down
-wildcat tree main.main --direction down --depth 3
+### Package Orientation
+`+"`"+`wildcat package ./internal/lsp`+"`"+`
 
-# Find the entry points that reach a function
-wildcat tree internal.Function --direction up
-`+"`"+`
+See all symbols, what it imports, and what depends on it.
 
-### Before Changing an Interface
-`+"`"+`bash
-# Find all implementations
-wildcat implements MyInterface
+## JSON Output
 
-# Full impact analysis
-wildcat impact MyInterface
-`+"`"+`
-
-## JSON Output Structure
-
-All commands return consistent JSON with:
+All commands return structured JSON with:
 - query: What was requested
-- target: Resolved symbol with file and line
-- results: Array of matches with snippets
-- summary: Count, packages, test file count
+- target/package: The resolved symbol or package
+- results/usage: The data (callers, refs, etc.)
+- summary: Counts
 
-Error responses include:
-- error.code: Machine-readable error code
-- error.message: Human-readable message
-- error.suggestions: Similar symbols if not found
+Errors include suggestions for typos.
 `)
 }
