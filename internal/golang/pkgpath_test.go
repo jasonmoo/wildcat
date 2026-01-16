@@ -133,6 +133,24 @@ func TestResolvePackagePath(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "reserved pattern - cmd",
+			path:    "cmd",
+			srcDir:  root,
+			wantErr: true,
+		},
+		{
+			name:    "reserved pattern - std",
+			path:    "std",
+			srcDir:  root,
+			wantErr: true,
+		},
+		{
+			name:    "reserved pattern - all",
+			path:    "all",
+			srcDir:  root,
+			wantErr: true,
+		},
+		{
 			name:   "current package - golang",
 			path:   "internal/golang",
 			srcDir: root,
