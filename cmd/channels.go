@@ -148,11 +148,13 @@ func runChannels(cmd *cobra.Command, args []string) error {
 	for _, pc := range pkgChannels {
 		for _, g := range pc.Channels {
 			typeSet[g.ElementType] = true
-			summary.TotalOps += len(g.Makes) + len(g.Sends) + len(g.Receives) + len(g.Closes)
+			summary.TotalOps += len(g.Makes) + len(g.Sends) + len(g.Receives) + len(g.Closes) + len(g.SelectSends) + len(g.SelectReceives)
 			summary.ByKind["make"] += len(g.Makes)
 			summary.ByKind["send"] += len(g.Sends)
 			summary.ByKind["receive"] += len(g.Receives)
 			summary.ByKind["close"] += len(g.Closes)
+			summary.ByKind["select_send"] += len(g.SelectSends)
+			summary.ByKind["select_receive"] += len(g.SelectReceives)
 		}
 	}
 	summary.Types = len(typeSet)
@@ -417,6 +419,10 @@ func (c *channelCollector) buildPackages() []PackageChannels {
 					group.Receives = append(group.Receives, op.line)
 				case "close":
 					group.Closes = append(group.Closes, op.line)
+				case "select_send":
+					group.SelectSends = append(group.SelectSends, op.line)
+				case "select_receive":
+					group.SelectReceives = append(group.SelectReceives, op.line)
 				}
 			}
 
@@ -483,6 +489,24 @@ func renderChannelsMarkdown(r ChannelsResponse) string {
 			if len(group.Closes) > 0 {
 				sb.WriteString("**close**\n")
 				for _, op := range group.Closes {
+					sb.WriteString("- ")
+					sb.WriteString(op)
+					sb.WriteString("\n")
+				}
+			}
+
+			if len(group.SelectSends) > 0 {
+				sb.WriteString("**select send**\n")
+				for _, op := range group.SelectSends {
+					sb.WriteString("- ")
+					sb.WriteString(op)
+					sb.WriteString("\n")
+				}
+			}
+
+			if len(group.SelectReceives) > 0 {
+				sb.WriteString("**select receive**\n")
+				for _, op := range group.SelectReceives {
 					sb.WriteString("- ")
 					sb.WriteString(op)
 					sb.WriteString("\n")
