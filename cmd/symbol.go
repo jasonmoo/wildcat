@@ -14,36 +14,37 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var impactCmd = &cobra.Command{
-	Use:   "impact <symbol>...",
-	Short: "Analyze the impact of changing a symbol",
-	Long: `Comprehensive impact analysis: everything affected by changing a symbol.
+var symbolCmd = &cobra.Command{
+	Use:   "symbol <symbol>...",
+	Short: "Complete symbol analysis: definition, callers, refs, interfaces",
+	Long: `Full profile of a symbol: everything you need to understand and modify it.
 
-This command answers "What breaks if I change this?" by combining:
-  - Direct callers (functions that call this symbol)
+Returns:
+  - Definition location and signature
+  - Direct callers (who calls this)
   - All references (type usage, not just calls)
-  - Interface implementations (if changing an interface)
+  - Interface relationships (satisfies/implements)
 
 Examples:
-  wildcat impact config.Config
-  wildcat impact Server.Start
-  wildcat impact Handler
-  wildcat impact FileURI URIToPath    # multiple symbols`,
+  wildcat symbol config.Config
+  wildcat symbol Server.Start
+  wildcat symbol Handler
+  wildcat symbol FileURI URIToPath    # multiple symbols`,
 	Args: cobra.MinimumNArgs(1),
-	RunE: runImpact,
+	RunE: runSymbol,
 }
 
 var (
-	impactExcludeTests bool
+	symbolExcludeTests bool
 )
 
 func init() {
-	rootCmd.AddCommand(impactCmd)
+	rootCmd.AddCommand(symbolCmd)
 
-	impactCmd.Flags().BoolVar(&impactExcludeTests, "exclude-tests", false, "Exclude test files")
+	symbolCmd.Flags().BoolVar(&symbolExcludeTests, "exclude-tests", false, "Exclude test files")
 }
 
-func runImpact(cmd *cobra.Command, args []string) error {
+func runSymbol(cmd *cobra.Command, args []string) error {
 	writer, err := GetWriter(os.Stdout)
 	if err != nil {
 		return fmt.Errorf("invalid output format: %w", err)
@@ -100,15 +101,15 @@ func runImpact(cmd *cobra.Command, args []string) error {
 	}
 
 	// Process each symbol
-	var responses []output.ImpactResponse
+	var responses []output.SymbolResponse
 	for _, symbolArg := range args {
 		response, err := getImpactForSymbol(ctx, client, symbolArg)
 		if err != nil {
 			// For multi-symbol queries, include error as a response
 			if len(args) > 1 {
-				responses = append(responses, output.ImpactResponse{
+				responses = append(responses, output.SymbolResponse{
 					Query: output.QueryInfo{
-						Command: "impact",
+						Command: "symbol",
 						Target:  symbolArg,
 					},
 					Error: err.Error(),
@@ -131,7 +132,7 @@ func runImpact(cmd *cobra.Command, args []string) error {
 	return writer.Write(responses)
 }
 
-func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg string) (*output.ImpactResponse, error) {
+func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg string) (*output.SymbolResponse, error) {
 	// Parse symbol
 	query, err := symbols.Parse(symbolArg)
 	if err != nil {
@@ -165,7 +166,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		kind = "constant"
 	}
 
-	impact := output.Impact{}
+	usage := output.SymbolUsage{}
 	var callersCount, refsCount, implsCount, inTestsCount int
 	extractor := output.NewSnippetExtractor()
 
@@ -176,8 +177,8 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 			traverser := traverse.NewTraverser(client)
 			opts := traverse.Options{
 				Direction:    traverse.Up,
-				MaxDepth:     1, // Direct callers only for impact analysis
-				ExcludeTests: impactExcludeTests,
+				MaxDepth:     1, // Direct callers only
+				ExcludeTests: symbolExcludeTests,
 			}
 
 			callers, err := traverser.GetCallers(ctx, items[0], opts)
@@ -189,7 +190,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 						callLine = caller.CallRanges[0].Start.Line + 1
 					}
 
-					cat := output.ImpactCategory{
+					cat := output.SymbolLocation{
 						Symbol: caller.Symbol,
 						File:   output.AbsolutePath(caller.File),
 						Line:   callLine,
@@ -200,7 +201,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 						cat.SnippetStart = snippetStart
 						cat.SnippetEnd = snippetEnd
 					}
-					impact.Callers = append(impact.Callers, cat)
+					usage.Callers = append(usage.Callers, cat)
 					if caller.InTest {
 						inTestsCount++
 					}
@@ -212,7 +213,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 
 	// Build set of caller locations to dedupe references
 	callerLocations := make(map[string]bool)
-	for _, caller := range impact.Callers {
+	for _, caller := range usage.Callers {
 		key := fmt.Sprintf("%s:%d", caller.File, caller.Line)
 		callerLocations[key] = true
 	}
@@ -224,7 +225,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 			file := lsp.URIToPath(ref.URI)
 			isTest := output.IsTestFile(file)
 
-			if impactExcludeTests && isTest {
+			if symbolExcludeTests && isTest {
 				continue
 			}
 
@@ -237,7 +238,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 				continue
 			}
 
-			cat := output.ImpactCategory{
+			cat := output.SymbolLocation{
 				File:   absFile,
 				Line:   line,
 				Reason: "references this symbol",
@@ -247,12 +248,12 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 				cat.SnippetStart = snippetStart
 				cat.SnippetEnd = snippetEnd
 			}
-			impact.References = append(impact.References, cat)
+			usage.References = append(usage.References, cat)
 			if isTest {
 				inTestsCount++
 			}
 		}
-		refsCount = len(impact.References)
+		refsCount = len(usage.References)
 	}
 
 	// Get implementations (for interfaces)
@@ -263,12 +264,12 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 				file := lsp.URIToPath(impl.URI)
 				isTest := output.IsTestFile(file)
 
-				if impactExcludeTests && isTest {
+				if symbolExcludeTests && isTest {
 					continue
 				}
 
 				line := impl.Range.Start.Line + 1
-				cat := output.ImpactCategory{
+				cat := output.SymbolLocation{
 					File:   output.AbsolutePath(file),
 					Line:   line,
 					Reason: "implements this interface",
@@ -278,20 +279,20 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 					cat.SnippetStart = snippetStart
 					cat.SnippetEnd = snippetEnd
 				}
-				impact.Implementations = append(impact.Implementations, cat)
+				usage.Implementations = append(usage.Implementations, cat)
 				if isTest {
 					inTestsCount++
 				}
 			}
-			implsCount = len(impact.Implementations)
+			implsCount = len(usage.Implementations)
 		}
 	}
 
 	totalLocations := callersCount + refsCount + implsCount
 
-	return &output.ImpactResponse{
+	return &output.SymbolResponse{
 		Query: output.QueryInfo{
-			Command:  "impact",
+			Command:  "symbol",
 			Target:   query.Raw,
 			Resolved: resolved.Name,
 		},
@@ -301,8 +302,8 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 			File:   output.AbsolutePath(lsp.URIToPath(resolved.URI)),
 			Line:   resolved.Position.Line + 1,
 		},
-		Impact: impact,
-		Summary: output.ImpactSummary{
+		Usage: usage,
+		Summary: output.SymbolSummary{
 			TotalLocations:  totalLocations,
 			Callers:         callersCount,
 			References:      refsCount,

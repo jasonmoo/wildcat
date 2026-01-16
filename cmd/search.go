@@ -13,14 +13,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var symbolsCmd = &cobra.Command{
-	Use:   "symbols <query>",
-	Short: "Search for symbols using fuzzy matching",
+var searchCmd = &cobra.Command{
+	Use:   "search <query>",
+	Short: "Fuzzy search for symbols across the workspace",
 	Long: `Search for symbols across the workspace using gopls fuzzy matching.
 
-This is a semantic alternative to grep - returns actual symbols (functions,
-types, methods, constants) rather than text matches. Results are ranked by
-relevance with workspace symbols prioritized over stdlib.
+Semantic alternative to grep - returns actual symbols (functions, types,
+methods, constants) rather than text matches. Results ranked by relevance.
 
 Query Syntax:
   hello          Fuzzy match - matches "Hello", "helloWorld", "SayHello"
@@ -29,27 +28,27 @@ Query Syntax:
   cfg            Abbreviation match - matches "Config"
 
 Examples:
-  wildcat symbols Resolve                        # functions/types matching Resolve
-  wildcat symbols NewClient                      # exact or fuzzy matches
-  wildcat symbols --limit 5 Config               # top 5 matches for Config
-  wildcat symbols --package "internal/*" Config  # filter to internal packages`,
+  wildcat search Resolve                        # functions/types matching Resolve
+  wildcat search NewClient                      # exact or fuzzy matches
+  wildcat search --limit 5 Config               # top 5 matches for Config
+  wildcat search --package "internal/*" Config  # filter to internal packages`,
 	Args: cobra.ExactArgs(1),
-	RunE: runSymbols,
+	RunE: runSearch,
 }
 
 var (
-	symbolsLimit   int
-	symbolsPackage string
+	searchLimit   int
+	searchPackage string
 )
 
 func init() {
-	rootCmd.AddCommand(symbolsCmd)
+	rootCmd.AddCommand(searchCmd)
 
-	symbolsCmd.Flags().IntVar(&symbolsLimit, "limit", 20, "Maximum results (max 100)")
-	symbolsCmd.Flags().StringVar(&symbolsPackage, "package", "", "Filter by package pattern (glob: internal/*, github.com/user/*)")
+	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Maximum results (max 100)")
+	searchCmd.Flags().StringVar(&searchPackage, "package", "", "Filter by package pattern (glob: internal/*, github.com/user/*)")
 }
 
-func runSymbols(cmd *cobra.Command, args []string) error {
+func runSearch(cmd *cobra.Command, args []string) error {
 	query := args[0]
 	writer, err := GetWriter(os.Stdout)
 	if err != nil {
@@ -118,12 +117,12 @@ func runSymbols(cmd *cobra.Command, args []string) error {
 	}
 
 	// Apply package filter if specified
-	if symbolsPackage != "" {
-		symbols = filterSymbolsByPackage(symbols, symbolsPackage)
+	if searchPackage != "" {
+		symbols = filterSymbolsByPackage(symbols, searchPackage)
 	}
 
 	// Apply limit
-	limit := symbolsLimit
+	limit := searchLimit
 	if limit <= 0 {
 		limit = 20
 	} else if limit > 100 {
@@ -135,7 +134,7 @@ func runSymbols(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build results with decorations
-	results := make([]output.SymbolResult, 0, len(symbols))
+	results := make([]output.SearchResult, 0, len(symbols))
 	kindCounts := make(map[string]int)
 
 	for _, sym := range symbols {
@@ -147,7 +146,7 @@ func runSymbols(cmd *cobra.Command, args []string) error {
 		endLine := sym.Location.Range.End.Line + 1
 		location := fmt.Sprintf("%s:%d:%d", file, startLine, endLine)
 
-		result := output.SymbolResult{
+		result := output.SearchResult{
 			Symbol:   sym.Name,
 			Kind:     kind,
 			Location: location,
@@ -156,13 +155,13 @@ func runSymbols(cmd *cobra.Command, args []string) error {
 		results = append(results, result)
 	}
 
-	response := output.SymbolsResponse{
-		Query: output.SymbolsQuery{
-			Command: "symbols",
+	response := output.SearchResponse{
+		Query: output.SearchQuery{
+			Command: "search",
 			Pattern: query,
 		},
 		Results: results,
-		Summary: output.SymbolsSummary{
+		Summary: output.SearchSummary{
 			Count:     len(results),
 			ByKind:    kindCounts,
 			Truncated: truncated,

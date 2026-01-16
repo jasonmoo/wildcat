@@ -101,8 +101,8 @@ type TreeResponse struct {
 	Summary   TreeSummary             `json:"summary"`
 }
 
-// ImpactCategory represents a category of impact.
-type ImpactCategory struct {
+// SymbolLocation represents a location where a symbol is used.
+type SymbolLocation struct {
 	Symbol       string `json:"symbol,omitempty"`
 	File         string `json:"file"`
 	Line         int    `json:"line"`
@@ -112,23 +112,23 @@ type ImpactCategory struct {
 	SnippetEnd   int    `json:"snippet_end,omitempty"`
 }
 
-// ImpactDependent represents a dependent package.
-type ImpactDependent struct {
+// SymbolDependent represents a dependent package.
+type SymbolDependent struct {
 	Package    string `json:"package"`
 	ImportLine int    `json:"import_line"`
 	File       string `json:"file"`
 }
 
-// Impact contains all impact information.
-type Impact struct {
-	Callers         []ImpactCategory  `json:"callers,omitempty"`
-	References      []ImpactCategory  `json:"references,omitempty"`
-	Implementations []ImpactCategory  `json:"implementations,omitempty"`
-	Dependents      []ImpactDependent `json:"dependents,omitempty"`
+// SymbolUsage contains all usage information for a symbol.
+type SymbolUsage struct {
+	Callers         []SymbolLocation  `json:"callers,omitempty"`
+	References      []SymbolLocation  `json:"references,omitempty"`
+	Implementations []SymbolLocation  `json:"implementations,omitempty"`
+	Dependents      []SymbolDependent `json:"dependents,omitempty"`
 }
 
-// ImpactSummary provides aggregate information about impact.
-type ImpactSummary struct {
+// SymbolSummary provides aggregate information about symbol usage.
+type SymbolSummary struct {
 	TotalLocations    int `json:"total_locations"`
 	Callers           int `json:"callers"`
 	References        int `json:"references"`
@@ -137,12 +137,12 @@ type ImpactSummary struct {
 	InTests           int `json:"in_tests"`
 }
 
-// ImpactResponse is the output for the impact command.
-type ImpactResponse struct {
+// SymbolResponse is the output for the symbol command.
+type SymbolResponse struct {
 	Query             QueryInfo     `json:"query"`
 	Target            TargetInfo    `json:"target,omitempty"`
-	Impact            Impact        `json:"impact,omitempty"`
-	Summary           ImpactSummary `json:"summary,omitempty"`
+	Usage             SymbolUsage   `json:"usage,omitempty"`
+	Summary           SymbolSummary `json:"summary,omitempty"`
 	OtherFuzzyMatches []string      `json:"other_fuzzy_matches,omitempty"`
 	Error             string        `json:"error,omitempty"` // populated on error in multi-symbol queries
 }
@@ -176,21 +176,6 @@ type InterfaceResult struct {
 	SnippetEnd   int      `json:"snippet_end,omitempty"`
 }
 
-// DepsResponse is the output for the deps command.
-type DepsResponse struct {
-	Query      QueryInfo   `json:"query"`
-	Package    string      `json:"package"`
-	Imports    []DepResult `json:"imports"`
-	ImportedBy []DepResult `json:"imported_by"`
-	Summary    DepsSummary `json:"summary"`
-}
-
-// DepsSummary provides counts for the deps command.
-type DepsSummary struct {
-	ImportsCount    int `json:"imports_count"`
-	ImportedByCount int `json:"imported_by_count"`
-}
-
 // DepResult represents a package dependency.
 type DepResult struct {
 	Package  string `json:"package"`
@@ -210,32 +195,32 @@ type ErrorDetail struct {
 	Context     map[string]any `json:"context,omitempty"`
 }
 
-// SymbolsQuery describes a symbols search query.
-type SymbolsQuery struct {
+// SearchQuery describes a search query.
+type SearchQuery struct {
 	Command string `json:"command"`
 	Pattern string `json:"pattern"`
 }
 
-// SymbolResult represents a single symbol search result.
-type SymbolResult struct {
+// SearchResult represents a single search result.
+type SearchResult struct {
 	Symbol   string `json:"symbol"`
 	Kind     string `json:"kind"`
 	Location string `json:"location"` // file:line:line_end
 	Package  string `json:"package,omitempty"`
 }
 
-// SymbolsSummary provides aggregate information about symbol search results.
-type SymbolsSummary struct {
+// SearchSummary provides aggregate information about search results.
+type SearchSummary struct {
 	Count     int            `json:"count"`
 	ByKind    map[string]int `json:"by_kind,omitempty"`
 	Truncated bool           `json:"truncated"`
 }
 
-// SymbolsResponse is the output for the symbols command.
-type SymbolsResponse struct {
-	Query   SymbolsQuery   `json:"query"`
-	Results []SymbolResult `json:"results"`
-	Summary SymbolsSummary `json:"summary"`
+// SearchResponse is the output for the search command.
+type SearchResponse struct {
+	Query   SearchQuery    `json:"query"`
+	Results []SearchResult `json:"results"`
+	Summary SearchSummary  `json:"summary"`
 }
 
 // PackageResponse is the output for the package command.
@@ -246,8 +231,8 @@ type PackageResponse struct {
 	Variables  []PackageSymbol    `json:"variables,omitempty"`
 	Functions  []PackageSymbol    `json:"functions,omitempty"`
 	Types      []PackageType      `json:"types,omitempty"`
-	Imports    []string           `json:"imports"`
-	ImportedBy []string           `json:"imported_by"`
+	Imports    []DepResult        `json:"imports"`
+	ImportedBy []DepResult        `json:"imported_by"`
 	Summary    PackageSummary     `json:"summary"`
 }
 

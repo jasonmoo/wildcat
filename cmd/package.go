@@ -22,6 +22,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// goListPackage represents the JSON output from `go list -json`
+type goListPackage struct {
+	Dir        string   `json:"Dir"`
+	ImportPath string   `json:"ImportPath"`
+	Name       string   `json:"Name"`
+	GoFiles    []string `json:"GoFiles"`
+	Imports    []string `json:"Imports"`
+}
+
 var packageCmd = &cobra.Command{
 	Use:   "package [path]",
 	Short: "Show package profile with symbols in godoc order",
@@ -134,20 +143,22 @@ func runPackage(cmd *cobra.Command, args []string) error {
 	// Organize into godoc order
 	result := collector.build(pkg.ImportPath, pkg.Name, pkg.Dir)
 
-	// Add imports (just package names)
+	// Add imports with locations
 	for _, imp := range pkg.Imports {
 		if pkgExcludeStdlib && isStdlib(imp) {
 			continue
 		}
-		result.Imports = append(result.Imports, imp)
+		location := findImportLocation(pkg.Dir, pkg.GoFiles, imp)
+		result.Imports = append(result.Imports, output.DepResult{
+			Package:  imp,
+			Location: location,
+		})
 	}
 
-	// Add imported_by (just package names)
+	// Add imported_by with locations
 	importedBy, err := findImportedBy(workDir, pkg.ImportPath)
 	if err == nil {
-		for _, dep := range importedBy {
-			result.ImportedBy = append(result.ImportedBy, dep.Package)
-		}
+		result.ImportedBy = importedBy
 	}
 
 	// Set query info
@@ -525,8 +536,8 @@ func (c *packageCollector) build(importPath, name, dir string) *output.PackageRe
 		Variables:  c.variables,
 		Functions:  c.functions,
 		Types:      types,
-		Imports:    []string{},
-		ImportedBy: []string{},
+		Imports:    []output.DepResult{},
+		ImportedBy: []output.DepResult{},
 		Summary: output.PackageSummary{
 			Constants: len(c.constants),
 			Variables: len(c.variables),
@@ -677,7 +688,11 @@ func renderPackageMarkdown(r *output.PackageResponse) string {
 	if len(r.Imports) > 0 {
 		sb.WriteString("\n## Imports\n")
 		for _, imp := range r.Imports {
-			sb.WriteString(imp)
+			sb.WriteString(imp.Package)
+			if imp.Location != "" {
+				sb.WriteString(" // ")
+				sb.WriteString(imp.Location)
+			}
 			sb.WriteString("\n")
 		}
 	}
@@ -686,7 +701,11 @@ func renderPackageMarkdown(r *output.PackageResponse) string {
 	if len(r.ImportedBy) > 0 {
 		sb.WriteString("\n## Imported By\n")
 		for _, imp := range r.ImportedBy {
-			sb.WriteString(imp)
+			sb.WriteString(imp.Package)
+			if imp.Location != "" {
+				sb.WriteString(" // ")
+				sb.WriteString(imp.Location)
+			}
 			sb.WriteString("\n")
 		}
 	}
@@ -756,6 +775,66 @@ func extractTypeNameAtLocation(file string, line int) string {
 				if fset.Position(d.Name.Pos()).Line == targetLine {
 					return extractTypeName(d.Recv.List[0].Type)
 				}
+			}
+		}
+	}
+	return ""
+}
+
+// findImportedBy finds all packages in the module that import the target.
+func findImportedBy(workDir, targetImportPath string) ([]output.DepResult, error) {
+	// List all packages in the module
+	cmd := exec.Command("go", "list", "-json", "./...")
+	cmd.Dir = workDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var results []output.DepResult
+	decoder := json.NewDecoder(strings.NewReader(string(out)))
+	for decoder.More() {
+		var pkg goListPackage
+		if err := decoder.Decode(&pkg); err != nil {
+			continue
+		}
+
+		// Check if this package imports our target
+		for _, imp := range pkg.Imports {
+			if imp == targetImportPath {
+				location := findImportLocation(pkg.Dir, pkg.GoFiles, targetImportPath)
+				results = append(results, output.DepResult{
+					Package:  pkg.ImportPath,
+					Location: location,
+				})
+				break
+			}
+		}
+	}
+
+	return results, nil
+}
+
+// isStdlib checks if an import path is from the standard library.
+func isStdlib(importPath string) bool {
+	return golang.IsStdlibImport(importPath)
+}
+
+// findImportLocation finds where a package is imported in source files.
+// Returns file:line format or empty string if not found.
+func findImportLocation(dir string, files []string, importPath string) string {
+	for _, file := range files {
+		fullPath := filepath.Join(dir, file)
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			continue
+		}
+
+		lines := strings.Split(string(content), "\n")
+		for i, line := range lines {
+			// Simple heuristic: look for the import path in quotes
+			if strings.Contains(line, `"`+importPath+`"`) {
+				return fmt.Sprintf("%s:%d", fullPath, i+1)
 			}
 		}
 	}
