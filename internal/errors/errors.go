@@ -121,7 +121,7 @@ func NewServerNotFound(language, server string) *WildcatError {
 }
 
 // SuggestSimilar finds strings similar to the target from a list of candidates.
-// Uses Levenshtein distance, returns up to limit suggestions.
+// Uses Levenshtein distance and prefix matching, returns up to limit suggestions.
 func SuggestSimilar(target string, candidates []string, limit int) []string {
 	if len(candidates) == 0 || limit <= 0 {
 		return nil
@@ -137,6 +137,15 @@ func SuggestSimilar(target string, candidates []string, limit int) []string {
 	targetLower := strings.ToLower(target)
 	for _, c := range candidates {
 		cLower := strings.ToLower(c)
+
+		// Check for prefix match (user typed partial name)
+		if strings.HasPrefix(cLower, targetLower) {
+			// Distance is just the number of chars they need to add
+			d := len(c) - len(target)
+			scored_list = append(scored_list, scored{c, d})
+			continue
+		}
+
 		d := levenshtein(targetLower, cLower)
 		// Only include if reasonably similar (distance less than half the target length)
 		if d <= len(target)/2+2 {
