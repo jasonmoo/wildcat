@@ -195,8 +195,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 						Symbol: caller.Symbol,
 						File:   output.AbsolutePath(caller.File),
 						Line:   callLine,
-						Reason: "calls this function",
-					}
+											}
 					if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(caller.File, callLine); err == nil {
 						cat.Snippet = snippet
 						cat.SnippetStart = snippetStart
@@ -242,8 +241,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 			cat := output.SymbolLocation{
 				File:   absFile,
 				Line:   line,
-				Reason: "references this symbol",
-			}
+							}
 			if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line); err == nil {
 				cat.Snippet = snippet
 				cat.SnippetStart = snippetStart
@@ -273,8 +271,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 				cat := output.SymbolLocation{
 					File:   output.AbsolutePath(file),
 					Line:   line,
-					Reason: "implements this interface",
-				}
+									}
 				if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line); err == nil {
 					cat.Snippet = snippet
 					cat.SnippetStart = snippetStart
@@ -312,8 +309,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 						Symbol: st.Name,
 						File:   output.AbsolutePath(file),
 						Line:   line,
-						Reason: "interface satisfied by this type",
-					}
+											}
 					if snippet, snippetStart, snippetEnd, err := extractor.ExtractSmart(file, line); err == nil {
 						cat.Snippet = snippet
 						cat.SnippetStart = snippetStart

@@ -10,30 +10,24 @@ func TestWriter_Write(t *testing.T) {
 	var buf bytes.Buffer
 	w := NewWriter(&buf, false)
 
-	resp := CallersResponse{
-		Query: QueryInfo{
-			Command:  "callers",
-			Target:   "config.Load",
-			Resolved: "github.com/user/proj/config.Load",
+	resp := TreeResponse{
+		Query: TreeQuery{
+			Command:   "tree",
+			Target:    "config.Load",
+			Depth:     3,
+			Direction: "up",
 		},
-		Target: TargetInfo{
-			Symbol: "config.Load",
-			File:   "/path/to/config.go",
-			Line:   15,
+		Paths: [][]string{
+			{"main.main", "config.Load"},
 		},
-		Results: []Result{
-			{
-				Symbol: "main.main",
-				File:   "/path/to/main.go",
-				Line:   23,
-				InTest: false,
-			},
+		Functions: map[string]TreeFunction{
+			"main.main":   {Signature: "func main()", Location: "/path/to/main.go:10:15"},
+			"config.Load": {Signature: "func Load() error", Location: "/path/to/config.go:20:25"},
 		},
-		Summary: Summary{
-			Count:     1,
-			Packages:  []string{"main"},
-			InTests:   0,
-			Truncated: false,
+		Summary: TreeSummary{
+			PathCount:       1,
+			MaxDepthReached: 2,
+			Truncated:       false,
 		},
 	}
 
@@ -42,19 +36,16 @@ func TestWriter_Write(t *testing.T) {
 	}
 
 	// Verify it's valid JSON
-	var parsed CallersResponse
+	var parsed TreeResponse
 	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
 		t.Fatalf("parse output: %v", err)
 	}
 
-	if parsed.Query.Command != "callers" {
-		t.Errorf("command = %q, want %q", parsed.Query.Command, "callers")
+	if parsed.Query.Command != "tree" {
+		t.Errorf("command = %q, want %q", parsed.Query.Command, "tree")
 	}
-	if parsed.Target.Symbol != "config.Load" {
-		t.Errorf("symbol = %q, want %q", parsed.Target.Symbol, "config.Load")
-	}
-	if len(parsed.Results) != 1 {
-		t.Errorf("results count = %d, want 1", len(parsed.Results))
+	if len(parsed.Paths) != 1 {
+		t.Errorf("paths count = %d, want 1", len(parsed.Paths))
 	}
 }
 

@@ -42,36 +42,6 @@ type Summary struct {
 	Truncated bool     `json:"truncated"`
 }
 
-// CallersResponse is the output for the callers command.
-type CallersResponse struct {
-	Query             QueryInfo  `json:"query"`
-	Target            TargetInfo `json:"target,omitempty"`
-	Results           []Result   `json:"results,omitempty"`
-	Summary           Summary    `json:"summary,omitempty"`
-	OtherFuzzyMatches []string   `json:"other_fuzzy_matches,omitempty"`
-	Error             string     `json:"error,omitempty"` // populated on error in multi-symbol queries
-}
-
-// CalleesResponse is the output for the callees command.
-type CalleesResponse struct {
-	Query             QueryInfo  `json:"query"`
-	Target            TargetInfo `json:"target,omitempty"`
-	Results           []Result   `json:"results,omitempty"`
-	Summary           Summary    `json:"summary,omitempty"`
-	OtherFuzzyMatches []string   `json:"other_fuzzy_matches,omitempty"`
-	Error             string     `json:"error,omitempty"` // populated on error in multi-symbol queries
-}
-
-// RefsResponse is the output for the refs command.
-type RefsResponse struct {
-	Query             QueryInfo  `json:"query"`
-	Target            TargetInfo `json:"target,omitempty"`
-	Results           []Result   `json:"results,omitempty"`
-	Summary           Summary    `json:"summary,omitempty"`
-	OtherFuzzyMatches []string   `json:"other_fuzzy_matches,omitempty"`
-	Error             string     `json:"error,omitempty"` // populated on error in multi-symbol queries
-}
-
 // TreeSummary provides aggregate information about the tree.
 type TreeSummary struct {
 	PathCount       int  `json:"path_count"`
@@ -106,7 +76,6 @@ type SymbolLocation struct {
 	Symbol       string `json:"symbol,omitempty"`
 	File         string `json:"file"`
 	Line         int    `json:"line"`
-	Reason       string `json:"reason,omitempty"`
 	Snippet      string `json:"snippet,omitempty"`
 	SnippetStart int    `json:"snippet_start,omitempty"`
 	SnippetEnd   int    `json:"snippet_end,omitempty"`
