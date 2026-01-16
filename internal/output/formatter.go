@@ -38,7 +38,6 @@ func NewRegistry() *Registry {
 	// Register built-in formatters
 	r.Register(&JSONFormatter{Pretty: true})
 	r.Register(&YAMLFormatter{})
-	r.Register(&DotFormatter{})
 	r.Register(&MarkdownFormatter{})
 	return r
 }
@@ -192,90 +191,6 @@ func formatYAMLValue(v any) string {
 		return "false"
 	default:
 		return fmt.Sprintf("%v", val)
-	}
-}
-
-// DotFormatter outputs Graphviz DOT format for tree structures.
-type DotFormatter struct{}
-
-func (f *DotFormatter) Name() string        { return "dot" }
-func (f *DotFormatter) Description() string { return "Graphviz DOT format (for call trees)" }
-
-func (f *DotFormatter) Format(result any) ([]byte, error) {
-	// Convert to JSON and back for consistent access
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return nil, err
-	}
-
-	var buf bytes.Buffer
-	buf.WriteString("digraph callgraph {\n")
-	buf.WriteString("  rankdir=LR;\n")
-	buf.WriteString("  node [shape=box, fontname=\"Courier\"];\n")
-
-	// Check if it's an array (multi-symbol query)
-	var dataArray []map[string]any
-	if err := json.Unmarshal(jsonBytes, &dataArray); err == nil && len(dataArray) > 0 {
-		for _, data := range dataArray {
-			f.formatSingleDot(&buf, data)
-		}
-	} else {
-		// Single response
-		var data map[string]any
-		json.Unmarshal(jsonBytes, &data)
-		f.formatSingleDot(&buf, data)
-	}
-
-	buf.WriteString("}\n")
-	return buf.Bytes(), nil
-}
-
-func (f *DotFormatter) formatSingleDot(buf *bytes.Buffer, data map[string]any) {
-	// Skip error responses
-	if _, ok := data["error"].(string); ok {
-		return
-	}
-
-	// Extract edges from tree response
-	if edges, ok := data["edges"].([]any); ok {
-		for _, edge := range edges {
-			if e, ok := edge.(map[string]any); ok {
-				from, _ := e["from"].(string)
-				to, _ := e["to"].(string)
-				if from != "" && to != "" {
-					safeFrom := strings.ReplaceAll(from, "\"", "\\\"")
-					safeTo := strings.ReplaceAll(to, "\"", "\\\"")
-					buf.WriteString(fmt.Sprintf("  \"%s\" -> \"%s\";\n", safeFrom, safeTo))
-				}
-			}
-		}
-	}
-
-	// Also handle callers/callees results as simple node lists
-	if results, ok := data["results"].([]any); ok {
-		targetName := ""
-		if target, ok := data["target"].(map[string]any); ok {
-			targetName, _ = target["symbol"].(string)
-		}
-		for _, r := range results {
-			if result, ok := r.(map[string]any); ok {
-				symbol, _ := result["symbol"].(string)
-				if symbol != "" && targetName != "" {
-					safeSymbol := strings.ReplaceAll(symbol, "\"", "\\\"")
-					safeTarget := strings.ReplaceAll(targetName, "\"", "\\\"")
-					// For callers, the symbol calls the target
-					// For callees, the target calls the symbol
-					if query, ok := data["query"].(map[string]any); ok {
-						cmd, _ := query["command"].(string)
-						if cmd == "callees" {
-							buf.WriteString(fmt.Sprintf("  \"%s\" -> \"%s\";\n", safeTarget, safeSymbol))
-						} else {
-							buf.WriteString(fmt.Sprintf("  \"%s\" -> \"%s\";\n", safeSymbol, safeTarget))
-						}
-					}
-				}
-			}
-		}
 	}
 }
 

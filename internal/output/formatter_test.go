@@ -46,51 +46,6 @@ func TestYAMLFormatter(t *testing.T) {
 	}
 }
 
-func TestDotFormatter(t *testing.T) {
-	f := &DotFormatter{}
-
-	// Test with edges (tree response)
-	data := map[string]any{
-		"edges": []any{
-			map[string]any{"from": "main", "to": "helper"},
-		},
-	}
-	result, err := f.Format(data)
-	if err != nil {
-		t.Fatalf("Format() error = %v", err)
-	}
-
-	output := string(result)
-	if !strings.Contains(output, "digraph") {
-		t.Error("Missing digraph declaration")
-	}
-	if !strings.Contains(output, `"main" -> "helper"`) {
-		t.Errorf("Missing edge, got: %s", output)
-	}
-
-	// Test with callers results
-	callersData := map[string]any{
-		"query": map[string]any{
-			"command": "callers",
-		},
-		"target": map[string]any{
-			"symbol": "Execute",
-		},
-		"results": []any{
-			map[string]any{"symbol": "main"},
-		},
-	}
-	result, err = f.Format(callersData)
-	if err != nil {
-		t.Fatalf("Format() error = %v", err)
-	}
-
-	output = string(result)
-	if !strings.Contains(output, `"main" -> "Execute"`) {
-		t.Errorf("Missing caller edge, got: %s", output)
-	}
-}
-
 func TestMarkdownFormatter(t *testing.T) {
 	f := &MarkdownFormatter{}
 

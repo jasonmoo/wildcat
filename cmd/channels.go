@@ -168,13 +168,10 @@ func runChannels(cmd *cobra.Command, args []string) error {
 		Summary:  summary,
 	}
 
-	// Use custom markdown renderer; dot not supported for channels
-	switch globalOutput {
-	case "markdown":
+	// Use custom markdown renderer for channels
+	if globalOutput == "markdown" {
 		fmt.Print(renderChannelsMarkdown(response))
 		return nil
-	case "dot":
-		return fmt.Errorf("dot output not supported for channels command (use json, yaml, or markdown)")
 	}
 
 	return writer.Write(response)
