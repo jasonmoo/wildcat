@@ -73,7 +73,7 @@ func (r *Resolver) Resolve(ctx context.Context, query *Query) (*ResolvedSymbol, 
 
 	if len(matches) == 0 {
 		// No exact matches - suggest similar symbols
-		suggestions := r.suggestFromSymbols(symbols, query, 5)
+		suggestions := r.suggestFromSymbols(ctx, query, 5)
 		return nil, errors.NewSymbolNotFound(query.Raw, suggestions)
 	}
 
@@ -187,90 +187,71 @@ func (r *Resolver) formatSymbol(sym lsp.SymbolInformation) string {
 	return sym.Name
 }
 
-// formatSymbolShort creates a short display name for suggestions.
-// gopls returns names like "config.Load" which are already user-friendly.
+// formatSymbolShort creates a short display name like "pkg.Symbol".
+// Always includes the package prefix for consistent filtering.
 func (r *Resolver) formatSymbolShort(sym lsp.SymbolInformation) string {
-	return sym.Name
+	return sym.ShortName()
 }
 
-// suggestFromSymbols generates suggestions from a list of symbols.
-func (r *Resolver) suggestFromSymbols(symbols []lsp.SymbolInformation, query *Query, limit int) []string {
-	candidates := make([]string, 0, len(symbols))
-	for _, sym := range symbols {
-		candidates = append(candidates, r.formatSymbolShort(sym))
+// suggestFromSymbols queries gopls with the name part and filters by package prefix.
+func (r *Resolver) suggestFromSymbols(ctx context.Context, query *Query, limit int) []string {
+	// Query with just the name for better fuzzy matching
+	searchTerm := query.Name
+	if searchTerm == "" {
+		searchTerm = query.Raw
 	}
-	return errors.SuggestSimilar(query.Raw, candidates, limit)
+
+	symbols, err := r.client.WorkspaceSymbol(ctx, searchTerm)
+	if err != nil || len(symbols) == 0 {
+		return nil
+	}
+
+	// Determine prefix filter from query
+	prefix := ""
+	if query.Package != "" {
+		prefix = strings.ToLower(query.Package + ".")
+	} else if query.Type != "" {
+		prefix = strings.ToLower(query.Type + ".")
+	}
+
+	var candidates []string
+	for _, sym := range symbols {
+		name := sym.ShortName()
+		// Filter by prefix if specified
+		if prefix != "" && !strings.HasPrefix(strings.ToLower(name), prefix) {
+			continue
+		}
+		candidates = append(candidates, name)
+		if len(candidates) >= limit {
+			break
+		}
+	}
+
+	return candidates
 }
 
 // fallbackSuggestions tries alternate queries when original returns nothing.
 func (r *Resolver) fallbackSuggestions(ctx context.Context, query *Query, limit int) []string {
-	var allSymbols []lsp.SymbolInformation
-	seen := make(map[string]bool)
-
-	// Try name-only query (e.g., "Task" instead of "db.Task")
-	if query.Name != "" && query.Name != query.Raw {
-		if symbols, err := r.client.WorkspaceSymbol(ctx, query.Name); err == nil {
-			for _, sym := range symbols {
-				key := r.formatSymbolShort(sym)
-				if !seen[key] {
-					seen[key] = true
-					allSymbols = append(allSymbols, sym)
-				}
-			}
-		}
-	}
-
-	// Try package/type prefix (e.g., "db" to find db.* symbols)
-	prefix := query.Package
-	if prefix == "" {
-		prefix = query.Type
-	}
-	if prefix != "" && prefix != query.Raw && prefix != query.Name {
-		if symbols, err := r.client.WorkspaceSymbol(ctx, prefix); err == nil {
-			for _, sym := range symbols {
-				key := r.formatSymbolShort(sym)
-				if !seen[key] {
-					seen[key] = true
-					allSymbols = append(allSymbols, sym)
-				}
-			}
-		}
-	}
-
-	if len(allSymbols) == 0 {
-		return nil
-	}
-
-	return r.suggestFromSymbols(allSymbols, query, limit)
+	// Query with just the name part, filter by package prefix
+	return r.suggestFromSymbols(ctx, query, limit)
 }
 
 // FindSimilar finds symbols similar to the given query.
 // Used to populate similar_symbols in successful responses.
 func (r *Resolver) FindSimilar(ctx context.Context, query *Query, limit int) []string {
-	// Query workspace symbols using the name part
-	symbols, err := r.client.WorkspaceSymbol(ctx, query.Name)
-	if err != nil || len(symbols) == 0 {
-		return nil
-	}
+	// Get suggestions and filter out exact matches
+	suggestions := r.suggestFromSymbols(ctx, query, limit+1)
 
-	// Collect unique symbols, excluding exact match
-	seen := make(map[string]bool)
-	var candidates []lsp.SymbolInformation
-	for _, sym := range symbols {
-		short := r.formatSymbolShort(sym)
-		// Skip exact match to the query or just the name part
-		if short == query.Raw || short == query.Name {
+	// Exclude exact match to the query
+	var result []string
+	for _, s := range suggestions {
+		if s == query.Raw {
 			continue
 		}
-		if !seen[short] {
-			seen[short] = true
-			candidates = append(candidates, sym)
+		result = append(result, s)
+		if len(result) >= limit {
+			break
 		}
 	}
-
-	if len(candidates) == 0 {
-		return nil
-	}
-
-	return r.suggestFromSymbols(candidates, query, limit)
+	return result
 }

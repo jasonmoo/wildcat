@@ -147,7 +147,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		location := fmt.Sprintf("%s:%d:%d", file, startLine, endLine)
 
 		result := output.SearchResult{
-			Symbol:   sym.Name,
+			Symbol:   sym.ShortName(),
 			Kind:     kind,
 			Location: location,
 			Package:  sym.ContainerName,

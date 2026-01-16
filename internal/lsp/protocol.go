@@ -1,6 +1,8 @@
 // Package lsp provides a client for communicating with Language Server Protocol servers.
 package lsp
 
+import "strings"
+
 // Position in a text document expressed as zero-based line and character offset.
 type Position struct {
 	Line      int `json:"line"`
@@ -106,6 +108,27 @@ type SymbolInformation struct {
 	Kind          SymbolKind `json:"kind"`
 	Location      Location   `json:"location"`
 	ContainerName string     `json:"containerName,omitempty"`
+}
+
+// ShortName returns a consistent "pkg.Symbol" format.
+// Uses the last segment of ContainerName as the package prefix.
+func (s SymbolInformation) ShortName() string {
+	if s.ContainerName == "" {
+		return s.Name
+	}
+
+	// Get short package name (last path segment)
+	shortPkg := s.ContainerName
+	if idx := strings.LastIndex(s.ContainerName, "/"); idx >= 0 {
+		shortPkg = s.ContainerName[idx+1:]
+	}
+
+	// Check if Name already has the package prefix
+	if strings.HasPrefix(s.Name, shortPkg+".") {
+		return s.Name
+	}
+
+	return shortPkg + "." + s.Name
 }
 
 // WorkspaceSymbolParams is the parameters for a workspace/symbol request.
