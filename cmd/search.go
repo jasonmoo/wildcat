@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jasonmoo/wildcat/internal/errors"
+	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/lsp"
 	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/spf13/cobra"
@@ -30,22 +31,21 @@ Query Syntax:
 Examples:
   wildcat search Resolve                        # functions/types matching Resolve
   wildcat search NewClient                      # exact or fuzzy matches
-  wildcat search --limit 5 Config               # top 5 matches for Config
-  wildcat search --package "internal/*" Config  # filter to internal packages`,
+  wildcat search --limit 5 Config               # top 5 matches for Config`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSearch,
 }
 
 var (
-	searchLimit   int
-	searchPackage string
+	searchLimit int
+	searchScope string
 )
 
 func init() {
 	rootCmd.AddCommand(searchCmd)
 
 	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Maximum results (max 100)")
-	searchCmd.Flags().StringVar(&searchPackage, "package", "", "Filter by package pattern (glob: internal/*, github.com/user/*)")
+	searchCmd.Flags().StringVar(&searchScope, "scope", "", "Filter to specific packages (comma-separated)")
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
@@ -116,9 +116,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		)
 	}
 
-	// Apply package filter if specified
-	if searchPackage != "" {
-		symbols = filterSymbolsByPackage(symbols, searchPackage)
+	// Apply scope filter if specified
+	if searchScope != "" {
+		symbols = filterSymbolsByScope(symbols, searchScope, workDir)
 	}
 
 	// Apply limit
@@ -171,35 +171,26 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	return writer.Write(response)
 }
 
-// filterSymbolsByPackage filters symbols by package pattern.
-// Pattern supports:
-//   - "internal/*" matches packages starting with "internal/"
-//   - "github.com/user/*" matches packages starting with "github.com/user/"
-//   - "internal/lsp" matches packages ending with "/internal/lsp" (suffix match)
-//   - "lsp" matches packages ending with "/lsp" (suffix match for short names)
-func filterSymbolsByPackage(symbols []lsp.SymbolInformation, pattern string) []lsp.SymbolInformation {
-	// Handle wildcard suffix patterns as prefix matching
-	prefix := ""
-	if strings.HasSuffix(pattern, "/*") {
-		prefix = strings.TrimSuffix(pattern, "*")
-	} else if strings.HasSuffix(pattern, "*") {
-		prefix = strings.TrimSuffix(pattern, "*")
+// filterSymbolsByScope filters symbols to those in specified packages.
+// Scope is a comma-separated list of package paths (resolved via golang.ResolvePackagePath).
+func filterSymbolsByScope(symbols []lsp.SymbolInformation, scope, workDir string) []lsp.SymbolInformation {
+	packages := make(map[string]bool)
+	for _, pkg := range strings.Split(scope, ",") {
+		pkg = strings.TrimSpace(pkg)
+		if pkg == "" {
+			continue
+		}
+		// Resolve to full import path
+		if resolved, err := golang.ResolvePackagePath(pkg, workDir); err == nil {
+			packages[resolved] = true
+		}
+		// If resolution fails, skip silently
 	}
 
 	filtered := make([]lsp.SymbolInformation, 0, len(symbols))
 	for _, sym := range symbols {
-		pkg := sym.ContainerName
-		if prefix != "" {
-			// Prefix matching for wildcard patterns
-			if strings.HasPrefix(pkg, prefix) {
-				filtered = append(filtered, sym)
-			}
-		} else {
-			// Suffix matching: "internal/lsp" matches "github.com/.../internal/lsp"
-			// Also handles exact matches
-			if pkg == pattern || strings.HasSuffix(pkg, "/"+pattern) {
-				filtered = append(filtered, sym)
-			}
+		if packages[sym.ContainerName] {
+			filtered = append(filtered, sym)
 		}
 	}
 	return filtered

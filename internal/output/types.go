@@ -6,6 +6,7 @@ type QueryInfo struct {
 	Command  string `json:"command"`
 	Target   string `json:"target"`
 	Resolved string `json:"resolved,omitempty"`
+	Scope    string `json:"scope,omitempty"`
 }
 
 // TargetInfo describes the target symbol.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jasonmoo/wildcat/internal/errors"
@@ -39,12 +40,14 @@ Examples:
 
 var (
 	symbolExcludeTests bool
+	symbolScope        string
 )
 
 func init() {
 	rootCmd.AddCommand(symbolCmd)
 
 	symbolCmd.Flags().BoolVar(&symbolExcludeTests, "exclude-tests", false, "Exclude test files")
+	symbolCmd.Flags().StringVar(&symbolScope, "scope", "", "Scope: 'project' (all), or comma-separated packages (default: target package)")
 }
 
 func runSymbol(cmd *cobra.Command, args []string) error {
@@ -106,7 +109,7 @@ func runSymbol(cmd *cobra.Command, args []string) error {
 	// Process each symbol
 	var responses []output.SymbolResponse
 	for _, symbolArg := range args {
-		response, err := getImpactForSymbol(ctx, client, symbolArg)
+		response, err := getImpactForSymbol(ctx, client, symbolArg, symbolScope)
 		if err != nil {
 			// For multi-symbol queries, include error as a response
 			if len(args) > 1 {
@@ -135,7 +138,7 @@ func runSymbol(cmd *cobra.Command, args []string) error {
 	return writer.Write(responses)
 }
 
-func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg string) (*output.SymbolResponse, error) {
+func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg string, scope string) (*output.SymbolResponse, error) {
 	workDir, _ := os.Getwd()
 
 	// Parse symbol
@@ -285,6 +288,13 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		}
 	}
 
+	// Get project module root for scope filtering
+	projectRoot := ""
+	if modPath, err := golang.ResolvePackagePath(".", workDir); err == nil {
+		// Get the module path (strip any subpackage path)
+		projectRoot = modPath
+	}
+
 	// Build PackageUsage list, with target package first
 	var packages []output.PackageUsage
 	var pkgDirs []string
@@ -301,14 +311,30 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		}
 	}
 
+	// Resolve scope packages to full import paths
+	// nil means "project" scope (match all with project prefix)
+	scopePackages := resolveScopePackages(scope, targetPkgInfo.importPath, workDir)
+
+	// Track filtered packages and their test counts for query summary
+	var filteredTests int
 	for _, dir := range pkgDirs {
 		pd := pkgMap[dir]
+		// Filter by scope
+		if scopePackages == nil {
+			// Project scope: match packages with project prefix
+			if !strings.HasPrefix(pd.info.importPath, projectRoot) {
+				continue
+			}
+		} else if !scopePackages[pd.info.importPath] {
+			continue
+		}
 		packages = append(packages, output.PackageUsage{
 			Package:    pd.info.importPath,
 			Dir:        pd.info.dir,
 			Callers:    pd.callers,
 			References: pd.references,
 		})
+		filteredTests += pd.inTests
 	}
 
 	// Get implementations (for interfaces)
@@ -389,15 +415,27 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		}
 	}
 
-	// For now, query summary equals package summary (default scope)
+	// Query summary reflects the filtered packages array
+	var queryCallers, queryRefs int
+	for _, pkg := range packages {
+		queryCallers += len(pkg.Callers)
+		queryRefs += len(pkg.References)
+	}
+
 	querySummary := output.SymbolSummary{
+		Callers:         queryCallers,
+		References:      queryRefs,
+		Implementations: len(implementations),
+		Satisfies:       len(satisfies),
+		InTests:         filteredTests,
+	}
+	packageSummary := output.SymbolSummary{
 		Callers:         pkgCallers,
 		References:      pkgRefs,
 		Implementations: len(implementations),
 		Satisfies:       len(satisfies),
 		InTests:         pkgTests,
 	}
-	packageSummary := querySummary
 	projectSummary := output.SymbolSummary{
 		Callers:         projectCallers,
 		References:      projectRefs,
@@ -406,11 +444,18 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		InTests:         projectTests,
 	}
 
+	// Normalize scope for output - empty means "package"
+	outputScope := scope
+	if outputScope == "" {
+		outputScope = "package"
+	}
+
 	return &output.SymbolResponse{
 		Query: output.QueryInfo{
 			Command:  "symbol",
 			Target:   query.Raw,
 			Resolved: resolved.Name,
+			Scope:    outputScope,
 		},
 		Target: output.TargetInfo{
 			Symbol: resolved.Name,
@@ -444,4 +489,30 @@ func getPackageInfo(dir string) pkgInfo {
 	}
 	// Fallback to directory path
 	return pkgInfo{importPath: absDir, dir: absDir}
+}
+
+// resolveScopePackages resolves scope to a set of allowed package import paths.
+// Scope can be:
+//   - "": default to target package only
+//   - "project": returns nil (caller checks project prefix)
+//   - "pkg1,pkg2,...": comma-separated list of packages (resolved via golang.ResolvePackagePath)
+func resolveScopePackages(scope, targetPkgImportPath, workDir string) map[string]bool {
+	if scope == "" {
+		return map[string]bool{targetPkgImportPath: true}
+	}
+	if scope == "project" {
+		return nil // signals project scope - caller checks prefix
+	}
+	// Comma-separated list of packages - resolve each one
+	result := make(map[string]bool)
+	for _, pkg := range strings.Split(scope, ",") {
+		pkg = strings.TrimSpace(pkg)
+		if pkg == "" {
+			continue
+		}
+		if resolved, err := golang.ResolvePackagePath(pkg, workDir); err == nil {
+			result[resolved] = true
+		}
+	}
+	return result
 }
