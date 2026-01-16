@@ -148,13 +148,22 @@ type ErrorDetail struct {
 type SearchQuery struct {
 	Command string `json:"command"`
 	Pattern string `json:"pattern"`
+	Scope   string `json:"scope,omitempty"`
 }
 
-// SearchResult represents a single search result.
-type SearchResult struct {
-	Symbol   string `json:"symbol"`   // fully qualified: import/path.Symbol
-	Kind     string `json:"kind"`
-	Location string `json:"location"` // file:line:line_end
+// SearchMatch represents a single symbol match within a package.
+type SearchMatch struct {
+	Location string   `json:"location"`          // "file.go:line"
+	Symbol   string   `json:"symbol"`            // short name: "Type.Method"
+	Kind     string   `json:"kind"`
+	Snippet  *Snippet `json:"snippet,omitempty"`
+}
+
+// SearchPackage groups search matches by package.
+type SearchPackage struct {
+	Package string        `json:"package"`
+	Dir     string        `json:"dir"`
+	Matches []SearchMatch `json:"matches"`
 }
 
 // SearchSummary provides aggregate information about search results.
@@ -166,9 +175,9 @@ type SearchSummary struct {
 
 // SearchResponse is the output for the search command.
 type SearchResponse struct {
-	Query   SearchQuery    `json:"query"`
-	Results []SearchResult `json:"results"`
-	Summary SearchSummary  `json:"summary"`
+	Query    SearchQuery     `json:"query"`
+	Packages []SearchPackage `json:"packages"`
+	Summary  SearchSummary   `json:"summary"`
 }
 
 // PackageResponse is the output for the package command.

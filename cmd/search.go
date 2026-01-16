@@ -31,7 +31,9 @@ Query Syntax:
 Examples:
   wildcat search Resolve                        # functions/types matching Resolve
   wildcat search NewClient                      # exact or fuzzy matches
-  wildcat search --limit 5 Config               # top 5 matches for Config`,
+  wildcat search --limit 5 Config               # top 5 matches for Config
+  wildcat search --scope project Config         # only project packages
+  wildcat search --scope internal/lsp Client    # specific package`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSearch,
 }
@@ -45,7 +47,7 @@ func init() {
 	rootCmd.AddCommand(searchCmd)
 
 	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Maximum results (max 100)")
-	searchCmd.Flags().StringVar(&searchScope, "scope", "", "Filter to specific packages (comma-separated)")
+	searchCmd.Flags().StringVar(&searchScope, "scope", "", "Scope: 'project', or comma-separated packages (default: all)")
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
@@ -136,35 +138,85 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		symbols = symbols[:limit]
 	}
 
-	// Build results with decorations
-	results := make([]output.SearchResult, 0, len(symbols))
+	// Group symbols by package
+	type pkgData struct {
+		dir     string
+		matches []output.SearchMatch
+	}
+	pkgMap := make(map[string]*pkgData)
+	pkgOrder := make([]string, 0)
 	kindCounts := make(map[string]int)
+	totalCount := 0
 
 	for _, sym := range symbols {
 		kind := sym.Kind.String()
 		kindCounts[kind]++
+		totalCount++
 
 		file := output.AbsolutePath(lsp.URIToPath(sym.Location.URI))
 		startLine := sym.Location.Range.Start.Line + 1
-		endLine := sym.Location.Range.End.Line + 1
-		location := fmt.Sprintf("%s:%d:%d", file, startLine, endLine)
 
-		result := output.SearchResult{
-			Symbol:   sym.FullName(),
-			Kind:     kind,
-			Location: location,
+		// Get or create package entry
+		pkg := sym.ContainerName
+		if pkg == "" {
+			pkg = "(unknown)"
 		}
-		results = append(results, result)
+		data, exists := pkgMap[pkg]
+		if !exists {
+			// Derive dir from file path
+			dir := file
+			if idx := strings.LastIndex(file, "/"); idx >= 0 {
+				dir = file[:idx]
+			}
+			data = &pkgData{dir: dir}
+			pkgMap[pkg] = data
+			pkgOrder = append(pkgOrder, pkg)
+		}
+
+		// Build match with short symbol name
+		shortName := sym.ShortName()
+		// Strip package prefix if present (since package is in parent)
+		if strings.Contains(shortName, ".") {
+			if idx := strings.Index(shortName, "."); idx >= 0 {
+				shortName = shortName[idx+1:]
+			}
+		}
+
+		// Location as "file.go:line"
+		fileName := file
+		if idx := strings.LastIndex(file, "/"); idx >= 0 {
+			fileName = file[idx+1:]
+		}
+		location := fmt.Sprintf("%s:%d", fileName, startLine)
+
+		match := output.SearchMatch{
+			Location: location,
+			Symbol:   shortName,
+			Kind:     kind,
+		}
+		data.matches = append(data.matches, match)
+	}
+
+	// Build packages slice in order
+	packages := make([]output.SearchPackage, 0, len(pkgOrder))
+	for _, pkg := range pkgOrder {
+		data := pkgMap[pkg]
+		packages = append(packages, output.SearchPackage{
+			Package: pkg,
+			Dir:     data.dir,
+			Matches: data.matches,
+		})
 	}
 
 	response := output.SearchResponse{
 		Query: output.SearchQuery{
 			Command: "search",
 			Pattern: query,
+			Scope:   searchScope,
 		},
-		Results: results,
+		Packages: packages,
 		Summary: output.SearchSummary{
-			Count:     len(results),
+			Count:     totalCount,
 			ByKind:    kindCounts,
 			Truncated: truncated,
 		},
@@ -174,8 +226,24 @@ func runSearch(cmd *cobra.Command, args []string) error {
 }
 
 // filterSymbolsByScope filters symbols to those in specified packages.
-// Scope is a comma-separated list of package paths (resolved via golang.ResolvePackagePath).
+// Scope can be "project" (all project packages) or comma-separated package paths.
 func filterSymbolsByScope(symbols []lsp.SymbolInformation, scope, workDir string) []lsp.SymbolInformation {
+	// Handle "project" scope - filter to project packages by prefix
+	if scope == "project" {
+		projectRoot, err := golang.ResolvePackagePath(".", workDir)
+		if err != nil {
+			return symbols // Can't determine project root, return all
+		}
+		filtered := make([]lsp.SymbolInformation, 0, len(symbols))
+		for _, sym := range symbols {
+			if strings.HasPrefix(sym.ContainerName, projectRoot) {
+				filtered = append(filtered, sym)
+			}
+		}
+		return filtered
+	}
+
+	// Comma-separated list of packages
 	packages := make(map[string]bool)
 	for _, pkg := range strings.Split(scope, ",") {
 		pkg = strings.TrimSpace(pkg)

@@ -56,7 +56,12 @@ func printCompactReadme() {
 - Method                 Type.Method, Server.Start
 - Full path              path/to/pkg.Function
 
+## Scope Filtering
+- search (default: all)        --scope project, --scope internal/lsp
+- symbol (default: target pkg) --scope project, --scope cmd,lsp
+
 ## Common Flags
+- --scope SCOPE          Filter packages (project, or comma-separated)
 - --exclude-tests        Exclude test files
 - --exclude-stdlib       Exclude standard library
 - --depth N              Tree traversal depth
@@ -88,12 +93,14 @@ Uses gopls (Go Language Server) for semantic understanding of Go code.
 
 ### search - Find symbols
 `+"`"+`wildcat search Config`+"`"+`
+`+"`"+`wildcat search --scope project Config`+"`"+`
 
 Fuzzy search across the workspace. Returns functions, types, methods, constants.
-Use --package to filter by package pattern.
+Default shows all packages (including dependencies). Use --scope to filter.
 
 ### symbol - Complete symbol analysis
 `+"`"+`wildcat symbol lsp.Client`+"`"+`
+`+"`"+`wildcat symbol --scope project lsp.Client`+"`"+`
 
 Everything about a symbol in one query:
 - Definition location
@@ -101,6 +108,8 @@ Everything about a symbol in one query:
 - All references
 - Implements (for interfaces): types that implement it
 - Satisfies (for types): interfaces it implements
+
+Default shows callers in target package only. Use --scope project for all project packages.
 
 ### package - Package profile
 `+"`"+`wildcat package ./internal/output`+"`"+`
@@ -134,12 +143,19 @@ Channel operations grouped by type: makes, sends, receives, closes, selects.
 
 | Flag | Commands | Description |
 |------|----------|-------------|
+| --scope | search, symbol | Filter packages: 'project' or comma-separated |
 | --exclude-tests | symbol, tree, channels | Exclude test files |
 | --exclude-stdlib | package, tree | Exclude standard library |
 | --depth N | tree | Traversal depth (default 3) |
 | --direction | tree | up or down (default down) |
-| --package | search | Filter by package pattern |
 | -o json/yaml/markdown | all | Output format |
+
+## Scope Filtering
+
+| Command | Default | --scope project |
+|---------|---------|-----------------|
+| search | all (including deps) | project packages only |
+| symbol | target package only | all project packages |
 
 ## Workflow Patterns
 

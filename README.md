@@ -99,6 +99,27 @@ wildcat symbol Server.Start          # Type.Method
 wildcat symbol internal/server.Start # path/package.Function
 ```
 
+## Scope Filtering
+
+Control which packages are included in results:
+
+```bash
+# search: default is all packages (including dependencies)
+wildcat search Config
+wildcat search --scope project Config         # only project packages
+wildcat search --scope internal/lsp Config    # specific package
+
+# symbol: default is target package only
+wildcat symbol lsp.Client                     # callers in lsp package
+wildcat symbol --scope project lsp.Client     # callers across project
+wildcat symbol --scope cmd,internal/lsp Client # specific packages
+```
+
+| Command | Default scope | `--scope project` |
+|---------|---------------|-------------------|
+| search | all (including deps) | project packages only |
+| symbol | target package | all project packages |
+
 ## Features
 
 ### Complete Symbol Analysis
