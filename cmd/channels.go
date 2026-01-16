@@ -168,9 +168,13 @@ func runChannels(cmd *cobra.Command, args []string) error {
 		Summary:  summary,
 	}
 
-	// Use custom markdown renderer for markdown output
-	if globalOutput == "markdown" {
+	// Use custom renderers for markdown and dot output
+	switch globalOutput {
+	case "markdown":
 		fmt.Print(renderChannelsMarkdown(response))
+		return nil
+	case "dot":
+		fmt.Print(renderChannelsDot(response))
 		return nil
 	}
 
@@ -519,5 +523,85 @@ func renderChannelsMarkdown(r ChannelsResponse) string {
 	sb.WriteString("\n---\n")
 	sb.WriteString(fmt.Sprintf("**Summary:** %d ops across %d packages, %d channel types\n", r.Summary.TotalOps, r.Summary.Packages, r.Summary.Types))
 
+	return sb.String()
+}
+
+// renderChannelsDot renders channel operations as a Graphviz DOT graph.
+// Shows channel types as nodes with edges representing operation flow.
+func renderChannelsDot(r ChannelsResponse) string {
+	var sb strings.Builder
+
+	sb.WriteString("digraph channels {\n")
+	sb.WriteString("  rankdir=TB;\n")
+	sb.WriteString("  node [shape=box, fontname=\"Courier\"];\n")
+	sb.WriteString("  edge [fontname=\"Courier\", fontsize=10];\n\n")
+
+	nodeID := 0
+	nextID := func() string {
+		nodeID++
+		return fmt.Sprintf("n%d", nodeID)
+	}
+
+	for _, pkg := range r.Packages {
+		if len(pkg.Channels) == 0 {
+			continue
+		}
+
+		// Create subgraph for package
+		safePkg := strings.ReplaceAll(pkg.Package, "\"", "\\\"")
+		sb.WriteString(fmt.Sprintf("  subgraph \"cluster_%s\" {\n", safePkg))
+		sb.WriteString(fmt.Sprintf("    label=\"%s\";\n", safePkg))
+		sb.WriteString("    style=dashed;\n\n")
+
+		for _, group := range pkg.Channels {
+			// Channel type as central node
+			chanID := nextID()
+			safeType := strings.ReplaceAll(group.ElementType, "\"", "\\\"")
+			sb.WriteString(fmt.Sprintf("    %s [label=\"chan %s\", shape=ellipse, style=filled, fillcolor=lightblue];\n", chanID, safeType))
+
+			// Operation nodes and edges
+			if len(group.Makes) > 0 {
+				makeID := nextID()
+				sb.WriteString(fmt.Sprintf("    %s [label=\"make (%d)\", shape=box, style=filled, fillcolor=lightgreen];\n", makeID, len(group.Makes)))
+				sb.WriteString(fmt.Sprintf("    %s -> %s;\n", makeID, chanID))
+			}
+
+			if len(group.Sends) > 0 {
+				sendID := nextID()
+				sb.WriteString(fmt.Sprintf("    %s [label=\"send (%d)\", shape=box];\n", sendID, len(group.Sends)))
+				sb.WriteString(fmt.Sprintf("    %s -> %s [label=\"<-\"];\n", chanID, sendID))
+			}
+
+			if len(group.SelectSends) > 0 {
+				selSendID := nextID()
+				sb.WriteString(fmt.Sprintf("    %s [label=\"select send (%d)\", shape=box, style=dashed];\n", selSendID, len(group.SelectSends)))
+				sb.WriteString(fmt.Sprintf("    %s -> %s [label=\"<-\", style=dashed];\n", chanID, selSendID))
+			}
+
+			if len(group.Receives) > 0 {
+				recvID := nextID()
+				sb.WriteString(fmt.Sprintf("    %s [label=\"receive (%d)\", shape=box];\n", recvID, len(group.Receives)))
+				sb.WriteString(fmt.Sprintf("    %s -> %s [label=\"<-\"];\n", chanID, recvID))
+			}
+
+			if len(group.SelectReceives) > 0 {
+				selRecvID := nextID()
+				sb.WriteString(fmt.Sprintf("    %s [label=\"select receive (%d)\", shape=box, style=dashed];\n", selRecvID, len(group.SelectReceives)))
+				sb.WriteString(fmt.Sprintf("    %s -> %s [label=\"<-\", style=dashed];\n", chanID, selRecvID))
+			}
+
+			if len(group.Closes) > 0 {
+				closeID := nextID()
+				sb.WriteString(fmt.Sprintf("    %s [label=\"close (%d)\", shape=box, style=filled, fillcolor=lightcoral];\n", closeID, len(group.Closes)))
+				sb.WriteString(fmt.Sprintf("    %s -> %s;\n", chanID, closeID))
+			}
+
+			sb.WriteString("\n")
+		}
+
+		sb.WriteString("  }\n\n")
+	}
+
+	sb.WriteString("}\n")
 	return sb.String()
 }
