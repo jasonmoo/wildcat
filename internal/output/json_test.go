@@ -17,8 +17,11 @@ func TestWriter_Write(t *testing.T) {
 			Depth:     3,
 			Direction: "up",
 		},
-		Paths: [][]string{
-			{"main.main", "config.Load"},
+		Tree: &TreeNode{
+			Symbol: "config.Load",
+			Calls: []*TreeNode{
+				{Symbol: "main.main", Line: 10},
+			},
 		},
 		Packages: []TreePackage{
 			{
@@ -37,7 +40,7 @@ func TestWriter_Write(t *testing.T) {
 			},
 		},
 		Summary: TreeSummary{
-			PathCount:       1,
+			TotalCalls:      1,
 			MaxDepthReached: 2,
 			Truncated:       false,
 		},
@@ -56,8 +59,11 @@ func TestWriter_Write(t *testing.T) {
 	if parsed.Query.Command != "tree" {
 		t.Errorf("command = %q, want %q", parsed.Query.Command, "tree")
 	}
-	if len(parsed.Paths) != 1 {
-		t.Errorf("paths count = %d, want 1", len(parsed.Paths))
+	if parsed.Tree == nil || parsed.Tree.Symbol != "config.Load" {
+		t.Errorf("tree root symbol = %v, want config.Load", parsed.Tree)
+	}
+	if len(parsed.Tree.Calls) != 1 {
+		t.Errorf("tree calls count = %d, want 1", len(parsed.Tree.Calls))
 	}
 }
 

@@ -414,46 +414,22 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		}
 	}
 
-	// Format tree if present (legacy format)
+	// Format nested tree (tree command output)
 	if tree, ok := data["tree"].(map[string]any); ok {
 		buf.WriteString("## Call Tree\n\n")
-		writeMarkdownTree(buf, tree, 0)
-		buf.WriteString("\n")
-	}
-
-	// Format paths (tree command output)
-	if paths, ok := data["paths"].([]any); ok && len(paths) > 0 {
-		buf.WriteString("## Call Paths\n\n")
-		for i, path := range paths {
-			if pathArr, ok := path.([]any); ok && len(pathArr) > 0 {
-				buf.WriteString(fmt.Sprintf("### Path %d\n\n", i+1))
-				for j, step := range pathArr {
-					stepStr, _ := step.(string)
-					indent := strings.Repeat("  ", j)
-					if j == 0 {
-						buf.WriteString(fmt.Sprintf("%s- `%s`\n", indent, stepStr))
-					} else {
-						buf.WriteString(fmt.Sprintf("%s→ `%s`\n", indent, stepStr))
-					}
+		buf.WriteString("```\n")
+		// Write root node
+		symbol, _ := tree["symbol"].(string)
+		buf.WriteString(symbol + "\n")
+		// Write children
+		if calls, ok := tree["calls"].([]any); ok {
+			for i, call := range calls {
+				if callMap, ok := call.(map[string]any); ok {
+					writeNestedTree(buf, callMap, "", i == len(calls)-1)
 				}
-				buf.WriteString("\n")
 			}
 		}
-	}
-
-	// Format functions (tree command - map format)
-	if functions, ok := data["functions"].(map[string]any); ok && len(functions) > 0 {
-		buf.WriteString("## Functions\n\n")
-		buf.WriteString("| Function | File | Line |\n")
-		buf.WriteString("|----------|------|------|\n")
-		for name, info := range functions {
-			if infoMap, ok := info.(map[string]any); ok {
-				file, _ := infoMap["file"].(string)
-				line, _ := infoMap["line"].(float64)
-				buf.WriteString(fmt.Sprintf("| %s | %s | %.0f |\n", name, filepath.Base(file), line))
-			}
-		}
-		buf.WriteString("\n")
+		buf.WriteString("```\n\n")
 	}
 
 	// Format package info
@@ -666,22 +642,35 @@ func (f *MarkdownFormatter) formatPackageLocations(buf *bytes.Buffer, locations 
 	}
 }
 
-func writeMarkdownTree(buf *bytes.Buffer, node map[string]any, depth int) {
-	name, _ := node["name"].(string)
-	file, _ := node["file"].(string)
+// writeNestedTree renders a call tree node as ASCII art.
+// prefix is the string to prepend before the connector (for children lines).
+// isLast indicates if this node is the last child of its parent.
+func writeNestedTree(buf *bytes.Buffer, node map[string]any, prefix string, isLast bool) {
+	symbol, _ := node["symbol"].(string)
 	line, _ := node["line"].(float64)
 
-	indent := strings.Repeat("  ", depth)
-	if file != "" && line > 0 {
-		buf.WriteString(fmt.Sprintf("%s- `%s` (%s:%.0f)\n", indent, name, filepath.Base(file), line))
-	} else if name != "" {
-		buf.WriteString(fmt.Sprintf("%s- `%s`\n", indent, name))
+	// Determine connector and child prefix
+	var connector, childPrefix string
+	if isLast {
+		connector = "└── "
+		childPrefix = prefix + "    "
+	} else {
+		connector = "├── "
+		childPrefix = prefix + "│   "
 	}
 
-	if children, ok := node["children"].([]any); ok {
-		for _, child := range children {
-			if childMap, ok := child.(map[string]any); ok {
-				writeMarkdownTree(buf, childMap, depth+1)
+	// Write this node
+	if line > 0 {
+		buf.WriteString(fmt.Sprintf("%s%s%s (:%0.f)\n", prefix, connector, symbol, line))
+	} else {
+		buf.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, symbol))
+	}
+
+	// Recurse into children
+	if calls, ok := node["calls"].([]any); ok {
+		for i, call := range calls {
+			if callMap, ok := call.(map[string]any); ok {
+				writeNestedTree(buf, callMap, childPrefix, i == len(calls)-1)
 			}
 		}
 	}

@@ -21,7 +21,7 @@ type TargetInfo struct {
 
 // TreeSummary provides aggregate information about the tree.
 type TreeSummary struct {
-	PathCount       int  `json:"path_count"`
+	TotalCalls      int  `json:"total_calls"`
 	MaxDepthReached int  `json:"max_depth_reached"`
 	Truncated       bool `json:"truncated"`
 }
@@ -32,6 +32,13 @@ type TreeQuery struct {
 	Target    string `json:"target"`
 	Depth     int    `json:"depth"`
 	Direction string `json:"direction"`
+}
+
+// TreeNode represents a node in the call tree.
+type TreeNode struct {
+	Symbol string      `json:"symbol"`           // qualified: pkg.Name
+	Line   int         `json:"line,omitempty"`   // call site line (0 for root)
+	Calls  []*TreeNode `json:"calls,omitempty"`  // child calls
 }
 
 // TreeFunction contains information about a function in the call tree.
@@ -51,7 +58,7 @@ type TreePackage struct {
 // TreeResponse is the output for the tree command.
 type TreeResponse struct {
 	Query    TreeQuery     `json:"query"`
-	Paths    [][]string    `json:"paths"`
+	Tree     *TreeNode     `json:"tree"`
 	Packages []TreePackage `json:"packages"`
 	Summary  TreeSummary   `json:"summary"`
 }
