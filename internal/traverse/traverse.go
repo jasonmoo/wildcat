@@ -294,18 +294,13 @@ func groupByPackage(collected map[string]*collectedFunc) []output.TreePackage {
 			pkgDirs[cf.importPath] = dir
 		}
 
-		fileName := cf.file
-		if idx := strings.LastIndex(cf.file, "/"); idx >= 0 {
-			fileName = cf.file[idx+1:]
-		}
-
 		// Build qualified symbol name: pkg.Name or pkg.Type.Method
 		symbol := cf.pkgName + "." + cf.name
 
 		pkgMap[cf.importPath] = append(pkgMap[cf.importPath], output.TreeFunction{
 			Symbol:     symbol,
 			Signature:  cf.signature,
-			Definition: fmt.Sprintf("%s:%d:%d", fileName, cf.startLine, cf.endLine),
+			Definition: fmt.Sprintf("%s:%d:%d", cf.file, cf.startLine, cf.endLine),
 		})
 	}
 
@@ -367,15 +362,16 @@ func (t *Traverser) buildTreeUp(ctx context.Context, item lsp.CallHierarchyItem,
 
 		*totalCalls++
 
-		// Get call site line (where caller calls current item)
-		callLine := 0
+		// Get call site location (where caller calls current item)
+		callLocation := ""
 		if len(call.FromRanges) > 0 {
-			callLine = call.FromRanges[0].Start.Line + 1
+			callLine := call.FromRanges[0].Start.Line + 1
+			callLocation = fmt.Sprintf("%s:%d", callFile, callLine)
 		}
 
 		// Recurse to build caller's subtree
 		childNode := t.buildTreeUp(ctx, call.From, opts, depth+1, visited, collected, maxDepth, totalCalls)
-		childNode.Line = callLine
+		childNode.Location = callLocation
 		node.Calls = append(node.Calls, childNode)
 	}
 
@@ -417,9 +413,9 @@ func (t *Traverser) buildTreeDown(ctx context.Context, item lsp.CallHierarchyIte
 	}
 
 	for _, call := range calls {
-		callFile := lsp.URIToPath(call.To.URI)
+		calleeFile := lsp.URIToPath(call.To.URI)
 
-		if opts.ExcludeTests && output.IsTestFile(callFile) {
+		if opts.ExcludeTests && output.IsTestFile(calleeFile) {
 			continue
 		}
 		if !t.inScope(call.To.URI, opts) {
@@ -428,15 +424,16 @@ func (t *Traverser) buildTreeDown(ctx context.Context, item lsp.CallHierarchyIte
 
 		*totalCalls++
 
-		// Get call site line (where current item calls callee)
-		callLine := 0
+		// Get call site location (where current item calls callee - in current item's file)
+		callLocation := ""
 		if len(call.FromRanges) > 0 {
-			callLine = call.FromRanges[0].Start.Line + 1
+			callLine := call.FromRanges[0].Start.Line + 1
+			callLocation = fmt.Sprintf("%s:%d", file, callLine)
 		}
 
 		// Recurse to build callee's subtree
 		childNode := t.buildTreeDown(ctx, call.To, opts, depth+1, visited, collected, maxDepth, totalCalls)
-		childNode.Line = callLine
+		childNode.Location = callLocation
 		node.Calls = append(node.Calls, childNode)
 	}
 

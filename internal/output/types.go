@@ -36,9 +36,9 @@ type TreeQuery struct {
 
 // TreeNode represents a node in the call tree.
 type TreeNode struct {
-	Symbol string      `json:"symbol"`           // qualified: pkg.Name
-	Line   int         `json:"line,omitempty"`   // call site line (0 for root)
-	Calls  []*TreeNode `json:"calls,omitempty"`  // child calls
+	Symbol   string      `json:"symbol"`             // qualified: pkg.Name
+	Location string      `json:"location,omitempty"` // call site: /full/path/file.go:line (empty for root)
+	Calls    []*TreeNode `json:"calls,omitempty"`    // child calls
 }
 
 // TreeFunction contains information about a function in the call tree.

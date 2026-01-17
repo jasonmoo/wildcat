@@ -20,7 +20,7 @@ func TestWriter_Write(t *testing.T) {
 		Tree: &TreeNode{
 			Symbol: "config.Load",
 			Calls: []*TreeNode{
-				{Symbol: "main.main", Line: 10},
+				{Symbol: "main.main", Location: "/path/to/main.go:10"},
 			},
 		},
 		Packages: []TreePackage{

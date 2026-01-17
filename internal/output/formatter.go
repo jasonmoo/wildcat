@@ -252,6 +252,24 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		buf.WriteString(fmt.Sprintf("# %s: %s\n\n", strings.Title(cmd), title))
 	}
 
+	// Format nested tree first (tree command output)
+	if tree, ok := data["tree"].(map[string]any); ok {
+		buf.WriteString("## Call Tree\n\n")
+		buf.WriteString("```\n")
+		// Write root node
+		symbol, _ := tree["symbol"].(string)
+		buf.WriteString(symbol + "\n")
+		// Write children
+		if calls, ok := tree["calls"].([]any); ok {
+			for i, call := range calls {
+				if callMap, ok := call.(map[string]any); ok {
+					writeNestedTree(buf, callMap, "", i == len(calls)-1)
+				}
+			}
+		}
+		buf.WriteString("```\n\n")
+	}
+
 	// Format results as table with snippets
 	if results, ok := data["results"].([]any); ok && len(results) > 0 {
 		buf.WriteString("| Symbol | File | Line | Snippet |\n")
@@ -376,6 +394,23 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 			if refs, ok := pkgMap["references"].([]any); ok && len(refs) > 0 {
 				f.formatPackageLocations(buf, refs, "References")
 			}
+
+			// Handle tree symbols (functions with signatures/definitions)
+			if symbols, ok := pkgMap["symbols"].([]any); ok && len(symbols) > 0 {
+				buf.WriteString("| Symbol | Signature | Definition |\n")
+				buf.WriteString("|--------|-----------|------------|\n")
+				for _, s := range symbols {
+					if sym, ok := s.(map[string]any); ok {
+						symbol, _ := sym["symbol"].(string)
+						signature, _ := sym["signature"].(string)
+						definition, _ := sym["definition"].(string)
+						// Escape pipes in signature
+						signature = strings.ReplaceAll(signature, "|", "\\|")
+						buf.WriteString(fmt.Sprintf("| %s | `%s` | %s |\n", symbol, signature, definition))
+					}
+				}
+				buf.WriteString("\n")
+			}
 		}
 	}
 
@@ -412,24 +447,6 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		if impls, ok := impact["implementations"].([]any); ok && len(impls) > 0 {
 			f.formatResultsTable(buf, impls, "Implementations")
 		}
-	}
-
-	// Format nested tree (tree command output)
-	if tree, ok := data["tree"].(map[string]any); ok {
-		buf.WriteString("## Call Tree\n\n")
-		buf.WriteString("```\n")
-		// Write root node
-		symbol, _ := tree["symbol"].(string)
-		buf.WriteString(symbol + "\n")
-		// Write children
-		if calls, ok := tree["calls"].([]any); ok {
-			for i, call := range calls {
-				if callMap, ok := call.(map[string]any); ok {
-					writeNestedTree(buf, callMap, "", i == len(calls)-1)
-				}
-			}
-		}
-		buf.WriteString("```\n\n")
 	}
 
 	// Format package info
@@ -647,7 +664,7 @@ func (f *MarkdownFormatter) formatPackageLocations(buf *bytes.Buffer, locations 
 // isLast indicates if this node is the last child of its parent.
 func writeNestedTree(buf *bytes.Buffer, node map[string]any, prefix string, isLast bool) {
 	symbol, _ := node["symbol"].(string)
-	line, _ := node["line"].(float64)
+	location, _ := node["location"].(string)
 
 	// Determine connector and child prefix
 	var connector, childPrefix string
@@ -660,8 +677,8 @@ func writeNestedTree(buf *bytes.Buffer, node map[string]any, prefix string, isLa
 	}
 
 	// Write this node
-	if line > 0 {
-		buf.WriteString(fmt.Sprintf("%s%s%s (:%0.f)\n", prefix, connector, symbol, line))
+	if location != "" {
+		buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, location))
 	} else {
 		buf.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, symbol))
 	}
