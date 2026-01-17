@@ -20,9 +20,21 @@ func TestWriter_Write(t *testing.T) {
 		Paths: [][]string{
 			{"main.main", "config.Load"},
 		},
-		Functions: map[string]TreeFunction{
-			"main.main":   {Signature: "func main()", Location: "/path/to/main.go:10:15"},
-			"config.Load": {Signature: "func Load() error", Location: "/path/to/config.go:20:25"},
+		Packages: []TreePackage{
+			{
+				Package: "main",
+				Dir:     "/path/to",
+				Symbols: []TreeFunction{
+					{Name: "main", Signature: "func main()", Definition: "main.go:10:15"},
+				},
+			},
+			{
+				Package: "config",
+				Dir:     "/path/to",
+				Symbols: []TreeFunction{
+					{Name: "Load", Signature: "func Load() error", Definition: "config.go:20:25"},
+				},
+			},
 		},
 		Summary: TreeSummary{
 			PathCount:       1,

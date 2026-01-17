@@ -36,16 +36,24 @@ type TreeQuery struct {
 
 // TreeFunction contains information about a function in the call tree.
 type TreeFunction struct {
-	Signature string `json:"signature"`
-	Location  string `json:"location"` // file:start:end
+	Name       string `json:"name"`
+	Signature  string `json:"signature"`
+	Definition string `json:"definition"` // file:start:end (full function range)
+}
+
+// TreePackage groups functions by package in tree output.
+type TreePackage struct {
+	Package string         `json:"package"`
+	Dir     string         `json:"dir"`
+	Symbols []TreeFunction `json:"symbols"`
 }
 
 // TreeResponse is the output for the tree command.
 type TreeResponse struct {
-	Query     TreeQuery               `json:"query"`
-	Paths     [][]string              `json:"paths"`
-	Functions map[string]TreeFunction `json:"functions"`
-	Summary   TreeSummary             `json:"summary"`
+	Query    TreeQuery     `json:"query"`
+	Paths    [][]string    `json:"paths"`
+	Packages []TreePackage `json:"packages"`
+	Summary  TreeSummary   `json:"summary"`
 }
 
 // Snippet represents a code snippet with its location.
