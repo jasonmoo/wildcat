@@ -53,13 +53,12 @@ func TestResolvePackagePath(t *testing.T) {
 			srcDir:   root,
 			wantPath: "errors", // NOT github.com/jasonmoo/wildcat/internal/errors
 		},
-		// Project has internal/config, but "config" should error (not in stdlib)
-		// rather than silently resolve to local
+		// "config" is not in stdlib, should error rather than silently resolve to local
 		{
 			name:    "no implicit local - config not in stdlib",
 			path:    "config",
 			srcDir:  root,
-			wantErr: true, // should NOT resolve to internal/config implicitly
+			wantErr: true, // should NOT resolve to a local package implicitly
 		},
 
 		// Full import paths (external)
@@ -77,8 +76,8 @@ func TestResolvePackagePath(t *testing.T) {
 			srcDir: root,
 		},
 		{
-			name:   "relative path - internal/config",
-			path:   "internal/config",
+			name:   "relative path - internal/errors",
+			path:   "internal/errors",
 			srcDir: root,
 		},
 		{
