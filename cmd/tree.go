@@ -22,18 +22,25 @@ Direction:
   up    - Show callers (what calls this function)
   down  - Show callees (what this function calls)
 
+Scope:
+  all     - Include everything (stdlib, dependencies)
+  project - Project packages only (default)
+  package - Same package as starting symbol only
+
 Examples:
   wildcat tree main.main --depth 3 --direction down
-  wildcat tree db.Query --depth 2 --direction up`,
+  wildcat tree db.Query --depth 2 --direction up
+  wildcat tree Server.Start --scope package            # stay within package
+  wildcat tree Handler.ServeHTTP --scope all           # include stdlib calls`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTree,
 }
 
 var (
-	treeDepth         int
-	treeDirection     string
-	treeExcludeTests  bool
-	treeExcludeStdlib bool
+	treeDepth        int
+	treeDirection    string
+	treeExcludeTests bool
+	treeScope        string
 )
 
 func init() {
@@ -42,7 +49,7 @@ func init() {
 	treeCmd.Flags().IntVar(&treeDepth, "depth", 3, "Maximum tree depth")
 	treeCmd.Flags().StringVar(&treeDirection, "direction", "down", "Traversal direction: up or down")
 	treeCmd.Flags().BoolVar(&treeExcludeTests, "exclude-tests", false, "Exclude test files")
-	treeCmd.Flags().BoolVar(&treeExcludeStdlib, "exclude-stdlib", false, "Exclude standard library")
+	treeCmd.Flags().StringVar(&treeScope, "scope", "project", "Traversal scope: all, project, package")
 }
 
 func runTree(cmd *cobra.Command, args []string) error {
@@ -149,13 +156,27 @@ func runTree(cmd *cobra.Command, args []string) error {
 		)
 	}
 
+	// Validate and convert scope
+	var scope traverse.Scope
+	switch treeScope {
+	case "all":
+		scope = traverse.ScopeAll
+	case "project":
+		scope = traverse.ScopeProject
+	case "package":
+		scope = traverse.ScopePackage
+	default:
+		return writer.WriteError("invalid_argument", "scope must be 'all', 'project', or 'package'", nil, nil)
+	}
+
 	// Build tree
 	traverser := traverse.NewTraverser(client)
 	opts := traverse.Options{
-		Direction:     direction,
-		MaxDepth:      treeDepth,
-		ExcludeTests:  treeExcludeTests,
-		ExcludeStdlib: treeExcludeStdlib,
+		Direction:    direction,
+		MaxDepth:     treeDepth,
+		ExcludeTests: treeExcludeTests,
+		Scope:        scope,
+		StartFile:    lsp.URIToPath(resolved.URI),
 	}
 
 	tree, err := traverser.BuildTree(ctx, items[0], opts)

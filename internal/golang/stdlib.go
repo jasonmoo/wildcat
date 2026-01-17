@@ -50,3 +50,23 @@ func IsStdlibImport(importPath string) bool {
 	firstPart := importPath[:firstSlash]
 	return !strings.Contains(firstPart, ".")
 }
+
+// IsProjectPath checks if a file path is within the project (not stdlib, not external dep).
+// External dependencies are in go/pkg/mod.
+func IsProjectPath(path string) bool {
+	if IsStdlibPath(path) {
+		return false
+	}
+	// External deps are in go/pkg/mod
+	if strings.Contains(path, "/go/pkg/mod/") {
+		return false
+	}
+	return true
+}
+
+// IsSamePackage checks if two file paths are in the same package directory.
+func IsSamePackage(path1, path2 string) bool {
+	dir1 := filepath.Dir(path1)
+	dir2 := filepath.Dir(path2)
+	return dir1 == dir2
+}

@@ -29,9 +29,6 @@ func TestWaitForReady(t *testing.T) {
 	}
 	defer client.Shutdown(ctx)
 
-	// Enable debug logging during tests
-	client.DebugLog = t.Logf
-
 	t.Log("Initializing...")
 	if err := client.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize: %v", err)

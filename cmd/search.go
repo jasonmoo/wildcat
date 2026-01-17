@@ -88,12 +88,6 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	var debugBuf *lsp.DebugBuffer
-	if globalDebug {
-		debugBuf = lsp.NewDebugBuffer()
-		client.DebugLog = debugBuf.Log
-	}
-
 	if err := client.Initialize(ctx); err != nil {
 		return writer.WriteError(
 			string(errors.CodeLSPError),
@@ -226,13 +220,6 @@ func runSearch(cmd *cobra.Command, args []string) error {
 			ByKind:    kindCounts,
 			Truncated: truncated,
 		},
-	}
-
-	// Dump debug logs if enabled and we got 0 results (likely race condition)
-	if debugBuf != nil && totalCount == 0 {
-		fmt.Fprintf(os.Stderr, "\n=== DEBUG: 0 results - dumping logs ===\n")
-		debugBuf.Dump()
-		fmt.Fprintf(os.Stderr, "=== END DEBUG ===\n\n")
 	}
 
 	return writer.Write(response)

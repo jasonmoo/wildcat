@@ -88,12 +88,6 @@ func runSymbol(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	var debugBuf *lsp.DebugBuffer
-	if globalDebug {
-		debugBuf = lsp.NewDebugBuffer()
-		client.DebugLog = debugBuf.Log
-	}
-
 	if err := client.Initialize(ctx); err != nil {
 		return writer.WriteError(
 			string(errors.CodeLSPError),
@@ -136,18 +130,6 @@ func runSymbol(cmd *cobra.Command, args []string) error {
 			return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
 		}
 		responses = append(responses, *response)
-	}
-
-	// Dump debug logs if enabled and we got nil packages (likely race condition)
-	if debugBuf != nil {
-		for _, resp := range responses {
-			if resp.Packages == nil {
-				fmt.Fprintf(os.Stderr, "\n=== DEBUG: nil packages for %s - dumping logs ===\n", resp.Query.Target)
-				debugBuf.Dump()
-				fmt.Fprintf(os.Stderr, "=== END DEBUG ===\n\n")
-				break
-			}
-		}
 	}
 
 	// Single symbol: return object; multiple: return array

@@ -24,12 +24,22 @@ const (
 	Down                  // Callees (outgoing calls)
 )
 
+// Scope controls how far traversal extends.
+type Scope string
+
+const (
+	ScopeAll     Scope = "all"     // Include everything (stdlib, deps)
+	ScopeProject Scope = "project" // Project packages only (no stdlib, no deps)
+	ScopePackage Scope = "package" // Same package as starting symbol only
+)
+
 // Options configures traversal behavior.
 type Options struct {
-	Direction     Direction
-	MaxDepth      int
-	ExcludeTests  bool
-	ExcludeStdlib bool
+	Direction    Direction
+	MaxDepth     int
+	ExcludeTests bool
+	Scope        Scope  // Traversal boundary (default: project)
+	StartFile    string // Starting symbol's file (for package scope)
 }
 
 // CallInfo contains information about a call site.
@@ -97,7 +107,7 @@ func (t *Traverser) traverse(ctx context.Context, item lsp.CallHierarchyItem, op
 			if opts.ExcludeTests && info.InTest {
 				continue
 			}
-			if opts.ExcludeStdlib && t.isStdlib(call.From.URI) {
+			if !t.inScope(call.From.URI, opts) {
 				continue
 			}
 
@@ -126,7 +136,7 @@ func (t *Traverser) traverse(ctx context.Context, item lsp.CallHierarchyItem, op
 			if opts.ExcludeTests && info.InTest {
 				continue
 			}
-			if opts.ExcludeStdlib && t.isStdlib(call.To.URI) {
+			if !t.inScope(call.To.URI, opts) {
 				continue
 			}
 
@@ -172,9 +182,20 @@ func (t *Traverser) callInfoFromOutgoing(call lsp.CallHierarchyOutgoingCall) Cal
 	}
 }
 
-// isStdlib checks if a URI is from the standard library.
-func (t *Traverser) isStdlib(uri string) bool {
-	return golang.IsStdlibPath(lsp.URIToPath(uri))
+// inScope checks if a URI is within the specified scope.
+func (t *Traverser) inScope(uri string, opts Options) bool {
+	path := lsp.URIToPath(uri)
+
+	switch opts.Scope {
+	case ScopeAll:
+		return true
+	case ScopePackage:
+		return golang.IsSamePackage(path, opts.StartFile)
+	case ScopeProject:
+		fallthrough
+	default:
+		return golang.IsProjectPath(path)
+	}
 }
 
 // symbolName returns a qualified symbol name like "pkg.Symbol".
@@ -297,7 +318,7 @@ func (t *Traverser) buildPathsUp(ctx context.Context, item lsp.CallHierarchyItem
 		if opts.ExcludeTests && output.IsTestFile(callFile) {
 			continue
 		}
-		if opts.ExcludeStdlib && t.isStdlib(call.From.URI) {
+		if !t.inScope(call.From.URI, opts) {
 			continue
 		}
 
@@ -382,24 +403,21 @@ func (t *Traverser) buildPathsDown(ctx context.Context, item lsp.CallHierarchyIt
 		if opts.ExcludeTests && output.IsTestFile(callFile) {
 			continue
 		}
-		// Skip stdlib callees but still record the call site as a leaf
-		if t.isStdlib(call.To.URI) {
-			myCallSite := 0
-			if len(call.FromRanges) > 0 {
-				myCallSite = call.FromRanges[0].Start.Line + 1
-			}
+
+		// The call site for this item is where it calls this callee
+		myCallSite := 0
+		if len(call.FromRanges) > 0 {
+			myCallSite = call.FromRanges[0].Start.Line + 1
+		}
+
+		// If callee is out of scope, record as leaf and don't recurse
+		if !t.inScope(call.To.URI, opts) {
 			name := baseName
 			if myCallSite > 0 {
 				name = fmt.Sprintf("%s:%d", baseName, myCallSite)
 			}
 			paths = append(paths, []string{name})
 			continue
-		}
-
-		// The call site for this item is where it calls this callee
-		myCallSite := 0
-		if len(call.FromRanges) > 0 {
-			myCallSite = call.FromRanges[0].Start.Line + 1
 		}
 
 		// Build name with our call site to this callee

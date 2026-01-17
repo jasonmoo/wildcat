@@ -14,10 +14,7 @@ Designed for AI tool integration with consistent structure, absolute paths,
 and actionable error messages.`,
 }
 
-var (
-	globalOutput string
-	globalDebug  bool
-)
+var globalOutput string
 
 func Execute() error {
 	return rootCmd.Execute()
@@ -39,7 +36,6 @@ var commandOrder = []string{
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.PersistentFlags().StringVarP(&globalOutput, "output", "o", "json", "Output format (json, yaml, markdown, template:<path>, plugin:<name>)")
-	rootCmd.PersistentFlags().BoolVar(&globalDebug, "debug", false, "Enable LSP debug logging (dumps on 0 results)")
 
 	// Custom usage template with ordered commands
 	cobra.AddTemplateFunc("orderedCommands", func(cmd *cobra.Command) []*cobra.Command {

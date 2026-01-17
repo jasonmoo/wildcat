@@ -6,45 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
-	"time"
 )
-
-// DebugBuffer collects debug messages for later output.
-type DebugBuffer struct {
-	mu      sync.Mutex
-	entries []debugEntry
-	start   time.Time
-}
-
-type debugEntry struct {
-	elapsed time.Duration
-	message string
-}
-
-// NewDebugBuffer creates a new debug buffer.
-func NewDebugBuffer() *DebugBuffer {
-	return &DebugBuffer{start: time.Now()}
-}
-
-// Log adds a message to the buffer.
-func (b *DebugBuffer) Log(format string, args ...any) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.entries = append(b.entries, debugEntry{
-		elapsed: time.Since(b.start),
-		message: fmt.Sprintf(format, args...),
-	})
-}
-
-// Dump writes all collected messages to stderr.
-func (b *DebugBuffer) Dump() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for _, e := range b.entries {
-		fmt.Fprintf(os.Stderr, "[%s] %s\n", e.elapsed.Truncate(time.Microsecond), e.message)
-	}
-}
 
 // Client provides high-level access to LSP server functionality.
 type Client struct {
@@ -55,9 +17,6 @@ type Client struct {
 	// Progress tracking for LSP server readiness
 	activeProgress map[string]bool // tokens with "begin" but not yet "end"
 	serverReady    chan struct{}
-
-	// DebugLog, if set, receives debug messages about LSP notifications
-	DebugLog func(format string, args ...any)
 }
 
 // NewClient creates a new LSP client with the given server configuration.
@@ -130,26 +89,18 @@ func (c *Client) Initialize(ctx context.Context) error {
 
 // handleNotification processes incoming notifications from the LSP server.
 func (c *Client) handleNotification(method string, params json.RawMessage) {
-	if c.DebugLog != nil {
-		c.DebugLog("[LSP NOTIFY] method=%s params=%s", method, string(params))
-	}
-
 	if method != "$/progress" {
 		return
 	}
 
 	var progress ProgressParams
 	if err := json.Unmarshal(params, &progress); err != nil {
-		if c.DebugLog != nil {
-			c.DebugLog("[PROGRESS] failed to unmarshal params: %v", err)
-		}
 		return
 	}
 
 	// Parse the value to determine the kind
 	var kindPeek struct {
-		Kind  string `json:"kind"`
-		Title string `json:"title"`
+		Kind string `json:"kind"`
 	}
 	valueBytes, err := json.Marshal(progress.Value)
 	if err != nil {
@@ -159,33 +110,18 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		return
 	}
 
-	if c.DebugLog != nil {
-		c.DebugLog("[PROGRESS] kind=%s token=%s title=%q activeCount=%d", kindPeek.Kind, progress.Token, kindPeek.Title, len(c.activeProgress))
-	}
-
 	switch kindPeek.Kind {
 	case "begin":
 		c.activeProgress[progress.Token] = true
-		if c.DebugLog != nil {
-			c.DebugLog("[PROGRESS] BEGIN token=%s title=%q activeCount=%d", progress.Token, kindPeek.Title, len(c.activeProgress))
-		}
 	case "end":
 		delete(c.activeProgress, progress.Token)
-		if c.DebugLog != nil {
-			c.DebugLog("[PROGRESS] END token=%s activeCount=%d", progress.Token, len(c.activeProgress))
-		}
 	}
 
 	if len(c.activeProgress) == 0 {
 		select {
 		case <-c.serverReady:
-			if c.DebugLog != nil {
-				c.DebugLog("[PROGRESS] serverReady already closed")
-			}
+			// already closed
 		default:
-			if c.DebugLog != nil {
-				c.DebugLog("[PROGRESS] closing serverReady channel")
-			}
 			close(c.serverReady)
 		}
 	}
@@ -193,19 +129,10 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 
 // WaitForReady blocks until the LSP server has finished initial indexing.
 func (c *Client) WaitForReady(ctx context.Context) error {
-	if c.DebugLog != nil {
-		c.DebugLog("[WAIT] WaitForReady called, activeProgress=%d", len(c.activeProgress))
-	}
 	select {
 	case <-ctx.Done():
-		if c.DebugLog != nil {
-			c.DebugLog("[WAIT] context done before ready")
-		}
 		return ctx.Err()
 	case <-c.serverReady:
-		if c.DebugLog != nil {
-			c.DebugLog("[WAIT] serverReady signaled, returning")
-		}
 		return nil
 	}
 }
