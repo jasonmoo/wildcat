@@ -18,6 +18,7 @@ absolute paths, and actionable error messages.`,
 
 var (
 	globalOutput string
+	globalDebug  bool
 )
 
 func Execute() error {
@@ -28,4 +29,5 @@ func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.PersistentFlags().StringP("config", "c", "", "config file path")
 	rootCmd.PersistentFlags().StringVarP(&globalOutput, "output", "o", "json", "Output format (json, yaml, markdown, template:<path>, plugin:<name>)")
+	rootCmd.PersistentFlags().BoolVar(&globalDebug, "debug", false, "Enable LSP debug logging (dumps on 0 results)")
 }

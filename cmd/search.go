@@ -32,7 +32,7 @@ Examples:
   wildcat search Resolve                        # project packages (default)
   wildcat search --scope all Config             # include external dependencies
   wildcat search --scope internal/lsp Client    # specific package
-  wildcat search --scope '!internal/lsp' Config  # exclude a package
+  wildcat search --scope -internal/lsp Config     # exclude a package
   wildcat search --limit 5 Config               # top 5 matches`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSearch,
@@ -47,7 +47,7 @@ func init() {
 	rootCmd.AddCommand(searchCmd)
 
 	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Maximum results (max 100)")
-	searchCmd.Flags().StringVar(&searchScope, "scope", "project", "Scope: 'project', 'all', packages, or !pkg to exclude")
+	searchCmd.Flags().StringVar(&searchScope, "scope", "project", "Scope: 'project', 'all', packages, or -pkg to exclude")
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
@@ -87,6 +87,12 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		)
 	}
 	defer client.Close()
+
+	var debugBuf *lsp.DebugBuffer
+	if globalDebug {
+		debugBuf = lsp.NewDebugBuffer()
+		client.DebugLog = debugBuf.Log
+	}
 
 	if err := client.Initialize(ctx); err != nil {
 		return writer.WriteError(
@@ -222,24 +228,31 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		},
 	}
 
+	// Dump debug logs if enabled and we got 0 results (likely race condition)
+	if debugBuf != nil && totalCount == 0 {
+		fmt.Fprintf(os.Stderr, "\n=== DEBUG: 0 results - dumping logs ===\n")
+		debugBuf.Dump()
+		fmt.Fprintf(os.Stderr, "=== END DEBUG ===\n\n")
+	}
+
 	return writer.Write(response)
 }
 
 // scopeFilter holds parsed include/exclude package patterns.
 type scopeFilter struct {
 	includes []string // packages to include (empty means "project")
-	excludes []string // packages to exclude (! prefixed)
+	excludes []string // packages to exclude (- prefixed)
 }
 
 // parseScopeFilter parses a scope string into includes and excludes.
-// Excludes are prefixed with !. If no includes specified, defaults to project scope.
+// Excludes are prefixed with -. If no includes specified, defaults to project scope.
 // Examples:
 //
 //	"project"                  -> includes=[], excludes=[] (project scope)
 //	"cmd,lsp"                  -> includes=[cmd,lsp], excludes=[]
-//	"project,!internal/test"   -> includes=[], excludes=[internal/test]
-//	"!internal/test"           -> includes=[], excludes=[internal/test] (implicit project)
-//	"cmd,lsp,!lsp/test"        -> includes=[cmd,lsp], excludes=[lsp/test]
+//	"project,-internal/test"   -> includes=[], excludes=[internal/test]
+//	"-internal/test"           -> includes=[], excludes=[internal/test] (implicit project)
+//	"cmd,lsp,-lsp/test"        -> includes=[cmd,lsp], excludes=[lsp/test]
 func parseScopeFilter(scope string) scopeFilter {
 	var filter scopeFilter
 	for _, part := range strings.Split(scope, ",") {
@@ -247,8 +260,8 @@ func parseScopeFilter(scope string) scopeFilter {
 		if part == "" || part == "project" {
 			continue
 		}
-		if strings.HasPrefix(part, "!") {
-			filter.excludes = append(filter.excludes, strings.TrimPrefix(part, "!"))
+		if strings.HasPrefix(part, "-") {
+			filter.excludes = append(filter.excludes, strings.TrimPrefix(part, "-"))
 		} else {
 			filter.includes = append(filter.includes, part)
 		}
@@ -258,7 +271,7 @@ func parseScopeFilter(scope string) scopeFilter {
 
 // filterSymbolsByScope filters symbols to those in specified packages.
 // Scope can be "project" (all project packages), comma-separated package paths,
-// or include exclusions with ! prefix (e.g., "project,!internal/test").
+// or include exclusions with - prefix (e.g., "project,-internal/test").
 func filterSymbolsByScope(symbols []lsp.SymbolInformation, scope, workDir string) []lsp.SymbolInformation {
 	filter := parseScopeFilter(scope)
 

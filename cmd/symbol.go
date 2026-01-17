@@ -33,7 +33,7 @@ Examples:
   wildcat symbol config.Config                  # callers across project (default)
   wildcat symbol --scope package Server.Start   # callers in target package only
   wildcat symbol --scope cmd,lsp Handler        # callers in specific packages
-  wildcat symbol --scope '!internal/lsp' Config  # exclude a package
+  wildcat symbol --scope -internal/lsp Config     # exclude a package
   wildcat symbol FileURI URIToPath              # multiple symbols`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSymbol,
@@ -48,7 +48,7 @@ func init() {
 	rootCmd.AddCommand(symbolCmd)
 
 	symbolCmd.Flags().BoolVar(&symbolExcludeTests, "exclude-tests", false, "Exclude test files")
-	symbolCmd.Flags().StringVar(&symbolScope, "scope", "project", "Scope: 'project', 'package', packages, or !pkg to exclude")
+	symbolCmd.Flags().StringVar(&symbolScope, "scope", "project", "Scope: 'project', 'package', packages, or -pkg to exclude")
 }
 
 func runSymbol(cmd *cobra.Command, args []string) error {
@@ -87,6 +87,12 @@ func runSymbol(cmd *cobra.Command, args []string) error {
 		)
 	}
 	defer client.Close()
+
+	var debugBuf *lsp.DebugBuffer
+	if globalDebug {
+		debugBuf = lsp.NewDebugBuffer()
+		client.DebugLog = debugBuf.Log
+	}
 
 	if err := client.Initialize(ctx); err != nil {
 		return writer.WriteError(
@@ -130,6 +136,18 @@ func runSymbol(cmd *cobra.Command, args []string) error {
 			return writer.WriteError(string(errors.CodeSymbolNotFound), err.Error(), nil, nil)
 		}
 		responses = append(responses, *response)
+	}
+
+	// Dump debug logs if enabled and we got nil packages (likely race condition)
+	if debugBuf != nil {
+		for _, resp := range responses {
+			if resp.Packages == nil {
+				fmt.Fprintf(os.Stderr, "\n=== DEBUG: nil packages for %s - dumping logs ===\n", resp.Query.Target)
+				debugBuf.Dump()
+				fmt.Fprintf(os.Stderr, "=== END DEBUG ===\n\n")
+				break
+			}
+		}
 	}
 
 	// Single symbol: return object; multiple: return array
@@ -513,12 +531,12 @@ type resolvedScope struct {
 //   - "": default to target package only
 //   - "project": project scope (caller checks project prefix)
 //   - "pkg1,pkg2,...": comma-separated packages
-//   - "!pkg": exclude package (can combine with others)
+//   - "-pkg": exclude package (can combine with others)
 //
 // Examples:
 //
-//	"project,!internal/test" -> project scope minus internal/test
-//	"cmd,lsp,!lsp/test"      -> cmd and lsp minus lsp/test
+//	"project,-internal/test" -> project scope minus internal/test
+//	"cmd,lsp,-lsp/test"      -> cmd and lsp minus lsp/test
 func resolveScopePackages(scope, targetPkgImportPath, workDir string) resolvedScope {
 	if scope == "package" || scope == "" {
 		// Target package only
