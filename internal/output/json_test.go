@@ -106,36 +106,3 @@ func TestWriter_PrettyPrint(t *testing.T) {
 	}
 }
 
-func TestMarshal(t *testing.T) {
-	data := Result{
-		Symbol:  "test.Func",
-		File:    "/path/to/file.go",
-		Line:    10,
-		Snippet: "func Func() {}",
-		InTest:  false,
-	}
-
-	compact, err := Marshal(data, false)
-	if err != nil {
-		t.Fatalf("marshal compact: %v", err)
-	}
-
-	pretty, err := Marshal(data, true)
-	if err != nil {
-		t.Fatalf("marshal pretty: %v", err)
-	}
-
-	// Pretty should be longer
-	if len(pretty) <= len(compact) {
-		t.Errorf("pretty output should be longer than compact")
-	}
-
-	// Both should parse to same data
-	var c, p Result
-	json.Unmarshal(compact, &c)
-	json.Unmarshal(pretty, &p)
-
-	if c.Symbol != p.Symbol || c.File != p.File || c.Line != p.Line {
-		t.Errorf("compact and pretty should have same data")
-	}
-}

@@ -19,30 +19,6 @@ type TargetInfo struct {
 	Signature string `json:"signature,omitempty"`
 }
 
-// Result represents a single result item (caller, callee, reference, etc.).
-type Result struct {
-	Symbol       string   `json:"symbol,omitempty"`
-	Package      string   `json:"package,omitempty"`
-	File         string   `json:"file"`
-	Line         int      `json:"line,omitempty"`          // Reference line (omitted when Lines is set)
-	Lines        []int    `json:"lines,omitempty"`         // All reference lines when merged
-	LineEnd      int      `json:"line_end,omitempty"`
-	Snippet      string   `json:"snippet,omitempty"`
-	SnippetStart int      `json:"snippet_start,omitempty"` // First line of snippet
-	SnippetEnd   int      `json:"snippet_end,omitempty"`   // Last line of snippet
-	CallExpr     string   `json:"call_expr,omitempty"`
-	Args         []string `json:"args,omitempty"`
-	InTest       bool     `json:"in_test,omitempty"`
-}
-
-// Summary provides aggregate information about the results.
-type Summary struct {
-	Count     int      `json:"count"`
-	Packages  []string `json:"packages,omitempty"`
-	InTests   int      `json:"in_tests"`
-	Truncated bool     `json:"truncated"`
-}
-
 // TreeSummary provides aggregate information about the tree.
 type TreeSummary struct {
 	PathCount       int  `json:"path_count"`
