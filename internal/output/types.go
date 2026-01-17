@@ -36,7 +36,7 @@ type TreeQuery struct {
 
 // TreeFunction contains information about a function in the call tree.
 type TreeFunction struct {
-	Name       string `json:"name"`
+	Symbol     string `json:"symbol"` // qualified: pkg.Name or pkg.Type.Method
 	Signature  string `json:"signature"`
 	Definition string `json:"definition"` // file:start:end (full function range)
 }

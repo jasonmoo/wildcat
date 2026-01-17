@@ -25,14 +25,14 @@ func TestWriter_Write(t *testing.T) {
 				Package: "main",
 				Dir:     "/path/to",
 				Symbols: []TreeFunction{
-					{Name: "main", Signature: "func main()", Definition: "main.go:10:15"},
+					{Symbol: "main.main", Signature: "func main()", Definition: "main.go:10:15"},
 				},
 			},
 			{
 				Package: "config",
 				Dir:     "/path/to",
 				Symbols: []TreeFunction{
-					{Name: "Load", Signature: "func Load() error", Definition: "config.go:20:25"},
+					{Symbol: "config.Load", Signature: "func Load() error", Definition: "config.go:20:25"},
 				},
 			},
 		},

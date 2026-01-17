@@ -227,7 +227,8 @@ func packageFromPath(path string) string {
 
 // collectedFunc holds function data during traversal before grouping by package.
 type collectedFunc struct {
-	name       string // short name like "runTree"
+	name       string // short name like "runTree" or "Type.Method"
+	pkgName    string // short package name like "cmd", "lsp"
 	file       string // full file path
 	importPath string // package import path
 	signature  string
@@ -303,8 +304,11 @@ func groupByPackage(collected map[string]*collectedFunc) []output.TreePackage {
 			fileName = cf.file[idx+1:]
 		}
 
+		// Build qualified symbol name: pkg.Name or pkg.Type.Method
+		symbol := cf.pkgName + "." + cf.name
+
 		pkgMap[cf.importPath] = append(pkgMap[cf.importPath], output.TreeFunction{
-			Name:       cf.name,
+			Symbol:     symbol,
 			Signature:  cf.signature,
 			Definition: fmt.Sprintf("%s:%d:%d", fileName, cf.startLine, cf.endLine),
 		})
@@ -357,6 +361,7 @@ func (t *Traverser) buildPathsUp(ctx context.Context, item lsp.CallHierarchyItem
 		}
 		collected[baseName] = &collectedFunc{
 			name:       item.Name,
+			pkgName:    packageFromPath(file),
 			file:       file,
 			importPath: importPath,
 			signature:  sig,
@@ -447,6 +452,7 @@ func (t *Traverser) buildPathsDown(ctx context.Context, item lsp.CallHierarchyIt
 		}
 		collected[baseName] = &collectedFunc{
 			name:       item.Name,
+			pkgName:    packageFromPath(file),
 			file:       file,
 			importPath: importPath,
 			signature:  sig,
