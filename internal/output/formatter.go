@@ -252,21 +252,38 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		buf.WriteString(fmt.Sprintf("# %s: %s\n\n", strings.Title(cmd), title))
 	}
 
-	// Format nested tree first (tree command output)
+	// Format bidirectional tree (tree command output)
 	if tree, ok := data["tree"].(map[string]any); ok {
+		symbol, _ := tree["symbol"].(string)
+		callers, hasCallers := tree["callers"].([]any)
+		calls, hasCalls := tree["calls"].([]any)
+
 		buf.WriteString("## Call Tree\n\n")
 		buf.WriteString("```\n")
-		// Write root node
-		symbol, _ := tree["symbol"].(string)
-		buf.WriteString(symbol + "\n")
-		// Write children
-		if calls, ok := tree["calls"].([]any); ok {
+
+		// Render callers (what calls target)
+		if hasCallers && len(callers) > 0 {
+			buf.WriteString("Callers:\n")
+			writeCallersTree(buf, callers, "")
+			buf.WriteString("    │\n")
+			buf.WriteString("    ▼\n")
+		}
+
+		// Render target symbol (center point)
+		buf.WriteString("◆ " + symbol + "\n")
+
+		// Render callees (what target calls)
+		if hasCalls && len(calls) > 0 {
+			buf.WriteString("    │\n")
+			buf.WriteString("    ▼\n")
+			buf.WriteString("Calls:\n")
 			for i, call := range calls {
 				if callMap, ok := call.(map[string]any); ok {
 					writeNestedTree(buf, callMap, "", i == len(calls)-1)
 				}
 			}
 		}
+
 		buf.WriteString("```\n\n")
 	}
 
@@ -657,6 +674,64 @@ func (f *MarkdownFormatter) formatPackageLocations(buf *bytes.Buffer, locations 
 			}
 		}
 	}
+}
+
+// writeCallersTree renders the callers tree top-down (entry points at top, flowing to target).
+// Each caller chain is rendered with deepest caller first, flowing down to direct callers.
+func writeCallersTree(buf *bytes.Buffer, callers []any, prefix string) {
+	for i, caller := range callers {
+		if callerMap, ok := caller.(map[string]any); ok {
+			isLast := i == len(callers)-1
+			writeCallerChainTopDown(buf, callerMap, prefix, isLast)
+		}
+	}
+}
+
+// writeCallerChainTopDown renders a caller and its caller chain top-down.
+// Returns the prefix to use for the next level down.
+func writeCallerChainTopDown(buf *bytes.Buffer, node map[string]any, prefix string, isLast bool) string {
+	symbol, _ := node["symbol"].(string)
+	location, _ := node["location"].(string)
+
+	// Check if this node has callers (deeper in the call stack)
+	callers, hasCallers := node["callers"].([]any)
+
+	// Determine connector based on whether this is the last item at this level
+	var connector, childPrefix string
+	if isLast {
+		connector = "└── "
+		childPrefix = prefix + "    "
+	} else {
+		connector = "├── "
+		childPrefix = prefix + "│   "
+	}
+
+	if hasCallers && len(callers) > 0 {
+		// Render deeper callers first (they're higher in the call stack)
+		// Each deeper caller will return a prefix for us to use
+		for i, caller := range callers {
+			if callerMap, ok := caller.(map[string]any); ok {
+				// For the recursive call, use this node's prefix since those callers
+				// are at a higher level in the call stack
+				nextPrefix := writeCallerChainTopDown(buf, callerMap, prefix, i == len(callers)-1 && isLast)
+				// Render this node indented under its caller
+				if location != "" {
+					buf.WriteString(fmt.Sprintf("%s└── %s (%s)\n", nextPrefix, symbol, location))
+				} else {
+					buf.WriteString(fmt.Sprintf("%s└── %s\n", nextPrefix, symbol))
+				}
+			}
+		}
+		return childPrefix
+	}
+
+	// No callers - this is an entry point, render it at current level
+	if location != "" {
+		buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, location))
+	} else {
+		buf.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, symbol))
+	}
+	return childPrefix
 }
 
 // writeNestedTree renders a call tree node as ASCII art.

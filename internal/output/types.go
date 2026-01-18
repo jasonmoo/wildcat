@@ -21,24 +21,28 @@ type TargetInfo struct {
 
 // TreeSummary provides aggregate information about the tree.
 type TreeSummary struct {
-	TotalCalls      int  `json:"total_calls"`
-	MaxDepthReached int  `json:"max_depth_reached"`
-	Truncated       bool `json:"truncated"`
+	Callers       int  `json:"callers"`                  // total caller edges
+	Callees       int  `json:"callees"`                  // total callee edges
+	MaxUpDepth    int  `json:"max_up_depth,omitempty"`   // deepest caller level reached
+	MaxDownDepth  int  `json:"max_down_depth,omitempty"` // deepest callee level reached
+	UpTruncated   bool `json:"up_truncated,omitempty"`   // hit up depth limit
+	DownTruncated bool `json:"down_truncated,omitempty"` // hit down depth limit
 }
 
 // TreeQuery describes the tree query parameters.
 type TreeQuery struct {
-	Command   string `json:"command"`
-	Target    string `json:"target"`
-	Depth     int    `json:"depth"`
-	Direction string `json:"direction"`
+	Command string `json:"command"`
+	Target  string `json:"target"`
+	Up      int    `json:"up"`   // caller depth requested
+	Down    int    `json:"down"` // callee depth requested
 }
 
 // TreeNode represents a node in the call tree.
 type TreeNode struct {
-	Symbol   string      `json:"symbol"`             // qualified: pkg.Name
-	Location string      `json:"location,omitempty"` // call site: /full/path/file.go:line (empty for root)
-	Calls    []*TreeNode `json:"calls,omitempty"`    // child calls
+	Symbol   string      `json:"symbol"`              // qualified: pkg.Name
+	Location string      `json:"location,omitempty"`  // call site: /full/path/file.go:line (empty for root)
+	Callers  []*TreeNode `json:"callers,omitempty"`   // who calls this (up tree)
+	Calls    []*TreeNode `json:"calls,omitempty"`     // what this calls (down tree)
 }
 
 // TreeFunction contains information about a function in the call tree.

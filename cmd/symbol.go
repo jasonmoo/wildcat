@@ -199,8 +199,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		if err == nil && len(items) > 0 {
 			traverser := traverse.NewTraverser(client)
 			opts := traverse.Options{
-				Direction:    traverse.Up,
-				MaxDepth:     1,
+				UpDepth:      1,
 				ExcludeTests: symbolExcludeTests,
 			}
 

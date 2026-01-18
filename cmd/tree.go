@@ -15,12 +15,14 @@ import (
 
 var treeCmd = &cobra.Command{
 	Use:   "tree <symbol>",
-	Short: "Build a call tree from a starting point",
-	Long: `Build a call tree from a starting point.
+	Short: "Build a call tree centered on a symbol",
+	Long: `Build a call tree showing callers and callees of a symbol.
 
-Direction:
-  up    - Show callers (what calls this function)
-  down  - Show callees (what this function calls)
+The symbol is the center point of the tree:
+  --up N    Show N levels of callers (what calls this function)
+  --down N  Show N levels of callees (what this function calls)
+
+By default, shows 2 levels in each direction.
 
 Scope:
   all     - Include everything (stdlib, dependencies)
@@ -28,17 +30,17 @@ Scope:
   package - Same package as starting symbol only
 
 Examples:
-  wildcat tree main.main --depth 3 --direction down
-  wildcat tree db.Query --depth 2 --direction up
-  wildcat tree Server.Start --scope package            # stay within package
-  wildcat tree Handler.ServeHTTP --scope all           # include stdlib calls`,
+  wildcat tree main.main                              # 2 up, 2 down (default)
+  wildcat tree db.Query --up 3 --down 1               # focus on callers
+  wildcat tree Server.Start --up 0 --down 4           # callees only
+  wildcat tree Handler.ServeHTTP --scope all          # include stdlib calls`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTree,
 }
 
 var (
-	treeDepth        int
-	treeDirection    string
+	treeUp           int
+	treeDown         int
 	treeExcludeTests bool
 	treeScope        string
 )
@@ -46,8 +48,8 @@ var (
 func init() {
 	rootCmd.AddCommand(treeCmd)
 
-	treeCmd.Flags().IntVar(&treeDepth, "depth", 3, "Maximum tree depth")
-	treeCmd.Flags().StringVar(&treeDirection, "direction", "down", "Traversal direction: up or down")
+	treeCmd.Flags().IntVar(&treeUp, "up", 2, "Depth of callers to show (0 to skip)")
+	treeCmd.Flags().IntVar(&treeDown, "down", 2, "Depth of callees to show (0 to skip)")
 	treeCmd.Flags().BoolVar(&treeExcludeTests, "exclude-tests", false, "Exclude test files")
 	treeCmd.Flags().StringVar(&treeScope, "scope", "project", "Traversal scope: all, project, package")
 }
@@ -65,15 +67,9 @@ func runTree(cmd *cobra.Command, args []string) error {
 		return writer.WriteError("parse_error", err.Error(), nil, nil)
 	}
 
-	// Validate direction
-	var direction traverse.Direction
-	switch treeDirection {
-	case "up":
-		direction = traverse.Up
-	case "down":
-		direction = traverse.Down
-	default:
-		return writer.WriteError("invalid_argument", "direction must be 'up' or 'down'", nil, nil)
+	// Validate depths
+	if treeUp < 0 || treeDown < 0 {
+		return writer.WriteError("invalid_argument", "--up and --down must be non-negative", nil, nil)
 	}
 
 	// Get working directory
@@ -172,8 +168,8 @@ func runTree(cmd *cobra.Command, args []string) error {
 	// Build tree
 	traverser := traverse.NewTraverser(client)
 	opts := traverse.Options{
-		Direction:    direction,
-		MaxDepth:     treeDepth,
+		UpDepth:      treeUp,
+		DownDepth:    treeDown,
 		ExcludeTests: treeExcludeTests,
 		Scope:        scope,
 		StartFile:    lsp.URIToPath(resolved.URI),

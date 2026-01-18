@@ -9,19 +9,12 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"sort"
 	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/lsp"
 	"github.com/jasonmoo/wildcat/internal/output"
-)
-
-// Direction indicates traversal direction.
-type Direction int
-
-const (
-	Up   Direction = iota // Callers (incoming calls)
-	Down                  // Callees (outgoing calls)
 )
 
 // Scope controls how far traversal extends.
@@ -35,8 +28,8 @@ const (
 
 // Options configures traversal behavior.
 type Options struct {
-	Direction    Direction
-	MaxDepth     int
+	UpDepth      int    // How many levels of callers (0 = skip)
+	DownDepth    int    // How many levels of callees (0 = skip)
 	ExcludeTests bool
 	Scope        Scope  // Traversal boundary (default: project)
 	StartFile    string // Starting symbol's file (for package scope)
@@ -66,21 +59,22 @@ func NewTraverser(client *lsp.Client) *Traverser {
 	}
 }
 
-// GetCallers returns all callers of a call hierarchy item.
+// GetCallers returns all callers of a call hierarchy item (flat list).
+// Uses UpDepth from opts to control depth.
 func (t *Traverser) GetCallers(ctx context.Context, item lsp.CallHierarchyItem, opts Options) ([]CallInfo, error) {
-	return t.traverse(ctx, item, opts, 0, make(map[string]bool))
+	return t.traverseUp(ctx, item, opts, 0, make(map[string]bool))
 }
 
-// GetCallees returns all callees of a call hierarchy item.
+// GetCallees returns all callees of a call hierarchy item (flat list).
+// Uses DownDepth from opts to control depth.
 func (t *Traverser) GetCallees(ctx context.Context, item lsp.CallHierarchyItem, opts Options) ([]CallInfo, error) {
-	opts.Direction = Down
-	return t.traverse(ctx, item, opts, 0, make(map[string]bool))
+	return t.traverseDown(ctx, item, opts, 0, make(map[string]bool))
 }
 
-// traverse recursively walks the call hierarchy.
-func (t *Traverser) traverse(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool) ([]CallInfo, error) {
+// traverseUp recursively walks callers.
+func (t *Traverser) traverseUp(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool) ([]CallInfo, error) {
 	// Check depth limit
-	if opts.MaxDepth > 0 && depth >= opts.MaxDepth {
+	if opts.UpDepth > 0 && depth >= opts.UpDepth {
 		return nil, nil
 	}
 
@@ -91,65 +85,80 @@ func (t *Traverser) traverse(ctx context.Context, item lsp.CallHierarchyItem, op
 	}
 	visited[key] = true
 
+	// Get incoming calls (callers)
+	calls, err := t.client.IncomingCalls(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+
 	var results []CallInfo
+	for _, call := range calls {
+		info := t.callInfoFromIncoming(call)
 
-	if opts.Direction == Up {
-		// Get incoming calls (callers)
-		calls, err := t.client.IncomingCalls(ctx, item)
-		if err != nil {
-			return nil, err
+		// Apply filters
+		if opts.ExcludeTests && info.InTest {
+			continue
+		}
+		if !t.inScope(call.From.URI, opts) {
+			continue
 		}
 
-		for _, call := range calls {
-			info := t.callInfoFromIncoming(call)
+		results = append(results, info)
 
-			// Apply filters
-			if opts.ExcludeTests && info.InTest {
-				continue
+		// Recurse
+		if opts.UpDepth == 0 || depth+1 < opts.UpDepth {
+			sub, err := t.traverseUp(ctx, call.From, opts, depth+1, visited)
+			if err != nil {
+				return nil, err
 			}
-			if !t.inScope(call.From.URI, opts) {
-				continue
-			}
-
-			results = append(results, info)
-
-			// Recurse
-			if opts.MaxDepth == 0 || depth+1 < opts.MaxDepth {
-				sub, err := t.traverse(ctx, call.From, opts, depth+1, visited)
-				if err != nil {
-					return nil, err
-				}
-				results = append(results, sub...)
-			}
+			results = append(results, sub...)
 		}
-	} else {
-		// Get outgoing calls (callees)
-		calls, err := t.client.OutgoingCalls(ctx, item)
-		if err != nil {
-			return nil, err
+	}
+
+	return results, nil
+}
+
+// traverseDown recursively walks callees.
+func (t *Traverser) traverseDown(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool) ([]CallInfo, error) {
+	// Check depth limit
+	if opts.DownDepth > 0 && depth >= opts.DownDepth {
+		return nil, nil
+	}
+
+	// Prevent cycles
+	key := item.URI + ":" + item.Name
+	if visited[key] {
+		return nil, nil
+	}
+	visited[key] = true
+
+	// Get outgoing calls (callees)
+	calls, err := t.client.OutgoingCalls(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []CallInfo
+	for _, call := range calls {
+		info := t.callInfoFromOutgoing(call)
+
+		// Apply filters
+		if opts.ExcludeTests && info.InTest {
+			continue
+		}
+		if !t.inScope(call.To.URI, opts) {
+			continue
 		}
 
-		for _, call := range calls {
-			info := t.callInfoFromOutgoing(call)
+		results = append(results, info)
 
-			// Apply filters
-			if opts.ExcludeTests && info.InTest {
-				continue
+		// Recurse
+		if opts.DownDepth == 0 || depth+1 < opts.DownDepth {
+			sub, err := t.traverseDown(ctx, call.To, opts, depth+1, visited)
+			if err != nil {
+				return nil, err
 			}
-			if !t.inScope(call.To.URI, opts) {
-				continue
-			}
-
-			results = append(results, info)
-
-			// Recurse
-			if opts.MaxDepth == 0 || depth+1 < opts.MaxDepth {
-				sub, err := t.traverse(ctx, call.To, opts, depth+1, visited)
-				if err != nil {
-					return nil, err
-				}
-				results = append(results, sub...)
-			}
+			results = append(results, sub...)
 		}
 	}
 
@@ -198,14 +207,25 @@ func (t *Traverser) inScope(uri string, opts Options) bool {
 	}
 }
 
-// symbolName returns a qualified symbol name like "pkg.Symbol".
+// symbolName returns a qualified symbol name like "pkg.Symbol" or "pkg.Type.Method".
 func symbolName(item lsp.CallHierarchyItem) string {
 	file := lsp.URIToPath(item.URI)
 	pkg := packageFromPath(file)
-	if pkg != "" {
-		return pkg + "." + item.Name
+
+	// Check if this is a method by parsing the file
+	line := item.Range.Start.Line + 1
+	info := extractFuncInfo(file, line)
+
+	// Build the short name - use Type.Method for methods
+	shortName := item.Name
+	if info.receiverType != "" {
+		shortName = info.receiverType + "." + item.Name
 	}
-	return item.Name
+
+	if pkg != "" {
+		return pkg + "." + shortName
+	}
+	return shortName
 }
 
 // packageFromPath extracts a short package name from a file path.
@@ -236,24 +256,31 @@ type collectedFunc struct {
 	endLine    int
 }
 
-// BuildTree builds a nested call tree structure.
+// BuildTree builds a bidirectional call tree centered on the target symbol.
 func (t *Traverser) BuildTree(ctx context.Context, item lsp.CallHierarchyItem, opts Options) (*output.TreeResponse, error) {
 	collected := make(map[string]*collectedFunc) // keyed by qualified name
-	maxDepth := 0
-	totalCalls := 0
-	visited := make(map[string]bool)
 
-	// Build nested tree
-	var tree *output.TreeNode
-	if opts.Direction == Up {
-		tree = t.buildTreeUp(ctx, item, opts, 0, visited, collected, &maxDepth, &totalCalls)
-	} else {
-		tree = t.buildTreeDown(ctx, item, opts, 0, visited, collected, &maxDepth, &totalCalls)
+	// Track stats for each direction
+	var maxUpDepth, maxDownDepth int
+	var totalCallers, totalCallees int
+
+	// Build root node
+	symbol := symbolName(item)
+	file := lsp.URIToPath(item.URI)
+	t.collectFunc(item, file, collected)
+
+	tree := &output.TreeNode{Symbol: symbol}
+
+	// Build callers tree (up)
+	if opts.UpDepth > 0 {
+		visited := make(map[string]bool)
+		tree.Callers = t.buildCallersTree(ctx, item, opts, 0, visited, collected, &maxUpDepth, &totalCallers)
 	}
 
-	direction := "down"
-	if opts.Direction == Up {
-		direction = "up"
+	// Build callees tree (down)
+	if opts.DownDepth > 0 {
+		visited := make(map[string]bool)
+		tree.Calls = t.buildCalleesTree(ctx, item, opts, 0, visited, collected, &maxDownDepth, &totalCallees)
 	}
 
 	// Group collected functions by package
@@ -261,17 +288,20 @@ func (t *Traverser) BuildTree(ctx context.Context, item lsp.CallHierarchyItem, o
 
 	return &output.TreeResponse{
 		Query: output.TreeQuery{
-			Command:   "tree",
-			Target:    tree.Symbol,
-			Depth:     opts.MaxDepth,
-			Direction: direction,
+			Command: "tree",
+			Target:  symbol,
+			Up:      opts.UpDepth,
+			Down:    opts.DownDepth,
 		},
 		Tree:     tree,
 		Packages: packages,
 		Summary: output.TreeSummary{
-			TotalCalls:      totalCalls,
-			MaxDepthReached: maxDepth,
-			Truncated:       opts.MaxDepth > 0 && maxDepth >= opts.MaxDepth,
+			Callers:       totalCallers,
+			Callees:       totalCallees,
+			MaxUpDepth:    maxUpDepth,
+			MaxDownDepth:  maxDownDepth,
+			UpTruncated:   opts.UpDepth > 0 && maxUpDepth >= opts.UpDepth,
+			DownTruncated: opts.DownDepth > 0 && maxDownDepth >= opts.DownDepth,
 		},
 	}, nil
 }
@@ -281,11 +311,9 @@ func groupByPackage(collected map[string]*collectedFunc) []output.TreePackage {
 	// Group by import path
 	pkgMap := make(map[string][]output.TreeFunction)
 	pkgDirs := make(map[string]string)
-	var pkgOrder []string
 
 	for _, cf := range collected {
 		if _, exists := pkgMap[cf.importPath]; !exists {
-			pkgOrder = append(pkgOrder, cf.importPath)
 			// Get dir from file path
 			dir := cf.file
 			if idx := strings.LastIndex(cf.file, "/"); idx >= 0 {
@@ -304,42 +332,47 @@ func groupByPackage(collected map[string]*collectedFunc) []output.TreePackage {
 		})
 	}
 
-	// Build output in order
+	// Sort packages alphabetically for deterministic output
+	pkgOrder := make([]string, 0, len(pkgMap))
+	for pkg := range pkgMap {
+		pkgOrder = append(pkgOrder, pkg)
+	}
+	sort.Strings(pkgOrder)
+
+	// Build output in sorted order
 	var packages []output.TreePackage
 	for _, pkg := range pkgOrder {
+		// Sort symbols within each package
+		symbols := pkgMap[pkg]
+		sort.Slice(symbols, func(i, j int) bool {
+			return symbols[i].Symbol < symbols[j].Symbol
+		})
+
 		packages = append(packages, output.TreePackage{
 			Package: pkg,
 			Dir:     pkgDirs[pkg],
-			Symbols: pkgMap[pkg],
+			Symbols: symbols,
 		})
 	}
 	return packages
 }
 
-// buildTreeUp builds a nested tree showing callers (what calls this function).
-// For "up" direction: root is target, children are callers.
-func (t *Traverser) buildTreeUp(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool, collected map[string]*collectedFunc, maxDepth *int, totalCalls *int) *output.TreeNode {
-	symbol := symbolName(item)
-	file := lsp.URIToPath(item.URI)
-
-	// Record function info
-	t.collectFunc(item, file, collected)
-
+// buildCallersTree builds a list of caller nodes for the given item.
+// Returns the direct callers, each with their own Callers populated recursively.
+func (t *Traverser) buildCallersTree(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool, collected map[string]*collectedFunc, maxDepth *int, totalCalls *int) []*output.TreeNode {
 	if depth > *maxDepth {
 		*maxDepth = depth
 	}
 
-	node := &output.TreeNode{Symbol: symbol}
-
 	// Check depth limit
-	if opts.MaxDepth > 0 && depth >= opts.MaxDepth {
-		return node
+	if depth >= opts.UpDepth {
+		return nil
 	}
 
 	// Check for cycles
 	key := item.URI + ":" + item.Name
 	if visited[key] {
-		return node
+		return nil
 	}
 	visited[key] = true
 	defer func() { visited[key] = false }()
@@ -347,9 +380,10 @@ func (t *Traverser) buildTreeUp(ctx context.Context, item lsp.CallHierarchyItem,
 	// Get callers
 	calls, err := t.client.IncomingCalls(ctx, item)
 	if err != nil || len(calls) == 0 {
-		return node
+		return nil
 	}
 
+	var callers []*output.TreeNode
 	for _, call := range calls {
 		callFile := lsp.URIToPath(call.From.URI)
 
@@ -362,6 +396,9 @@ func (t *Traverser) buildTreeUp(ctx context.Context, item lsp.CallHierarchyItem,
 
 		*totalCalls++
 
+		// Record function info
+		t.collectFunc(call.From, callFile, collected)
+
 		// Get call site location (where caller calls current item)
 		callLocation := ""
 		if len(call.FromRanges) > 0 {
@@ -369,39 +406,38 @@ func (t *Traverser) buildTreeUp(ctx context.Context, item lsp.CallHierarchyItem,
 			callLocation = fmt.Sprintf("%s:%d", callFile, callLine)
 		}
 
-		// Recurse to build caller's subtree
-		childNode := t.buildTreeUp(ctx, call.From, opts, depth+1, visited, collected, maxDepth, totalCalls)
-		childNode.Location = callLocation
-		node.Calls = append(node.Calls, childNode)
+		callerNode := &output.TreeNode{
+			Symbol:   symbolName(call.From),
+			Location: callLocation,
+		}
+
+		// Recurse to get this caller's callers
+		callerNode.Callers = t.buildCallersTree(ctx, call.From, opts, depth+1, visited, collected, maxDepth, totalCalls)
+
+		callers = append(callers, callerNode)
 	}
 
-	return node
+	return callers
 }
 
-// buildTreeDown builds a nested tree showing callees (what this function calls).
-// For "down" direction: root is target, children are callees.
-func (t *Traverser) buildTreeDown(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool, collected map[string]*collectedFunc, maxDepth *int, totalCalls *int) *output.TreeNode {
-	symbol := symbolName(item)
+// buildCalleesTree builds a list of callee nodes for the given item.
+// Returns the direct callees, each with their own Calls populated recursively.
+func (t *Traverser) buildCalleesTree(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool, collected map[string]*collectedFunc, maxDepth *int, totalCalls *int) []*output.TreeNode {
 	file := lsp.URIToPath(item.URI)
-
-	// Record function info
-	t.collectFunc(item, file, collected)
 
 	if depth > *maxDepth {
 		*maxDepth = depth
 	}
 
-	node := &output.TreeNode{Symbol: symbol}
-
 	// Check depth limit
-	if opts.MaxDepth > 0 && depth >= opts.MaxDepth {
-		return node
+	if depth >= opts.DownDepth {
+		return nil
 	}
 
 	// Check for cycles
 	key := item.URI + ":" + item.Name
 	if visited[key] {
-		return node
+		return nil
 	}
 	visited[key] = true
 	defer func() { visited[key] = false }()
@@ -409,9 +445,10 @@ func (t *Traverser) buildTreeDown(ctx context.Context, item lsp.CallHierarchyIte
 	// Get callees
 	calls, err := t.client.OutgoingCalls(ctx, item)
 	if err != nil || len(calls) == 0 {
-		return node
+		return nil
 	}
 
+	var callees []*output.TreeNode
 	for _, call := range calls {
 		calleeFile := lsp.URIToPath(call.To.URI)
 
@@ -424,6 +461,9 @@ func (t *Traverser) buildTreeDown(ctx context.Context, item lsp.CallHierarchyIte
 
 		*totalCalls++
 
+		// Record function info
+		t.collectFunc(call.To, calleeFile, collected)
+
 		// Get call site location (where current item calls callee - in current item's file)
 		callLocation := ""
 		if len(call.FromRanges) > 0 {
@@ -431,24 +471,39 @@ func (t *Traverser) buildTreeDown(ctx context.Context, item lsp.CallHierarchyIte
 			callLocation = fmt.Sprintf("%s:%d", file, callLine)
 		}
 
-		// Recurse to build callee's subtree
-		childNode := t.buildTreeDown(ctx, call.To, opts, depth+1, visited, collected, maxDepth, totalCalls)
-		childNode.Location = callLocation
-		node.Calls = append(node.Calls, childNode)
+		calleeNode := &output.TreeNode{
+			Symbol:   symbolName(call.To),
+			Location: callLocation,
+		}
+
+		// Recurse to get this callee's callees
+		calleeNode.Calls = t.buildCalleesTree(ctx, call.To, opts, depth+1, visited, collected, maxDepth, totalCalls)
+
+		callees = append(callees, calleeNode)
 	}
 
-	return node
+	return callees
 }
 
 // collectFunc records function info for the packages output.
 func (t *Traverser) collectFunc(item lsp.CallHierarchyItem, file string, collected map[string]*collectedFunc) {
-	baseName := symbolName(item)
-	if _, exists := collected[baseName]; exists {
+	line := item.Range.Start.Line + 1
+	info := extractFuncInfo(file, line)
+
+	// Build the short name - use Type.Method for methods, just Name for functions
+	shortName := item.Name
+	if info.receiverType != "" {
+		shortName = info.receiverType + "." + item.Name
+	}
+
+	// Build qualified name for deduplication
+	pkgName := packageFromPath(file)
+	qualifiedName := pkgName + "." + shortName
+
+	if _, exists := collected[qualifiedName]; exists {
 		return
 	}
 
-	line := item.Range.Start.Line + 1
-	info := extractFuncInfo(file, line)
 	sig := info.signature
 	if sig == "" {
 		sig = item.Name
@@ -466,12 +521,12 @@ func (t *Traverser) collectFunc(item lsp.CallHierarchyItem, file string, collect
 	}
 	importPath, _ := golang.ResolvePackagePath(dir, dir)
 	if importPath == "" {
-		importPath = packageFromPath(file)
+		importPath = pkgName
 	}
 
-	collected[baseName] = &collectedFunc{
-		name:       item.Name,
-		pkgName:    packageFromPath(file),
+	collected[qualifiedName] = &collectedFunc{
+		name:       shortName, // Now includes Type.Method for methods
+		pkgName:    pkgName,
 		file:       file,
 		importPath: importPath,
 		signature:  sig,
@@ -482,9 +537,10 @@ func (t *Traverser) collectFunc(item lsp.CallHierarchyItem, file string, collect
 
 // funcInfo holds extracted function information.
 type funcInfo struct {
-	signature string
-	startLine int
-	endLine   int
+	signature    string
+	startLine    int
+	endLine      int
+	receiverType string // e.g., "Server" for method (s *Server) Conn()
 }
 
 // extractFuncInfo extracts signature and full definition range from a Go source file.
@@ -508,15 +564,34 @@ func extractFuncInfo(filePath string, line int) funcInfo {
 		pos := fset.Position(fn.Pos())
 		if pos.Line >= line-1 && pos.Line <= line+1 {
 			endPos := fset.Position(fn.End())
-			return funcInfo{
+			info := funcInfo{
 				signature: renderFuncSignature(fn),
 				startLine: pos.Line,
 				endLine:   endPos.Line,
 			}
+			// Extract receiver type for methods
+			if fn.Recv != nil && len(fn.Recv.List) > 0 {
+				info.receiverType = extractReceiverType(fn.Recv.List[0].Type)
+			}
+			return info
 		}
 	}
 
 	return funcInfo{}
+}
+
+// extractReceiverType extracts the base type name from a receiver expression.
+// Handles both value receivers (T) and pointer receivers (*T).
+func extractReceiverType(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	}
+	return ""
 }
 
 // renderFuncSignature renders a function declaration as a normalized one-line signature.

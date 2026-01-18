@@ -12,15 +12,18 @@ func TestWriter_Write(t *testing.T) {
 
 	resp := TreeResponse{
 		Query: TreeQuery{
-			Command:   "tree",
-			Target:    "config.Load",
-			Depth:     3,
-			Direction: "up",
+			Command: "tree",
+			Target:  "config.Load",
+			Up:      2,
+			Down:    2,
 		},
 		Tree: &TreeNode{
 			Symbol: "config.Load",
-			Calls: []*TreeNode{
+			Callers: []*TreeNode{
 				{Symbol: "main.main", Location: "/path/to/main.go:10"},
+			},
+			Calls: []*TreeNode{
+				{Symbol: "config.validate", Location: "/path/to/config.go:25"},
 			},
 		},
 		Packages: []TreePackage{
@@ -40,9 +43,10 @@ func TestWriter_Write(t *testing.T) {
 			},
 		},
 		Summary: TreeSummary{
-			TotalCalls:      1,
-			MaxDepthReached: 2,
-			Truncated:       false,
+			Callers:      1,
+			Callees:      1,
+			MaxUpDepth:   1,
+			MaxDownDepth: 1,
 		},
 	}
 
@@ -61,6 +65,9 @@ func TestWriter_Write(t *testing.T) {
 	}
 	if parsed.Tree == nil || parsed.Tree.Symbol != "config.Load" {
 		t.Errorf("tree root symbol = %v, want config.Load", parsed.Tree)
+	}
+	if len(parsed.Tree.Callers) != 1 {
+		t.Errorf("tree callers count = %d, want 1", len(parsed.Tree.Callers))
 	}
 	if len(parsed.Tree.Calls) != 1 {
 		t.Errorf("tree calls count = %d, want 1", len(parsed.Tree.Calls))
