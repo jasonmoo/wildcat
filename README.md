@@ -81,11 +81,11 @@ wildcat symbol config.Load
 # Package profile: all symbols, imports, dependents
 wildcat package ./internal/server
 
-# Call tree: what does main call?
-wildcat tree main.main --direction down --depth 3
+# Call tree: what does main call? (markdown output by default)
+wildcat tree main.main --down 3 --up 0
 
 # Call tree: what calls this function?
-wildcat tree db.Query --direction up
+wildcat tree db.Query --up 3
 
 # Channel operations in a package
 wildcat channels ./internal/worker
@@ -141,12 +141,17 @@ wildcat symbol lsp.Client
 See the full picture with the `tree` command:
 
 ```bash
-wildcat tree main.main --depth 5 --direction down
-# main.main → cmd.Execute → server.Start → handler.Serve → db.Query
+# Callees: what does main.main call? (5 levels down)
+wildcat tree main.main --down 5 --up 0
 
-wildcat tree db.Query --depth 3 --direction up
-# What code paths lead to this function?
+# Callers: what calls db.Query? (3 levels up)
+wildcat tree db.Query --up 3 --down 0
+
+# Both directions (default: 2 up, 2 down)
+wildcat tree server.Handle
 ```
+
+Output defaults to markdown for readability. Use `-o json` for structured output.
 
 ### Package Orientation
 

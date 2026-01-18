@@ -64,9 +64,9 @@ func printCompactReadme() {
 ## Common Flags
 - --scope SCOPE          Filter packages (project, packages, -pkg to exclude)
 - --exclude-tests        Exclude test files
-- --exclude-stdlib       Exclude standard library
-- --depth N              Tree traversal depth
-- -o, --output FORMAT    json|yaml|markdown
+- --up N                 Tree: caller depth (default 2)
+- --down N               Tree: callee depth (default 2)
+- -o, --output FORMAT    json|yaml|markdown (tree defaults to markdown)
 `)
 }
 
@@ -119,12 +119,15 @@ Complete package map in godoc order: constants, variables, functions, types
 with methods. Includes imports and imported-by with locations.
 
 ### tree - Call graph traversal
-`+"`"+`wildcat tree main.main --direction down --depth 3`+"`"+`
-`+"`"+`wildcat tree db.Query --direction up --depth 2`+"`"+`
+`+"`"+`wildcat tree main.main --down 3 --up 0`+"`"+`
+`+"`"+`wildcat tree db.Query --up 3`+"`"+`
 
-Build call trees in either direction:
-- down: what does this function call?
-- up: what calls this function?
+Build bidirectional call trees:
+- --up N: show N levels of callers (what calls this)
+- --down N: show N levels of callees (what this calls)
+- Default: 2 levels each direction
+
+Output defaults to markdown. Use -o json for structured processing.
 
 ### channels - Concurrency analysis
 `+"`"+`wildcat channels ./internal/lsp`+"`"+`
@@ -144,12 +147,11 @@ Channel operations grouped by type: makes, sends, receives, closes, selects.
 
 | Flag | Commands | Description |
 |------|----------|-------------|
-| --scope | search, symbol | Filter packages: 'project' or comma-separated |
+| --scope | search, symbol, tree | Filter packages: 'project' or comma-separated |
 | --exclude-tests | symbol, tree, channels | Exclude test files |
-| --exclude-stdlib | package, tree | Exclude standard library |
-| --depth N | tree | Traversal depth (default 3) |
-| --direction | tree | up or down (default down) |
-| -o json/yaml/markdown | all | Output format |
+| --up N | tree | Caller depth (default 2) |
+| --down N | tree | Callee depth (default 2) |
+| -o FORMAT | all | json, yaml, markdown (tree defaults to markdown) |
 
 ## Scope Filtering
 
@@ -167,11 +169,14 @@ Single query returns callers, references, and interface relationships.
 
 ### Exploring Call Flow
 `+"`"+`bash
-# What does main call?
-wildcat tree main.main --direction down
+# What does main call? (callees only)
+wildcat tree main.main --down 3 --up 0
 
-# What leads to this function?
-wildcat tree handleRequest --direction up
+# What calls this function? (callers only)
+wildcat tree handleRequest --up 3 --down 0
+
+# Both directions (default)
+wildcat tree server.Handle
 `+"`"+`
 
 ### Package Orientation
@@ -179,9 +184,15 @@ wildcat tree handleRequest --direction up
 
 See all symbols, what it imports, and what depends on it.
 
-## JSON Output
+## Output Formats
 
-All commands return structured JSON with:
+**Markdown** (tree default): Human-readable, ~50% smaller than JSON.
+Good for initial exploration - often similar size to JSON with better readability.
+
+**JSON** (-o json): Structured output for programmatic processing.
+Use when you need to extract specific fields or process results.
+
+All commands return structured data with:
 - query: What was requested
 - target/package: The resolved symbol or package
 - results/usage: The data (callers, refs, etc.)

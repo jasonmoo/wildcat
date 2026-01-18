@@ -24,6 +24,10 @@ The symbol is the center point of the tree:
 
 By default, shows 2 levels in each direction.
 
+Output:
+  Defaults to markdown for readability. Use -o json for structured
+  output when you need to process results programmatically.
+
 Scope:
   all     - Include everything (stdlib, dependencies)
   project - Project packages only (default)
@@ -33,7 +37,8 @@ Examples:
   wildcat tree main.main                              # 2 up, 2 down (default)
   wildcat tree db.Query --up 3 --down 1               # focus on callers
   wildcat tree Server.Start --up 0 --down 4           # callees only
-  wildcat tree Handler.ServeHTTP --scope all          # include stdlib calls`,
+  wildcat tree Handler.ServeHTTP --scope all          # include stdlib calls
+  wildcat tree db.Query -o json                       # JSON for processing`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTree,
 }
@@ -55,6 +60,11 @@ func init() {
 }
 
 func runTree(cmd *cobra.Command, args []string) error {
+	// Default to markdown for tree command if output not explicitly set
+	if !cmd.Flags().Changed("output") {
+		globalOutput = "markdown"
+	}
+
 	symbolArg := args[0]
 	writer, err := GetWriter(os.Stdout)
 	if err != nil {
