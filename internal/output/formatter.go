@@ -535,22 +535,76 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		}
 	}
 
+	// Format files summary
+	if files, ok := data["files"].([]any); ok && len(files) > 0 {
+		buf.WriteString("## Files\n\n")
+		for _, f := range files {
+			if fileMap, ok := f.(map[string]any); ok {
+				name, _ := fileMap["name"].(string)
+				lineCount, _ := fileMap["line_count"].(float64)
+				buf.WriteString(fmt.Sprintf("- %s // %d lines\n", name, int(lineCount)))
+			}
+		}
+		buf.WriteString("\n")
+	}
+
 	// Format package symbols (constants, functions, types)
 	f.formatPackageSymbols(buf, data, "constants", "Constants")
 	f.formatPackageSymbols(buf, data, "functions", "Functions")
 	f.formatPackageSymbols(buf, data, "types", "Types")
 
-	// Format imports/imported_by
+	// Format imports grouped by file with block range
 	if imports, ok := data["imports"].([]any); ok && len(imports) > 0 {
 		buf.WriteString("## Imports\n\n")
+
+		// Group by file and track line ranges
+		type fileImports struct {
+			packages []string
+			minLine  int
+			maxLine  int
+		}
+		byFile := make(map[string]*fileImports)
+		fileOrder := make([]string, 0)
+
 		for _, imp := range imports {
 			if impMap, ok := imp.(map[string]any); ok {
 				pkg, _ := impMap["package"].(string)
 				loc, _ := impMap["location"].(string)
-				buf.WriteString(fmt.Sprintf("- `%s` (%s)\n", pkg, loc))
+
+				// Parse file:line from location
+				file, line := parseFileLine(loc)
+				if file == "" {
+					continue
+				}
+
+				if fi, ok := byFile[file]; ok {
+					fi.packages = append(fi.packages, pkg)
+					if line < fi.minLine {
+						fi.minLine = line
+					}
+					if line > fi.maxLine {
+						fi.maxLine = line
+					}
+				} else {
+					byFile[file] = &fileImports{
+						packages: []string{pkg},
+						minLine:  line,
+						maxLine:  line,
+					}
+					fileOrder = append(fileOrder, file)
+				}
 			}
 		}
-		buf.WriteString("\n")
+
+		// Output grouped by file
+		for _, file := range fileOrder {
+			fi := byFile[file]
+			buf.WriteString(fmt.Sprintf("**%s:%d:%d**\n", file, fi.minLine, fi.maxLine))
+			for _, pkg := range fi.packages {
+				buf.WriteString(fmt.Sprintf("- `%s`\n", pkg))
+			}
+			buf.WriteString("\n")
+		}
 	}
 
 	if importedBy, ok := data["imported_by"].([]any); ok && len(importedBy) > 0 {
@@ -695,6 +749,13 @@ func (f *MarkdownFormatter) formatPackageSymbols(buf *bytes.Buffer, data map[str
 			loc, _ := symMap["location"].(string)
 			// Escape pipes in signature
 			sig = strings.ReplaceAll(sig, "|", "\\|")
+
+			// For types, add method count after location
+			if key == "types" {
+				if methods, ok := symMap["methods"].([]any); ok && len(methods) > 0 {
+					loc = fmt.Sprintf("%s // %d methods", loc, len(methods))
+				}
+			}
 
 			if hasSatisfies {
 				satisfiesStr := ""
@@ -972,6 +1033,22 @@ func findPlugin(name string) string {
 	}
 
 	return ""
+}
+
+// parseFileLine extracts file path and line number from "path:line" format.
+func parseFileLine(loc string) (string, int) {
+	if loc == "" {
+		return "", 0
+	}
+	// Find last colon (line number follows)
+	idx := strings.LastIndex(loc, ":")
+	if idx < 0 {
+		return loc, 0
+	}
+	file := loc[:idx]
+	var line int
+	fmt.Sscanf(loc[idx+1:], "%d", &line)
+	return file, line
 }
 
 // DefaultRegistry is the global formatter registry.

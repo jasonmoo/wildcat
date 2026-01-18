@@ -184,12 +184,19 @@ type PackageResponse struct {
 	Query      QueryInfo       `json:"query"`
 	Package    PackageInfo     `json:"package"`
 	Summary    PackageSummary  `json:"summary"`
+	Files      []FileInfo      `json:"files"`
 	Constants  []PackageSymbol `json:"constants"`
 	Variables  []PackageSymbol `json:"variables"`
 	Functions  []PackageSymbol `json:"functions"`
 	Types      []PackageType   `json:"types"`
 	Imports    []DepResult     `json:"imports"`
 	ImportedBy []DepResult     `json:"imported_by"`
+}
+
+// FileInfo describes a source file in a package.
+type FileInfo struct {
+	Name      string `json:"name"`       // base filename
+	LineCount int    `json:"line_count"` // total lines in file
 }
 
 // PackageInfo describes the package.

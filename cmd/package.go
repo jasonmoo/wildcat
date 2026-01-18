@@ -140,8 +140,20 @@ func runPackage(cmd *cobra.Command, args []string) error {
 	// Enrich types with interface relationships
 	collector.enrichWithInterfaces(ctx, client)
 
+	// Collect file info (line counts)
+	var fileInfos []output.FileInfo
+	for _, file := range files {
+		fullPath := filepath.Join(pkg.Dir, file)
+		lineCount := countLines(fullPath)
+		fileInfos = append(fileInfos, output.FileInfo{
+			Name:      file,
+			LineCount: lineCount,
+		})
+	}
+
 	// Organize into godoc order
 	result := collector.build(pkg.ImportPath, pkg.Name, pkg.Dir)
+	result.Files = fileInfos
 
 	// Add imports with locations
 	for _, imp := range pkg.Imports {
@@ -171,8 +183,8 @@ func runPackage(cmd *cobra.Command, args []string) error {
 	result.Summary.Imports = len(result.Imports)
 	result.Summary.ImportedBy = len(result.ImportedBy)
 
-	// Default to compressed markdown unless -o flag was explicitly set
-	if !cmd.Flags().Changed("output") {
+	// Use compact markdown for default and explicit -o markdown
+	if !cmd.Flags().Changed("output") || globalOutput == "markdown" {
 		fmt.Print(renderPackageMarkdown(result))
 		return nil
 	}
@@ -630,84 +642,122 @@ func renderPackageMarkdown(r *output.PackageResponse) string {
 	sb.WriteString(r.Package.Dir)
 	sb.WriteString("\n")
 
+	// Files - calculate total lines first
+	totalLines := 0
+	for _, f := range r.Files {
+		totalLines += f.LineCount
+	}
+	sb.WriteString(fmt.Sprintf("\n# Files (%d lines)\n", totalLines))
+	for _, f := range r.Files {
+		sb.WriteString(fmt.Sprintf("%s // %d lines\n", f.Name, f.LineCount))
+	}
+
 	// Constants
-	if len(r.Constants) > 0 {
-		sb.WriteString("\n## Constants\n")
-		for _, c := range r.Constants {
-			writeSymbolMd(&sb, c.Signature, c.Location)
-		}
+	sb.WriteString(fmt.Sprintf("\n# Constants (%d)\n", len(r.Constants)))
+	for _, c := range r.Constants {
+		writeSymbolMd(&sb, c.Signature, c.Location)
 	}
 
 	// Variables
-	if len(r.Variables) > 0 {
-		sb.WriteString("\n## Variables\n")
-		for _, v := range r.Variables {
-			writeSymbolMd(&sb, v.Signature, v.Location)
-		}
+	sb.WriteString(fmt.Sprintf("\n# Variables (%d)\n", len(r.Variables)))
+	for _, v := range r.Variables {
+		writeSymbolMd(&sb, v.Signature, v.Location)
 	}
 
 	// Functions (standalone, not constructors)
-	if len(r.Functions) > 0 {
-		sb.WriteString("\n## Functions\n")
-		for _, f := range r.Functions {
-			writeSymbolMd(&sb, f.Signature, f.Location)
-		}
+	sb.WriteString(fmt.Sprintf("\n# Functions (%d)\n", len(r.Functions)))
+	for _, f := range r.Functions {
+		writeSymbolMd(&sb, f.Signature, f.Location)
 	}
 
 	// Types
-	if len(r.Types) > 0 {
-		sb.WriteString("\n## Types\n")
-		for _, t := range r.Types {
-			sb.WriteString("\n")
-			// Build location with interface info
-			loc := t.Location
-			if len(t.Satisfies) > 0 {
-				loc += ", satisfies: " + strings.Join(t.Satisfies, ", ")
-			}
-			if len(t.ImplementedBy) > 0 {
-				loc += ", implemented by: " + strings.Join(t.ImplementedBy, ", ")
-			}
-			writeSymbolMd(&sb, t.Signature, loc)
+	sb.WriteString(fmt.Sprintf("\n# Types (%d)\n", len(r.Types)))
+	for _, t := range r.Types {
+		sb.WriteString("\n")
+		// Build location with method count and interface info
+		loc := t.Location
+		if len(t.Methods) > 0 {
+			loc += fmt.Sprintf(" // %d methods", len(t.Methods))
+		}
+		if len(t.Satisfies) > 0 {
+			loc += ", satisfies: " + strings.Join(t.Satisfies, ", ")
+		}
+		if len(t.ImplementedBy) > 0 {
+			loc += ", implemented by: " + strings.Join(t.ImplementedBy, ", ")
+		}
+		writeSymbolMd(&sb, t.Signature, loc)
 
-			// Constructor functions
-			for _, f := range t.Functions {
-				writeSymbolMd(&sb, f.Signature, f.Location)
-			}
+		// Constructor functions
+		for _, f := range t.Functions {
+			writeSymbolMd(&sb, f.Signature, f.Location)
+		}
 
-			// Methods
-			if len(t.Methods) > 0 {
-				sb.WriteString(fmt.Sprintf("# Methods (%d)\n", len(t.Methods)))
-				for _, m := range t.Methods {
-					writeSymbolMd(&sb, m.Signature, m.Location)
-				}
-			}
+		// Methods
+		for _, m := range t.Methods {
+			writeSymbolMd(&sb, m.Signature, m.Location)
 		}
 	}
 
-	// Imports
+	// Imports grouped by file
+	sb.WriteString(fmt.Sprintf("\n# Imports (%d)\n", len(r.Imports)))
 	if len(r.Imports) > 0 {
-		sb.WriteString("\n## Imports\n")
+		// Group by file and track line ranges
+		type fileImports struct {
+			packages []string
+			minLine  int
+			maxLine  int
+		}
+		byFile := make(map[string]*fileImports)
+		var fileOrder []string
+
 		for _, imp := range r.Imports {
-			sb.WriteString(imp.Package)
-			if imp.Location != "" {
-				sb.WriteString(" // ")
-				sb.WriteString(imp.Location)
+			if imp.Location == "" {
+				continue
 			}
-			sb.WriteString("\n")
+			// Parse file:line from location
+			file, line := parseFileLineFromLocation(imp.Location)
+			if file == "" {
+				continue
+			}
+
+			if fi, ok := byFile[file]; ok {
+				fi.packages = append(fi.packages, imp.Package)
+				if line < fi.minLine {
+					fi.minLine = line
+				}
+				if line > fi.maxLine {
+					fi.maxLine = line
+				}
+			} else {
+				byFile[file] = &fileImports{
+					packages: []string{imp.Package},
+					minLine:  line,
+					maxLine:  line,
+				}
+				fileOrder = append(fileOrder, file)
+			}
+		}
+
+		// Output grouped by file
+		for _, file := range fileOrder {
+			fi := byFile[file]
+			sb.WriteString(fmt.Sprintf("# %s:%d:%d\n", file, fi.minLine, fi.maxLine))
+			for _, pkg := range fi.packages {
+				sb.WriteString(pkg)
+				sb.WriteString("\n")
+			}
 		}
 	}
 
 	// Imported By
-	if len(r.ImportedBy) > 0 {
-		sb.WriteString("\n## Imported By\n")
-		for _, imp := range r.ImportedBy {
-			sb.WriteString(imp.Package)
-			if imp.Location != "" {
-				sb.WriteString(" // ")
-				sb.WriteString(imp.Location)
-			}
-			sb.WriteString("\n")
+	sb.WriteString(fmt.Sprintf("\n# Imported By (%d)\n", len(r.ImportedBy)))
+	for _, imp := range r.ImportedBy {
+		sb.WriteString(imp.Package)
+		if imp.Location != "" {
+			sb.WriteString(" // ")
+			sb.WriteString(imp.Location)
 		}
+		sb.WriteString("\n")
 	}
 
 	return sb.String()
@@ -839,5 +889,29 @@ func findImportLocation(dir string, files []string, importPath string) string {
 		}
 	}
 	return ""
+}
+
+// countLines counts total lines in a file.
+func countLines(path string) int {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	return bytes.Count(content, []byte("\n")) + 1
+}
+
+// parseFileLineFromLocation extracts file path and line number from "path:line" format.
+func parseFileLineFromLocation(loc string) (string, int) {
+	if loc == "" {
+		return "", 0
+	}
+	idx := strings.LastIndex(loc, ":")
+	if idx < 0 {
+		return loc, 0
+	}
+	file := loc[:idx]
+	var line int
+	fmt.Sscanf(loc[idx+1:], "%d", &line)
+	return file, line
 }
 
