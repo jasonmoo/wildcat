@@ -298,39 +298,25 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 			buf.WriteString("\n")
 		}
 
-		// Call tree section
-		symbol := ""
-		if target, ok := data["target"].(map[string]any); ok {
-			symbol, _ = target["symbol"].(string)
-		}
-
-		buf.WriteString("## Call Tree\n\n")
-		buf.WriteString("```\n")
-
-		// Render callers (what calls target)
+		// Callers section (what calls target - target is leaf)
 		if hasCallers && len(callers) > 0 {
-			buf.WriteString("Callers:\n")
+			buf.WriteString("## Callers\n\n")
+			buf.WriteString("```\n")
 			writeCallersTree(buf, callers, "")
-			buf.WriteString("    │\n")
-			buf.WriteString("    ▼\n")
+			buf.WriteString("```\n\n")
 		}
 
-		// Render target symbol (center point)
-		buf.WriteString("◆ " + symbol + "\n")
-
-		// Render callees (what target calls)
+		// Calls section (what target calls)
 		if hasCalls && len(calls) > 0 {
-			buf.WriteString("    │\n")
-			buf.WriteString("    ▼\n")
-			buf.WriteString("Calls:\n")
+			buf.WriteString("## Calls\n\n")
+			buf.WriteString("```\n")
 			for i, call := range calls {
 				if callMap, ok := call.(map[string]any); ok {
 					writeNestedTree(buf, callMap, "", i == len(calls)-1)
 				}
 			}
+			buf.WriteString("```\n\n")
 		}
-
-		buf.WriteString("```\n\n")
 	}
 
 	// Format results as table with snippets
