@@ -437,8 +437,27 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		}
 	}
 
-	// Format packages array (search and symbol commands)
-	if packages, ok := data["packages"].([]any); ok && len(packages) > 0 {
+	// Format target info (symbol command - not tree command which handles it above)
+	if !isTreeCommand {
+		if target, ok := data["target"].(map[string]any); ok {
+			symbol, _ := target["symbol"].(string)
+			signature, _ := target["signature"].(string)
+			definition, _ := target["definition"].(string)
+			buf.WriteString("## Target\n\n")
+			buf.WriteString(fmt.Sprintf("- **Symbol:** %s\n", symbol))
+			if signature != "" {
+				buf.WriteString(fmt.Sprintf("- **Signature:** `%s`\n", signature))
+			}
+			buf.WriteString(fmt.Sprintf("- **Definition:** %s\n\n", definition))
+		}
+	}
+
+	// Format packages/references array (search uses "packages", symbol uses "references")
+	packages, hasPackages := data["packages"].([]any)
+	if !hasPackages {
+		packages, hasPackages = data["references"].([]any)
+	}
+	if hasPackages && len(packages) > 0 {
 		for _, pkg := range packages {
 			pkgMap, ok := pkg.(map[string]any)
 			if !ok {
@@ -476,20 +495,6 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 			if refs, ok := pkgMap["references"].([]any); ok && len(refs) > 0 {
 				f.formatPackageLocations(buf, refs, "References")
 			}
-		}
-	}
-
-	// Format target info (symbol command - not tree command which handles it above)
-	if !isTreeCommand {
-		if target, ok := data["target"].(map[string]any); ok {
-			symbol, _ := target["symbol"].(string)
-			kind, _ := target["kind"].(string)
-			file, _ := target["file"].(string)
-			line, _ := target["line"].(float64)
-			buf.WriteString("## Definition\n\n")
-			buf.WriteString(fmt.Sprintf("- **Symbol:** %s\n", symbol))
-			buf.WriteString(fmt.Sprintf("- **Kind:** %s\n", kind))
-			buf.WriteString(fmt.Sprintf("- **Location:** %s:%.0f\n\n", file, line))
 		}
 	}
 
@@ -538,8 +543,9 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		buf.WriteString("## Imports\n\n")
 		for _, imp := range imports {
 			if impMap, ok := imp.(map[string]any); ok {
-				path, _ := impMap["path"].(string)
-				buf.WriteString(fmt.Sprintf("- `%s`\n", path))
+				pkg, _ := impMap["package"].(string)
+				loc, _ := impMap["location"].(string)
+				buf.WriteString(fmt.Sprintf("- `%s` (%s)\n", pkg, loc))
 			}
 		}
 		buf.WriteString("\n")
@@ -549,8 +555,9 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		buf.WriteString("## Imported By\n\n")
 		for _, imp := range importedBy {
 			if impMap, ok := imp.(map[string]any); ok {
-				path, _ := impMap["path"].(string)
-				buf.WriteString(fmt.Sprintf("- `%s`\n", path))
+				pkg, _ := impMap["package"].(string)
+				loc, _ := impMap["location"].(string)
+				buf.WriteString(fmt.Sprintf("- `%s` (%s)\n", pkg, loc))
 			}
 		}
 		buf.WriteString("\n")

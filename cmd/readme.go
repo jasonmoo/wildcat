@@ -48,7 +48,7 @@ func printCompactReadme() {
 - wildcat search <query>       Fuzzy search for symbols
 - wildcat symbol <symbol>      Complete symbol analysis (callers, refs, interfaces)
 - wildcat package [path]       Package profile with all symbols
-- wildcat tree <symbol>        Call graph traversal (up/down)
+- wildcat tree <symbol>        Call graph traversal (functions/methods only)
 - wildcat channels [package]   Channel operations and concurrency
 
 ## Symbol Formats
@@ -122,7 +122,7 @@ with methods. Includes imports and imported-by with locations.
 `+"`"+`wildcat tree main.main --down 3 --up 0`+"`"+`
 `+"`"+`wildcat tree db.Query --up 3`+"`"+`
 
-Build bidirectional call trees:
+Build bidirectional call trees (functions and methods only):
 - --up N: show N levels of callers (what calls this)
 - --down N: show N levels of callees (what this calls)
 - Default: 2 levels each direction

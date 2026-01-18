@@ -1,8 +1,13 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"go/ast"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
@@ -158,25 +163,13 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 	// Find similar symbols for navigation aid
 	similarSymbols := resolver.FindSimilar(ctx, query, 5)
 
-	// Determine symbol kind for display
-	kind := "symbol"
-	switch resolved.Kind {
-	case lsp.SymbolKindFunction:
-		kind = "function"
-	case lsp.SymbolKindMethod:
-		kind = "method"
-	case lsp.SymbolKindClass, lsp.SymbolKindStruct:
-		kind = "type"
-	case lsp.SymbolKindInterface:
-		kind = "interface"
-	case lsp.SymbolKindVariable:
-		kind = "variable"
-	case lsp.SymbolKindConstant:
-		kind = "constant"
-	}
-
 	// Get target file info
 	targetFile := lsp.URIToPath(resolved.URI)
+	targetLine := resolved.Position.Line + 1
+
+	// Extract signature and line range
+	signature, startLine, endLine := extractSymbolInfo(targetFile, targetLine, resolved.Kind)
+	definition := fmt.Sprintf("%s:%d:%d", output.AbsolutePath(targetFile), startLine, endLine)
 	targetDir := filepath.Dir(targetFile)
 	targetPkgInfo := getPackageInfo(targetDir)
 
@@ -405,7 +398,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 
 	// Get imported_by - packages that actually use this symbol (not just import the package)
 	// Derived from packages that have callers or references to the symbol
-	var importedByPkgs []string
+	var importedByPkgs []output.DepResult
 	for _, pkg := range packages {
 		// Skip the target package itself
 		if pkg.Package == targetPkgInfo.importPath {
@@ -413,7 +406,17 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		}
 		// Only include if there are actual usages
 		if len(pkg.Callers) > 0 || len(pkg.References) > 0 {
-			importedByPkgs = append(importedByPkgs, pkg.Package)
+			// Use first caller or reference location
+			var location string
+			if len(pkg.Callers) > 0 {
+				location = filepath.Join(pkg.Dir, pkg.Callers[0].Location)
+			} else if len(pkg.References) > 0 {
+				location = filepath.Join(pkg.Dir, pkg.References[0].Location)
+			}
+			importedByPkgs = append(importedByPkgs, output.DepResult{
+				Package:  pkg.Package,
+				Location: location,
+			})
 		}
 	}
 
@@ -474,13 +477,12 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 			Scope:    outputScope,
 		},
 		Target: output.TargetInfo{
-			Symbol: resolved.Name,
-			Kind:   kind,
-			File:   output.AbsolutePath(targetFile),
-			Line:   resolved.Position.Line + 1,
+			Symbol:     resolved.Name,
+			Signature:  signature,
+			Definition: definition,
 		},
 		ImportedBy:        importedByPkgs,
-		Packages:          packages,
+		References:        packages,
 		Implementations:   implementations,
 		Satisfies:         satisfies,
 		QuerySummary:      querySummary,
@@ -565,4 +567,109 @@ func resolveScopePackages(scope, targetPkgImportPath, workDir string) resolvedSc
 		includes: includes,
 		excludes: excludes,
 	}
+}
+
+// extractSymbolInfo extracts signature and line range for a symbol at the given location.
+func extractSymbolInfo(filePath string, line int, kind lsp.SymbolKind) (signature string, startLine, endLine int) {
+	if !strings.HasSuffix(filePath, ".go") {
+		return "", line, line
+	}
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filePath, nil, 0)
+	if err != nil {
+		return "", line, line
+	}
+
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if kind != lsp.SymbolKindFunction && kind != lsp.SymbolKindMethod {
+				continue
+			}
+			pos := fset.Position(d.Pos())
+			if pos.Line >= line-1 && pos.Line <= line+1 {
+				endPos := fset.Position(d.End())
+				return renderFuncSignature(d), pos.Line, endPos.Line
+			}
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				switch s := spec.(type) {
+				case *ast.TypeSpec:
+					if kind != lsp.SymbolKindClass && kind != lsp.SymbolKindStruct && kind != lsp.SymbolKindInterface {
+						continue
+					}
+					pos := fset.Position(s.Pos())
+					if pos.Line >= line-1 && pos.Line <= line+1 {
+						endPos := fset.Position(s.End())
+						return renderTypeSignature(s), pos.Line, endPos.Line
+					}
+				case *ast.ValueSpec:
+					if kind != lsp.SymbolKindConstant && kind != lsp.SymbolKindVariable {
+						continue
+					}
+					pos := fset.Position(s.Pos())
+					if pos.Line >= line-1 && pos.Line <= line+1 {
+						endPos := fset.Position(s.End())
+						return renderValueSignature(d.Tok, s), pos.Line, endPos.Line
+					}
+				}
+			}
+		}
+	}
+
+	return "", line, line
+}
+
+// renderFuncSignature renders a function declaration as a one-line signature.
+func renderFuncSignature(decl *ast.FuncDecl) string {
+	cleaned := *decl
+	cleaned.Doc = nil
+	cleaned.Body = nil
+
+	var buf bytes.Buffer
+	if err := format.Node(&buf, token.NewFileSet(), &cleaned); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(buf.String())
+}
+
+// renderTypeSignature renders a type declaration as a signature.
+func renderTypeSignature(spec *ast.TypeSpec) string {
+	var buf bytes.Buffer
+	buf.WriteString("type ")
+	buf.WriteString(spec.Name.Name)
+	buf.WriteString(" ")
+
+	switch t := spec.Type.(type) {
+	case *ast.StructType:
+		buf.WriteString("struct {...}")
+	case *ast.InterfaceType:
+		buf.WriteString("interface {...}")
+	case *ast.Ident:
+		buf.WriteString(t.Name)
+	default:
+		if err := format.Node(&buf, token.NewFileSet(), spec.Type); err == nil {
+			return buf.String()
+		}
+		buf.WriteString("...")
+	}
+	return buf.String()
+}
+
+// renderValueSignature renders a const/var declaration as a signature.
+func renderValueSignature(tok token.Token, spec *ast.ValueSpec) string {
+	var buf bytes.Buffer
+	if tok == token.CONST {
+		buf.WriteString("const ")
+	} else {
+		buf.WriteString("var ")
+	}
+
+	buf.WriteString(spec.Names[0].Name)
+	if spec.Type != nil {
+		buf.WriteString(" ")
+		format.Node(&buf, token.NewFileSet(), spec.Type)
+	}
+	return buf.String()
 }

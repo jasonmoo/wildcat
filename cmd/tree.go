@@ -18,6 +18,8 @@ var treeCmd = &cobra.Command{
 	Short: "Build a call tree centered on a symbol",
 	Long: `Build a call tree showing callers and callees of a symbol.
 
+Note: tree operates on functions and methods only, not types or constants.
+
 The symbol is the center point of the tree:
   --up N    Show N levels of callers (what calls this function)
   --down N  Show N levels of callees (what this function calls)

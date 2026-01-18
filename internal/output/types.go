@@ -11,12 +11,9 @@ type QueryInfo struct {
 
 // TargetInfo describes the target symbol.
 type TargetInfo struct {
-	Symbol    string `json:"symbol"`
-	Kind      string `json:"kind,omitempty"`
-	File      string `json:"file"`
-	Line      int    `json:"line"`
-	LineEnd   int    `json:"line_end,omitempty"`
-	Signature string `json:"signature,omitempty"`
+	Symbol     string `json:"symbol"`
+	Signature  string `json:"signature,omitempty"`
+	Definition string `json:"definition"` // path:start:end
 }
 
 // TreeSummary provides aggregate information about the tree.
@@ -117,8 +114,8 @@ type SymbolSummary struct {
 type SymbolResponse struct {
 	Query             QueryInfo        `json:"query"`
 	Target            TargetInfo       `json:"target"`
-	ImportedBy        []string         `json:"imported_by"`
-	Packages          []PackageUsage   `json:"packages"`
+	ImportedBy        []DepResult      `json:"imported_by"`
+	References        []PackageUsage   `json:"references"`
 	Implementations   []SymbolLocation `json:"implementations,omitempty"`
 	Satisfies         []SymbolLocation `json:"satisfies,omitempty"`
 	QuerySummary      SymbolSummary    `json:"query_summary"`
