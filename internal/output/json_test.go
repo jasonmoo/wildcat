@@ -17,14 +17,16 @@ func TestWriter_Write(t *testing.T) {
 			Up:      2,
 			Down:    2,
 		},
-		Tree: &TreeNode{
-			Symbol: "config.Load",
-			Callers: []*TreeNode{
-				{Symbol: "main.main", Location: "/path/to/main.go:10"},
-			},
-			Calls: []*TreeNode{
-				{Symbol: "config.validate", Location: "/path/to/config.go:25"},
-			},
+		Target: TreeTargetInfo{
+			Symbol:     "config.Load",
+			Signature:  "func Load() error",
+			Definition: "/path/to/config.go:20:25",
+		},
+		Callers: []*CallNode{
+			{Symbol: "main.main", Callsite: "/path/to/main.go:10"},
+		},
+		Calls: []*CallNode{
+			{Symbol: "config.validate", Callsite: "/path/to/config.go:25"},
 		},
 		Packages: []TreePackage{
 			{
@@ -63,14 +65,14 @@ func TestWriter_Write(t *testing.T) {
 	if parsed.Query.Command != "tree" {
 		t.Errorf("command = %q, want %q", parsed.Query.Command, "tree")
 	}
-	if parsed.Tree == nil || parsed.Tree.Symbol != "config.Load" {
-		t.Errorf("tree root symbol = %v, want config.Load", parsed.Tree)
+	if parsed.Target.Symbol != "config.Load" {
+		t.Errorf("target symbol = %q, want config.Load", parsed.Target.Symbol)
 	}
-	if len(parsed.Tree.Callers) != 1 {
-		t.Errorf("tree callers count = %d, want 1", len(parsed.Tree.Callers))
+	if len(parsed.Callers) != 1 {
+		t.Errorf("callers count = %d, want 1", len(parsed.Callers))
 	}
-	if len(parsed.Tree.Calls) != 1 {
-		t.Errorf("tree calls count = %d, want 1", len(parsed.Tree.Calls))
+	if len(parsed.Calls) != 1 {
+		t.Errorf("calls count = %d, want 1", len(parsed.Calls))
 	}
 }
 

@@ -264,23 +264,41 @@ func (t *Traverser) BuildTree(ctx context.Context, item lsp.CallHierarchyItem, o
 	var maxUpDepth, maxDownDepth int
 	var totalCallers, totalCallees int
 
-	// Build root node
+	// Build target info
 	symbol := symbolName(item)
 	file := lsp.URIToPath(item.URI)
+	line := item.Range.Start.Line + 1
+	info := extractFuncInfo(file, line)
+
+	// Build definition string: path:start:end
+	startLine, endLine := info.startLine, info.endLine
+	if startLine == 0 {
+		startLine = line
+		endLine = item.Range.End.Line + 1
+	}
+	definition := fmt.Sprintf("%s:%d:%d", file, startLine, endLine)
+
+	signature := info.signature
+	if signature == "" {
+		signature = item.Name
+	}
+
 	t.collectFunc(item, file, collected)
 
-	tree := &output.TreeNode{Symbol: symbol}
+	var callers, calls []*output.CallNode
 
-	// Build callers tree (up)
+	// Build callers tree (up) - then invert for top-down structure
 	if opts.UpDepth > 0 {
 		visited := make(map[string]bool)
-		tree.Callers = t.buildCallersTree(ctx, item, opts, 0, visited, collected, &maxUpDepth, &totalCallers)
+		bottomUp := t.buildCallersTree(ctx, item, opts, 0, visited, collected, &maxUpDepth, &totalCallers)
+		// Invert so entry points are roots with Calls toward target, ending at target symbol
+		callers = invertCallersTree(bottomUp, symbol)
 	}
 
 	// Build callees tree (down)
 	if opts.DownDepth > 0 {
 		visited := make(map[string]bool)
-		tree.Calls = t.buildCalleesTree(ctx, item, opts, 0, visited, collected, &maxDownDepth, &totalCallees)
+		calls = t.buildCalleesTree(ctx, item, opts, 0, visited, collected, &maxDownDepth, &totalCallees)
 	}
 
 	// Group collected functions by package
@@ -293,7 +311,13 @@ func (t *Traverser) BuildTree(ctx context.Context, item lsp.CallHierarchyItem, o
 			Up:      opts.UpDepth,
 			Down:    opts.DownDepth,
 		},
-		Tree:     tree,
+		Target: output.TreeTargetInfo{
+			Symbol:     symbol,
+			Signature:  signature,
+			Definition: definition,
+		},
+		Callers:  callers,
+		Calls:    calls,
 		Packages: packages,
 		Summary: output.TreeSummary{
 			Callers:       totalCallers,
@@ -357,9 +381,70 @@ func groupByPackage(collected map[string]*collectedFunc) []output.TreePackage {
 	return packages
 }
 
+// invertCallersTree transforms a bottom-up callers tree into a top-down structure.
+// Input: nodes where each has Callers (who calls this node), targetSymbol is the query target
+// Output: nodes where entry points are roots with Calls flowing down to target as leaf
+func invertCallersTree(bottomUp []*output.CallNode, targetSymbol string) []*output.CallNode {
+	if len(bottomUp) == 0 {
+		return nil
+	}
+
+	var result []*output.CallNode
+
+	for _, node := range bottomUp {
+		// The location on this node is where it calls the target (or next in chain)
+		// We need to pass this down so it ends up on the target leaf
+		callSiteLocation := node.Callsite
+
+		if len(node.Calls) == 0 {
+			// This is an entry point AND direct caller of target
+			// Create: entryPoint -> target
+			inverted := &output.CallNode{
+				Symbol: node.Symbol,
+				// Entry point has no incoming call location (it's the root)
+				Calls: []*output.CallNode{
+					{
+						Symbol:   targetSymbol,
+						Callsite: callSiteLocation, // where this node calls target
+					},
+				},
+			}
+			result = append(result, inverted)
+		} else {
+			// This node has callers - it's in the middle of the chain
+			// Invert the callers, then add this node (without target yet)
+			invertedCallers := invertCallersTree(node.Calls, node.Symbol)
+			// Now add the target as leaf to each chain
+			for _, caller := range invertedCallers {
+				addAsCall(caller, &output.CallNode{
+					Symbol:   targetSymbol,
+					Callsite: callSiteLocation,
+				})
+			}
+			result = append(result, invertedCallers...)
+		}
+	}
+
+	return result
+}
+
+// addAsCall adds childNode as a Call to the deepest level of parentNode.
+func addAsCall(parentNode, childNode *output.CallNode) {
+	if len(parentNode.Calls) == 0 {
+		parentNode.Calls = []*output.CallNode{childNode}
+	} else {
+		// Recurse to find the leaf
+		for _, call := range parentNode.Calls {
+			addAsCall(call, childNode)
+		}
+	}
+}
+
 // buildCallersTree builds a list of caller nodes for the given item.
-// Returns the direct callers, each with their own Callers populated recursively.
-func (t *Traverser) buildCallersTree(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool, collected map[string]*collectedFunc, maxDepth *int, totalCalls *int) []*output.TreeNode {
+// Returns the direct callers, each with their own Calls populated recursively (representing caller chain).
+// Note: During bottom-up build, Calls temporarily holds "who calls this node".
+// invertCallersTree then transforms this to proper top-down structure.
+func (t *Traverser) buildCallersTree(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool, collected map[string]*collectedFunc, maxDepth *int, totalCalls *int) []*output.CallNode {
 	if depth > *maxDepth {
 		*maxDepth = depth
 	}
@@ -383,7 +468,7 @@ func (t *Traverser) buildCallersTree(ctx context.Context, item lsp.CallHierarchy
 		return nil
 	}
 
-	var callers []*output.TreeNode
+	var callers []*output.CallNode
 	for _, call := range calls {
 		callFile := lsp.URIToPath(call.From.URI)
 
@@ -406,13 +491,13 @@ func (t *Traverser) buildCallersTree(ctx context.Context, item lsp.CallHierarchy
 			callLocation = fmt.Sprintf("%s:%d", callFile, callLine)
 		}
 
-		callerNode := &output.TreeNode{
+		callerNode := &output.CallNode{
 			Symbol:   symbolName(call.From),
-			Location: callLocation,
+			Callsite: callLocation,
 		}
 
-		// Recurse to get this caller's callers
-		callerNode.Callers = t.buildCallersTree(ctx, call.From, opts, depth+1, visited, collected, maxDepth, totalCalls)
+		// Recurse to get this caller's callers (stored in Calls during bottom-up phase)
+		callerNode.Calls = t.buildCallersTree(ctx, call.From, opts, depth+1, visited, collected, maxDepth, totalCalls)
 
 		callers = append(callers, callerNode)
 	}
@@ -422,7 +507,7 @@ func (t *Traverser) buildCallersTree(ctx context.Context, item lsp.CallHierarchy
 
 // buildCalleesTree builds a list of callee nodes for the given item.
 // Returns the direct callees, each with their own Calls populated recursively.
-func (t *Traverser) buildCalleesTree(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool, collected map[string]*collectedFunc, maxDepth *int, totalCalls *int) []*output.TreeNode {
+func (t *Traverser) buildCalleesTree(ctx context.Context, item lsp.CallHierarchyItem, opts Options, depth int, visited map[string]bool, collected map[string]*collectedFunc, maxDepth *int, totalCalls *int) []*output.CallNode {
 	file := lsp.URIToPath(item.URI)
 
 	if depth > *maxDepth {
@@ -448,7 +533,7 @@ func (t *Traverser) buildCalleesTree(ctx context.Context, item lsp.CallHierarchy
 		return nil
 	}
 
-	var callees []*output.TreeNode
+	var callees []*output.CallNode
 	for _, call := range calls {
 		calleeFile := lsp.URIToPath(call.To.URI)
 
@@ -471,9 +556,9 @@ func (t *Traverser) buildCalleesTree(ctx context.Context, item lsp.CallHierarchy
 			callLocation = fmt.Sprintf("%s:%d", file, callLine)
 		}
 
-		calleeNode := &output.TreeNode{
+		calleeNode := &output.CallNode{
 			Symbol:   symbolName(call.To),
-			Location: callLocation,
+			Callsite: callLocation,
 		}
 
 		// Recurse to get this callee's callees

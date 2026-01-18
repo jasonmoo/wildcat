@@ -37,12 +37,11 @@ type TreeQuery struct {
 	Down    int    `json:"down"` // callee depth requested
 }
 
-// TreeNode represents a node in the call tree.
-type TreeNode struct {
-	Symbol   string      `json:"symbol"`              // qualified: pkg.Name
-	Location string      `json:"location,omitempty"`  // call site: /full/path/file.go:line (empty for root)
-	Callers  []*TreeNode `json:"callers,omitempty"`   // who calls this (up tree)
-	Calls    []*TreeNode `json:"calls,omitempty"`     // what this calls (down tree)
+// CallNode represents a node in a call chain.
+type CallNode struct {
+	Symbol   string      `json:"symbol"`             // qualified: pkg.Name
+	Callsite string      `json:"callsite,omitempty"` // where called: /full/path/file.go:line (empty for entry points)
+	Calls    []*CallNode `json:"calls,omitempty"`    // next in chain (toward target for callers, away from target for callees)
 }
 
 // TreeFunction contains information about a function in the call tree.
@@ -59,12 +58,21 @@ type TreePackage struct {
 	Symbols []TreeFunction `json:"symbols"`
 }
 
+// TreeTargetInfo describes the target for tree command output.
+type TreeTargetInfo struct {
+	Symbol     string `json:"symbol"`
+	Signature  string `json:"signature"`
+	Definition string `json:"definition"` // path:start:end
+}
+
 // TreeResponse is the output for the tree command.
 type TreeResponse struct {
-	Query    TreeQuery     `json:"query"`
-	Tree     *TreeNode     `json:"tree"`
-	Packages []TreePackage `json:"packages"`
-	Summary  TreeSummary   `json:"summary"`
+	Query    TreeQuery      `json:"query"`
+	Target   TreeTargetInfo `json:"target"`
+	Summary  TreeSummary    `json:"summary"`
+	Callers  []*CallNode    `json:"callers"`
+	Calls    []*CallNode    `json:"calls"`
+	Packages []TreePackage  `json:"packages"`
 }
 
 // Snippet represents a code snippet with its location.
@@ -148,8 +156,8 @@ type SearchQuery struct {
 
 // SearchMatch represents a single symbol match within a package.
 type SearchMatch struct {
-	Location string   `json:"location"`          // "file.go:line"
-	Symbol   string   `json:"symbol"`            // short name: "Type.Method"
+	Location string   `json:"location"` // "file.go:line"
+	Symbol   string   `json:"symbol"`   // short name: "Type.Method"
 	Kind     string   `json:"kind"`
 	Snippet  *Snippet `json:"snippet,omitempty"`
 }
@@ -177,15 +185,15 @@ type SearchResponse struct {
 
 // PackageResponse is the output for the package command.
 type PackageResponse struct {
-	Query      QueryInfo          `json:"query"`
-	Package    PackageInfo        `json:"package"`
-	Constants  []PackageSymbol    `json:"constants,omitempty"`
-	Variables  []PackageSymbol    `json:"variables,omitempty"`
-	Functions  []PackageSymbol    `json:"functions,omitempty"`
-	Types      []PackageType      `json:"types,omitempty"`
-	Imports    []DepResult        `json:"imports"`
-	ImportedBy []DepResult        `json:"imported_by"`
-	Summary    PackageSummary     `json:"summary"`
+	Query      QueryInfo       `json:"query"`
+	Package    PackageInfo     `json:"package"`
+	Summary    PackageSummary  `json:"summary"`
+	Constants  []PackageSymbol `json:"constants,omitempty"`
+	Variables  []PackageSymbol `json:"variables,omitempty"`
+	Functions  []PackageSymbol `json:"functions,omitempty"`
+	Types      []PackageType   `json:"types,omitempty"`
+	Imports    []DepResult     `json:"imports"`
+	ImportedBy []DepResult     `json:"imported_by"`
 }
 
 // PackageInfo describes the package.
@@ -213,11 +221,11 @@ type PackageType struct {
 
 // PackageSummary provides counts for the package command.
 type PackageSummary struct {
-	Constants   int            `json:"constants"`
-	Variables   int            `json:"variables"`
-	Functions   int            `json:"functions"`
-	Types       int            `json:"types"`
-	Methods     int            `json:"methods"`
-	Imports     int            `json:"imports"`
-	ImportedBy  int            `json:"imported_by"`
+	Constants  int `json:"constants"`
+	Variables  int `json:"variables"`
+	Functions  int `json:"functions"`
+	Types      int `json:"types"`
+	Methods    int `json:"methods"`
+	Imports    int `json:"imports"`
+	ImportedBy int `json:"imported_by"`
 }
