@@ -150,12 +150,20 @@ func (s SymbolInformation) ShortName() string {
 		shortPkg = s.ContainerName[idx+1:]
 	}
 
-	// Check if Name already has the package prefix
-	if strings.HasPrefix(s.Name, shortPkg+".") {
-		return s.Name
+	name := s.Name
+
+	// Handle case where gopls returns full path in Name (e.g., "github.com/.../pkg.Symbol")
+	// Strip the path prefix to get just "pkg.Symbol"
+	if strings.HasPrefix(name, s.ContainerName+".") {
+		name = name[len(s.ContainerName)+1:]
 	}
 
-	return shortPkg + "." + s.Name
+	// Check if Name already has the short package prefix
+	if strings.HasPrefix(name, shortPkg+".") {
+		return name
+	}
+
+	return shortPkg + "." + name
 }
 
 // WorkspaceSymbolParams is the parameters for a workspace/symbol request.
