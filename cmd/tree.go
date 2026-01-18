@@ -25,8 +25,8 @@ The symbol is the center point of the tree:
 By default, shows 2 levels in each direction.
 
 Output:
-  Defaults to markdown for readability. Use -o json for structured
-  output when you need to process results programmatically.
+  Defaults to markdown - dense, AI-readable, ~50% smaller than JSON.
+  Use -o json when you need to extract specific fields programmatically.
 
 Scope:
   all     - Include everything (stdlib, dependencies)

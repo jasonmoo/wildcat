@@ -127,7 +127,7 @@ Build bidirectional call trees:
 - --down N: show N levels of callees (what this calls)
 - Default: 2 levels each direction
 
-Output defaults to markdown. Use -o json for structured processing.
+Output defaults to markdown (dense, ~50% smaller). Use -o json for field extraction.
 
 ### channels - Concurrency analysis
 `+"`"+`wildcat channels ./internal/lsp`+"`"+`
@@ -186,11 +186,11 @@ See all symbols, what it imports, and what depends on it.
 
 ## Output Formats
 
-**Markdown** (tree default): Human-readable, ~50% smaller than JSON.
-Good for initial exploration - often similar size to JSON with better readability.
+**Markdown** (tree default): Dense, AI-readable, ~50% smaller than JSON.
+Preferred for understanding code structure and relationships.
 
-**JSON** (-o json): Structured output for programmatic processing.
-Use when you need to extract specific fields or process results.
+**JSON** (-o json): Structured output for programmatic field extraction.
+Use when you need to parse specific values from results.
 
 All commands return structured data with:
 - query: What was requested

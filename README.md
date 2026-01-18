@@ -81,7 +81,7 @@ wildcat symbol config.Load
 # Package profile: all symbols, imports, dependents
 wildcat package ./internal/server
 
-# Call tree: what does main call? (markdown output by default)
+# Call tree: what does main call? (dense markdown by default)
 wildcat tree main.main --down 3 --up 0
 
 # Call tree: what calls this function?
@@ -151,7 +151,7 @@ wildcat tree db.Query --up 3 --down 0
 wildcat tree server.Handle
 ```
 
-Output defaults to markdown for readability. Use `-o json` for structured output.
+Output defaults to markdown (dense, ~50% smaller). Use `-o json` for field extraction.
 
 ### Package Orientation
 
