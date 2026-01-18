@@ -22,8 +22,8 @@ type TreeSummary struct {
 	Callees       int  `json:"callees"`                  // total callee edges
 	MaxUpDepth    int  `json:"max_up_depth,omitempty"`   // deepest caller level reached
 	MaxDownDepth  int  `json:"max_down_depth,omitempty"` // deepest callee level reached
-	UpTruncated   bool `json:"up_truncated,omitempty"`   // hit up depth limit
-	DownTruncated bool `json:"down_truncated,omitempty"` // hit down depth limit
+	UpTruncated   bool `json:"up_truncated"`   // hit up depth limit
+	DownTruncated bool `json:"down_truncated"` // hit down depth limit
 }
 
 // TreeQuery describes the tree query parameters.
@@ -89,8 +89,8 @@ type Location struct {
 type PackageUsage struct {
 	Package    string     `json:"package"`
 	Dir        string     `json:"dir"`
-	Callers    []Location `json:"callers,omitempty"`
-	References []Location `json:"references,omitempty"`
+	Callers    []Location `json:"callers"`
+	References []Location `json:"references"`
 }
 
 // SymbolLocation represents a location for cross-package type relationships.
@@ -184,10 +184,10 @@ type PackageResponse struct {
 	Query      QueryInfo       `json:"query"`
 	Package    PackageInfo     `json:"package"`
 	Summary    PackageSummary  `json:"summary"`
-	Constants  []PackageSymbol `json:"constants,omitempty"`
-	Variables  []PackageSymbol `json:"variables,omitempty"`
-	Functions  []PackageSymbol `json:"functions,omitempty"`
-	Types      []PackageType   `json:"types,omitempty"`
+	Constants  []PackageSymbol `json:"constants"`
+	Variables  []PackageSymbol `json:"variables"`
+	Functions  []PackageSymbol `json:"functions"`
+	Types      []PackageType   `json:"types"`
 	Imports    []DepResult     `json:"imports"`
 	ImportedBy []DepResult     `json:"imported_by"`
 }
