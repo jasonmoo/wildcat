@@ -256,8 +256,49 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 	// Check for callers or calls at top level (new structure)
 	callers, hasCallers := data["callers"].([]any)
 	calls, hasCalls := data["calls"].([]any)
-	if hasCallers || hasCalls {
-		// Get target symbol
+	isTreeCommand := hasCallers || hasCalls
+
+	if isTreeCommand {
+		// Tree command: output in JSON order - target, summary, call tree, packages
+
+		// Target section (TreeTargetInfo format)
+		if target, ok := data["target"].(map[string]any); ok {
+			symbol, _ := target["symbol"].(string)
+			signature, _ := target["signature"].(string)
+			definition, _ := target["definition"].(string)
+
+			buf.WriteString("## Target\n\n")
+			buf.WriteString(fmt.Sprintf("- **Symbol:** %s\n", symbol))
+			buf.WriteString(fmt.Sprintf("- **Signature:** `%s`\n", signature))
+			buf.WriteString(fmt.Sprintf("- **Definition:** %s\n\n", definition))
+		}
+
+		// Summary section
+		if summary, ok := data["summary"].(map[string]any); ok {
+			buf.WriteString("## Summary\n\n")
+			// Output in consistent order
+			if v, ok := summary["callers"]; ok {
+				buf.WriteString(fmt.Sprintf("- **Callers:** %v\n", v))
+			}
+			if v, ok := summary["callees"]; ok {
+				buf.WriteString(fmt.Sprintf("- **Callees:** %v\n", v))
+			}
+			if v, ok := summary["max_up_depth"]; ok {
+				buf.WriteString(fmt.Sprintf("- **Max Up Depth:** %v\n", v))
+			}
+			if v, ok := summary["max_down_depth"]; ok {
+				buf.WriteString(fmt.Sprintf("- **Max Down Depth:** %v\n", v))
+			}
+			if v, ok := summary["up_truncated"]; ok && v.(bool) {
+				buf.WriteString("- **Up Truncated:** true\n")
+			}
+			if v, ok := summary["down_truncated"]; ok && v.(bool) {
+				buf.WriteString("- **Down Truncated:** true\n")
+			}
+			buf.WriteString("\n")
+		}
+
+		// Call tree section
 		symbol := ""
 		if target, ok := data["target"].(map[string]any); ok {
 			symbol, _ = target["symbol"].(string)
@@ -436,16 +477,18 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		}
 	}
 
-	// Format target info (symbol command)
-	if target, ok := data["target"].(map[string]any); ok {
-		symbol, _ := target["symbol"].(string)
-		kind, _ := target["kind"].(string)
-		file, _ := target["file"].(string)
-		line, _ := target["line"].(float64)
-		buf.WriteString("## Definition\n\n")
-		buf.WriteString(fmt.Sprintf("- **Symbol:** %s\n", symbol))
-		buf.WriteString(fmt.Sprintf("- **Kind:** %s\n", kind))
-		buf.WriteString(fmt.Sprintf("- **Location:** %s:%.0f\n\n", file, line))
+	// Format target info (symbol command - not tree command which handles it above)
+	if !isTreeCommand {
+		if target, ok := data["target"].(map[string]any); ok {
+			symbol, _ := target["symbol"].(string)
+			kind, _ := target["kind"].(string)
+			file, _ := target["file"].(string)
+			line, _ := target["line"].(float64)
+			buf.WriteString("## Definition\n\n")
+			buf.WriteString(fmt.Sprintf("- **Symbol:** %s\n", symbol))
+			buf.WriteString(fmt.Sprintf("- **Kind:** %s\n", kind))
+			buf.WriteString(fmt.Sprintf("- **Location:** %s:%.0f\n\n", file, line))
+		}
 	}
 
 	// Format implementations (for implements command)
@@ -511,11 +554,13 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		buf.WriteString("\n")
 	}
 
-	// Summary
-	if summary, ok := data["summary"].(map[string]any); ok {
-		buf.WriteString("## Summary\n\n")
-		for key, val := range summary {
-			buf.WriteString(fmt.Sprintf("- **%s**: %v\n", key, val))
+	// Summary (not for tree command which handles it above)
+	if !isTreeCommand {
+		if summary, ok := data["summary"].(map[string]any); ok {
+			buf.WriteString("## Summary\n\n")
+			for key, val := range summary {
+				buf.WriteString(fmt.Sprintf("- **%s**: %v\n", key, val))
+			}
 		}
 	}
 }
@@ -695,7 +740,7 @@ func writeCallersTree(buf *bytes.Buffer, callers []any, prefix string) {
 // writeCallerNodeTopDown renders a caller node and its calls (toward target) recursively.
 func writeCallerNodeTopDown(buf *bytes.Buffer, node map[string]any, prefix string, isLast bool) {
 	symbol, _ := node["symbol"].(string)
-	location, _ := node["location"].(string)
+	callsite, _ := node["callsite"].(string)
 
 	// Determine connector based on whether this is the last item at this level
 	var connector, childPrefix string
@@ -708,8 +753,8 @@ func writeCallerNodeTopDown(buf *bytes.Buffer, node map[string]any, prefix strin
 	}
 
 	// Render this node
-	if location != "" {
-		buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, location))
+	if callsite != "" {
+		buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, callsite))
 	} else {
 		buf.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, symbol))
 	}
@@ -729,7 +774,7 @@ func writeCallerNodeTopDown(buf *bytes.Buffer, node map[string]any, prefix strin
 // isLast indicates if this node is the last child of its parent.
 func writeNestedTree(buf *bytes.Buffer, node map[string]any, prefix string, isLast bool) {
 	symbol, _ := node["symbol"].(string)
-	location, _ := node["location"].(string)
+	callsite, _ := node["callsite"].(string)
 
 	// Determine connector and child prefix
 	var connector, childPrefix string
@@ -742,8 +787,8 @@ func writeNestedTree(buf *bytes.Buffer, node map[string]any, prefix string, isLa
 	}
 
 	// Write this node
-	if location != "" {
-		buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, location))
+	if callsite != "" {
+		buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, callsite))
 	} else {
 		buf.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, symbol))
 	}
