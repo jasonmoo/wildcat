@@ -473,14 +473,16 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 
 			// Handle search matches
 			if matches, ok := pkgMap["matches"].([]any); ok && len(matches) > 0 {
-				buf.WriteString("| Symbol | Kind | Location |\n")
-				buf.WriteString("|--------|------|----------|\n")
+				buf.WriteString("| Symbol | Signature | Definition |\n")
+				buf.WriteString("|--------|-----------|------------|\n")
 				for _, m := range matches {
 					if match, ok := m.(map[string]any); ok {
 						symbol, _ := match["symbol"].(string)
-						kind, _ := match["kind"].(string)
-						location, _ := match["location"].(string)
-						buf.WriteString(fmt.Sprintf("| %s | %s | %s |\n", symbol, kind, location))
+						signature, _ := match["signature"].(string)
+						definition, _ := match["definition"].(string)
+						// Escape pipes in signature
+						signature = strings.ReplaceAll(signature, "|", "\\|")
+						buf.WriteString(fmt.Sprintf("| %s | `%s` | %s |\n", symbol, signature, definition))
 					}
 				}
 				buf.WriteString("\n")
@@ -665,9 +667,27 @@ func (f *MarkdownFormatter) formatPackageSymbols(buf *bytes.Buffer, data map[str
 		return
 	}
 
+	// Check if any symbol has satisfies (for types)
+	hasSatisfies := false
+	if key == "types" {
+		for _, sym := range symbols {
+			if symMap, ok := sym.(map[string]any); ok {
+				if satisfies, ok := symMap["satisfies"].([]any); ok && len(satisfies) > 0 {
+					hasSatisfies = true
+					break
+				}
+			}
+		}
+	}
+
 	buf.WriteString(fmt.Sprintf("## %s\n\n", title))
-	buf.WriteString("| Signature | Location |\n")
-	buf.WriteString("|-----------|----------|\n")
+	if hasSatisfies {
+		buf.WriteString("| Signature | Location | Satisfies |\n")
+		buf.WriteString("|-----------|----------|----------|\n")
+	} else {
+		buf.WriteString("| Signature | Location |\n")
+		buf.WriteString("|-----------|----------|\n")
+	}
 
 	for _, sym := range symbols {
 		if symMap, ok := sym.(map[string]any); ok {
@@ -675,7 +695,22 @@ func (f *MarkdownFormatter) formatPackageSymbols(buf *bytes.Buffer, data map[str
 			loc, _ := symMap["location"].(string)
 			// Escape pipes in signature
 			sig = strings.ReplaceAll(sig, "|", "\\|")
-			buf.WriteString(fmt.Sprintf("| `%s` | %s |\n", sig, loc))
+
+			if hasSatisfies {
+				satisfiesStr := ""
+				if satisfies, ok := symMap["satisfies"].([]any); ok && len(satisfies) > 0 {
+					var ifaces []string
+					for _, s := range satisfies {
+						if str, ok := s.(string); ok {
+							ifaces = append(ifaces, str)
+						}
+					}
+					satisfiesStr = strings.Join(ifaces, ", ")
+				}
+				buf.WriteString(fmt.Sprintf("| `%s` | %s | %s |\n", sig, loc, satisfiesStr))
+			} else {
+				buf.WriteString(fmt.Sprintf("| `%s` | %s |\n", sig, loc))
+			}
 		}
 	}
 	buf.WriteString("\n")

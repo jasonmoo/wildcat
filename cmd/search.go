@@ -149,8 +149,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	totalCount := 0
 
 	for _, sym := range symbols {
-		kind := sym.Kind.String()
-		kindCounts[kind]++
+		kindCounts[sym.Kind.String()]++
 		totalCount++
 
 		file := output.AbsolutePath(lsp.URIToPath(sym.Location.URI))
@@ -182,17 +181,14 @@ func runSearch(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Location as "file.go:line"
-		fileName := file
-		if idx := strings.LastIndex(file, "/"); idx >= 0 {
-			fileName = file[idx+1:]
-		}
-		location := fmt.Sprintf("%s:%d", fileName, startLine)
+		// Extract signature and line range
+		signature, sigStartLine, sigEndLine := extractSymbolInfo(file, startLine, sym.Kind)
+		definition := fmt.Sprintf("%s:%d:%d", file, sigStartLine, sigEndLine)
 
 		match := output.SearchMatch{
-			Location: location,
-			Symbol:   shortName,
-			Kind:     kind,
+			Symbol:     shortName,
+			Signature:  signature,
+			Definition: definition,
 		}
 		data.matches = append(data.matches, match)
 	}

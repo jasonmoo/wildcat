@@ -198,6 +198,16 @@ All commands return structured data with:
 - results/usage: The data (callers, refs, etc.)
 - summary: Counts
 
+When a signature is present in the results, this is a clean AST render of
+the symbol.  It is meant to quickly orient you do the symbol.
+
+When a path:start:end is present with a result, it is meant to support your
+Read operations to be able to quickly access the definition source material.
+
+When a snippet is present in the result, it is byte for byte from the source
+code.  It is intended to support your edit operations by providing you input
+for immediate use.
+
 Errors include suggestions for typos.
 `)
 }

@@ -153,10 +153,9 @@ type SearchQuery struct {
 
 // SearchMatch represents a single symbol match within a package.
 type SearchMatch struct {
-	Location string   `json:"location"` // "file.go:line"
-	Symbol   string   `json:"symbol"`   // short name: "Type.Method"
-	Kind     string   `json:"kind"`
-	Snippet  *Snippet `json:"snippet,omitempty"`
+	Symbol     string `json:"symbol"`              // short name: "Type.Method"
+	Signature  string `json:"signature,omitempty"` // full signature
+	Definition string `json:"definition"`          // full path:start:end
 }
 
 // SearchPackage groups search matches by package.
