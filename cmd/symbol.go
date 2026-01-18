@@ -403,11 +403,18 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 		}
 	}
 
-	// Get imported_by - packages that import the target package
-	importedBy, _ := findImportedBy(workDir, targetPkgInfo.importPath)
+	// Get imported_by - packages that actually use this symbol (not just import the package)
+	// Derived from packages that have callers or references to the symbol
 	var importedByPkgs []string
-	for _, dep := range importedBy {
-		importedByPkgs = append(importedByPkgs, dep.Package)
+	for _, pkg := range packages {
+		// Skip the target package itself
+		if pkg.Package == targetPkgInfo.importPath {
+			continue
+		}
+		// Only include if there are actual usages
+		if len(pkg.Callers) > 0 || len(pkg.References) > 0 {
+			importedByPkgs = append(importedByPkgs, pkg.Package)
+		}
 	}
 
 	// Compute summaries
