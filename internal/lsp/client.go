@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // Client provides high-level access to LSP server functionality.
 type Client struct {
-	server      *Server
-	rootURI     string
-	initialized bool
+	server   *Server
+	rootURI  string
+	initOnce sync.Once
 
 	// Progress tracking for LSP server readiness
 	activeProgress map[string]bool // tokens with "begin" but not yet "end"
@@ -43,48 +44,45 @@ func NewClient(ctx context.Context, config ServerConfig) (*Client, error) {
 
 // Initialize performs the LSP initialize handshake.
 func (c *Client) Initialize(ctx context.Context) error {
-	if c.initialized {
-		return nil
-	}
-
-	params := InitializeParams{
-		ProcessID: os.Getpid(),
-		RootURI:   c.rootURI,
-		Capabilities: Capabilities{
-			TextDocument: TextDocumentClientCapabilities{
-				CallHierarchy: CallHierarchyClientCapabilities{
-					DynamicRegistration: false,
+	var err error
+	c.initOnce.Do(func() {
+		params := InitializeParams{
+			ProcessID: os.Getpid(),
+			RootURI:   c.rootURI,
+			Capabilities: Capabilities{
+				TextDocument: TextDocumentClientCapabilities{
+					CallHierarchy: CallHierarchyClientCapabilities{
+						DynamicRegistration: false,
+					},
+					References: ReferencesClientCapabilities{
+						DynamicRegistration: false,
+					},
+					DocumentSymbol: DocumentSymbolClientCapabilities{
+						HierarchicalDocumentSymbolSupport: true,
+					},
 				},
-				References: ReferencesClientCapabilities{
-					DynamicRegistration: false,
+				Workspace: WorkspaceClientCapabilities{
+					Symbol: WorkspaceSymbolClientCapabilities{
+						DynamicRegistration: false,
+					},
 				},
-				DocumentSymbol: DocumentSymbolClientCapabilities{
-					HierarchicalDocumentSymbolSupport: true,
+				Window: WindowClientCapabilities{
+					WorkDoneProgress: true,
 				},
 			},
-			Workspace: WorkspaceClientCapabilities{
-				Symbol: WorkspaceSymbolClientCapabilities{
-					DynamicRegistration: false,
-				},
-			},
-			Window: WindowClientCapabilities{
-				WorkDoneProgress: true,
-			},
-		},
-	}
-
-	var result InitializeResult
-	if err := c.server.Conn().Call("initialize", params, &result); err != nil {
-		return fmt.Errorf("initialize: %w", err)
-	}
-
-	// Send initialized notification
-	if err := c.server.Conn().Notify("initialized", struct{}{}); err != nil {
-		return fmt.Errorf("initialized notification: %w", err)
-	}
-
-	c.initialized = true
-	return nil
+		}
+		var result InitializeResult
+		if err := c.server.Conn().Call("initialize", params, &result); err != nil {
+			err = fmt.Errorf("initialize: %w", err)
+			return
+		}
+		// Send initialized notification
+		if err := c.server.Conn().Notify("initialized", struct{}{}); err != nil {
+			err = fmt.Errorf("initialized notification: %w", err)
+			return
+		}
+	})
+	return err
 }
 
 // handleNotification processes incoming notifications from the LSP server.
@@ -129,6 +127,9 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 
 // WaitForReady blocks until the LSP server has finished initial indexing.
 func (c *Client) WaitForReady(ctx context.Context) error {
+	if err := c.Initialize(ctx); err != nil {
+		return err
+	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -139,10 +140,6 @@ func (c *Client) WaitForReady(ctx context.Context) error {
 
 // Shutdown gracefully shuts down the LSP server.
 func (c *Client) Shutdown(ctx context.Context) error {
-	if !c.initialized {
-		return nil
-	}
-
 	// Send shutdown request
 	if err := c.server.Conn().Call("shutdown", nil, nil); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
@@ -163,6 +160,9 @@ func (c *Client) Close() error {
 
 // WorkspaceSymbol searches for symbols in the workspace.
 func (c *Client) WorkspaceSymbol(ctx context.Context, query string) ([]SymbolInformation, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := WorkspaceSymbolParams{
 		Query: query,
 	}
@@ -177,6 +177,9 @@ func (c *Client) WorkspaceSymbol(ctx context.Context, query string) ([]SymbolInf
 
 // PrepareCallHierarchy prepares a call hierarchy for a position.
 func (c *Client) PrepareCallHierarchy(ctx context.Context, uri string, pos Position) ([]CallHierarchyItem, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := CallHierarchyPrepareParams{
 		TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: uri},
@@ -194,6 +197,9 @@ func (c *Client) PrepareCallHierarchy(ctx context.Context, uri string, pos Posit
 
 // IncomingCalls returns the callers of a call hierarchy item.
 func (c *Client) IncomingCalls(ctx context.Context, item CallHierarchyItem) ([]CallHierarchyIncomingCall, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := CallHierarchyIncomingCallsParams{
 		Item: item,
 	}
@@ -208,6 +214,9 @@ func (c *Client) IncomingCalls(ctx context.Context, item CallHierarchyItem) ([]C
 
 // OutgoingCalls returns the callees of a call hierarchy item.
 func (c *Client) OutgoingCalls(ctx context.Context, item CallHierarchyItem) ([]CallHierarchyOutgoingCall, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := CallHierarchyOutgoingCallsParams{
 		Item: item,
 	}
@@ -222,6 +231,9 @@ func (c *Client) OutgoingCalls(ctx context.Context, item CallHierarchyItem) ([]C
 
 // References finds all references to a symbol at a position.
 func (c *Client) References(ctx context.Context, uri string, pos Position, includeDeclaration bool) ([]Location, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := ReferenceParams{
 		TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: uri},
@@ -242,6 +254,9 @@ func (c *Client) References(ctx context.Context, uri string, pos Position, inclu
 
 // Implementation finds the implementations of an interface or abstract method.
 func (c *Client) Implementation(ctx context.Context, uri string, pos Position) ([]Location, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := ImplementationParams{
 		TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: uri},
@@ -259,6 +274,9 @@ func (c *Client) Implementation(ctx context.Context, uri string, pos Position) (
 
 // PrepareTypeHierarchy prepares type hierarchy information at a position.
 func (c *Client) PrepareTypeHierarchy(ctx context.Context, uri string, pos Position) ([]TypeHierarchyItem, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := TypeHierarchyPrepareParams{
 		TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: uri},
@@ -276,6 +294,9 @@ func (c *Client) PrepareTypeHierarchy(ctx context.Context, uri string, pos Posit
 
 // Supertypes returns the supertypes (implemented interfaces) of a type.
 func (c *Client) Supertypes(ctx context.Context, item TypeHierarchyItem) ([]TypeHierarchyItem, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := TypeHierarchySupertypesParams{
 		Item: item,
 	}
@@ -290,6 +311,9 @@ func (c *Client) Supertypes(ctx context.Context, item TypeHierarchyItem) ([]Type
 
 // Subtypes returns the subtypes (implementing types) of a type or interface.
 func (c *Client) Subtypes(ctx context.Context, item TypeHierarchyItem) ([]TypeHierarchyItem, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := TypeHierarchySubtypesParams{
 		Item: item,
 	}
@@ -304,6 +328,9 @@ func (c *Client) Subtypes(ctx context.Context, item TypeHierarchyItem) ([]TypeHi
 
 // DidOpen notifies the server that a document was opened.
 func (c *Client) DidOpen(ctx context.Context, uri, languageID, text string) error {
+	if err := c.WaitForReady(ctx); err != nil {
+		return err
+	}
 	params := DidOpenTextDocumentParams{
 		TextDocument: TextDocumentItem{
 			URI:        uri,
@@ -318,6 +345,9 @@ func (c *Client) DidOpen(ctx context.Context, uri, languageID, text string) erro
 
 // DidClose notifies the server that a document was closed.
 func (c *Client) DidClose(ctx context.Context, uri string) error {
+	if err := c.WaitForReady(ctx); err != nil {
+		return err
+	}
 	params := DidCloseTextDocumentParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 	}
@@ -327,6 +357,9 @@ func (c *Client) DidClose(ctx context.Context, uri string) error {
 
 // DocumentSymbol returns the symbols in a document with hierarchy.
 func (c *Client) DocumentSymbol(ctx context.Context, uri string) ([]DocumentSymbol, error) {
+	if err := c.WaitForReady(ctx); err != nil {
+		return nil, err
+	}
 	params := DocumentSymbolParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 	}
