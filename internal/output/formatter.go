@@ -310,9 +310,9 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		if hasCalls && len(calls) > 0 {
 			buf.WriteString("## Calls\n\n")
 			buf.WriteString("```\n")
-			for i, call := range calls {
+			for _, call := range calls {
 				if callMap, ok := call.(map[string]any); ok {
-					writeNestedTree(buf, callMap, "", i == len(calls)-1)
+					writeNestedTree(buf, callMap, "", true, false) // root level
 				}
 			}
 			buf.WriteString("```\n\n")
@@ -715,41 +715,54 @@ func (f *MarkdownFormatter) formatPackageLocations(buf *bytes.Buffer, locations 
 // writeCallersTree renders the callers tree top-down (entry points at top, flowing to target).
 // The JSON structure now has entry points as roots with "calls" showing what they call toward target.
 func writeCallersTree(buf *bytes.Buffer, callers []any, prefix string) {
-	for i, caller := range callers {
+	for _, caller := range callers {
 		if callerMap, ok := caller.(map[string]any); ok {
-			isLast := i == len(callers)-1
-			writeCallerNodeTopDown(buf, callerMap, prefix, isLast)
+			writeCallerNodeTopDown(buf, callerMap, prefix, true, false) // root level
 		}
 	}
 }
 
 // writeCallerNodeTopDown renders a caller node and its calls (toward target) recursively.
-func writeCallerNodeTopDown(buf *bytes.Buffer, node map[string]any, prefix string, isLast bool) {
+// isRoot indicates if this is a root-level node (no connector).
+// isLast indicates if this is the last sibling at its level.
+func writeCallerNodeTopDown(buf *bytes.Buffer, node map[string]any, prefix string, isRoot bool, isLast bool) {
 	symbol, _ := node["symbol"].(string)
 	callsite, _ := node["callsite"].(string)
 
-	// Determine connector based on whether this is the last item at this level
-	var connector, childPrefix string
-	if isLast {
-		connector = "└── "
-		childPrefix = prefix + "    "
-	} else {
-		connector = "├── "
-		childPrefix = prefix + "│   "
-	}
-
 	// Render this node
-	if callsite != "" {
-		buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, callsite))
+	if isRoot {
+		// Root nodes start at edge with no connector
+		if callsite != "" {
+			buf.WriteString(fmt.Sprintf("%s (%s)\n", symbol, callsite))
+		} else {
+			buf.WriteString(fmt.Sprintf("%s\n", symbol))
+		}
 	} else {
-		buf.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, symbol))
+		// Child nodes get tree connector
+		connector := "├── "
+		if isLast {
+			connector = "└── "
+		}
+		if callsite != "" {
+			buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, callsite))
+		} else {
+			buf.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, symbol))
+		}
 	}
 
 	// Render calls (what this node calls toward the target)
 	if calls, ok := node["calls"].([]any); ok && len(calls) > 0 {
+		childPrefix := prefix
+		if !isRoot {
+			if isLast {
+				childPrefix = prefix + "    "
+			} else {
+				childPrefix = prefix + "│   "
+			}
+		}
 		for i, call := range calls {
 			if callMap, ok := call.(map[string]any); ok {
-				writeCallerNodeTopDown(buf, callMap, childPrefix, i == len(calls)-1)
+				writeCallerNodeTopDown(buf, callMap, childPrefix, false, i == len(calls)-1)
 			}
 		}
 	}
@@ -757,33 +770,46 @@ func writeCallerNodeTopDown(buf *bytes.Buffer, node map[string]any, prefix strin
 
 // writeNestedTree renders a call tree node as ASCII art.
 // prefix is the string to prepend before the connector (for children lines).
-// isLast indicates if this node is the last child of its parent.
-func writeNestedTree(buf *bytes.Buffer, node map[string]any, prefix string, isLast bool) {
+// isRoot indicates if this is a root-level node (no connector).
+// isLast indicates if this is the last sibling at its level.
+func writeNestedTree(buf *bytes.Buffer, node map[string]any, prefix string, isRoot bool, isLast bool) {
 	symbol, _ := node["symbol"].(string)
 	callsite, _ := node["callsite"].(string)
 
-	// Determine connector and child prefix
-	var connector, childPrefix string
-	if isLast {
-		connector = "└── "
-		childPrefix = prefix + "    "
-	} else {
-		connector = "├── "
-		childPrefix = prefix + "│   "
-	}
-
 	// Write this node
-	if callsite != "" {
-		buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, callsite))
+	if isRoot {
+		// Root nodes start at edge with no connector
+		if callsite != "" {
+			buf.WriteString(fmt.Sprintf("%s (%s)\n", symbol, callsite))
+		} else {
+			buf.WriteString(fmt.Sprintf("%s\n", symbol))
+		}
 	} else {
-		buf.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, symbol))
+		// Child nodes get tree connector
+		connector := "├── "
+		if isLast {
+			connector = "└── "
+		}
+		if callsite != "" {
+			buf.WriteString(fmt.Sprintf("%s%s%s (%s)\n", prefix, connector, symbol, callsite))
+		} else {
+			buf.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, symbol))
+		}
 	}
 
 	// Recurse into children
 	if calls, ok := node["calls"].([]any); ok {
+		childPrefix := prefix
+		if !isRoot {
+			if isLast {
+				childPrefix = prefix + "    "
+			} else {
+				childPrefix = prefix + "│   "
+			}
+		}
 		for i, call := range calls {
 			if callMap, ok := call.(map[string]any); ok {
-				writeNestedTree(buf, callMap, childPrefix, i == len(calls)-1)
+				writeNestedTree(buf, callMap, childPrefix, false, i == len(calls)-1)
 			}
 		}
 	}
