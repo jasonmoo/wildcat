@@ -316,9 +316,9 @@ func (t *Traverser) BuildTree(ctx context.Context, item lsp.CallHierarchyItem, o
 			Signature:  signature,
 			Definition: definition,
 		},
-		Callers:  callers,
-		Calls:    calls,
-		Packages: packages,
+		Callers:     callers,
+		Calls:       calls,
+		Definitions: packages,
 		Summary: output.TreeSummary{
 			Callers:       totalCallers,
 			Callees:       totalCallees,

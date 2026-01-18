@@ -404,6 +404,39 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 		}
 	}
 
+	// Format definitions array (tree command - symbol definitions)
+	if definitions, ok := data["definitions"].([]any); ok && len(definitions) > 0 {
+		buf.WriteString("## Definitions\n\n")
+		for _, pkg := range definitions {
+			pkgMap, ok := pkg.(map[string]any)
+			if !ok {
+				continue
+			}
+			pkgName, _ := pkgMap["package"].(string)
+			pkgDir, _ := pkgMap["dir"].(string)
+
+			buf.WriteString(fmt.Sprintf("### %s\n\n", pkgName))
+			if pkgDir != "" {
+				buf.WriteString(fmt.Sprintf("**Dir:** `%s`\n\n", pkgDir))
+			}
+
+			if symbols, ok := pkgMap["symbols"].([]any); ok && len(symbols) > 0 {
+				buf.WriteString("| Symbol | Signature | Definition |\n")
+				buf.WriteString("|--------|-----------|------------|\n")
+				for _, s := range symbols {
+					if sym, ok := s.(map[string]any); ok {
+						symbol, _ := sym["symbol"].(string)
+						signature, _ := sym["signature"].(string)
+						definition, _ := sym["definition"].(string)
+						signature = strings.ReplaceAll(signature, "|", "\\|")
+						buf.WriteString(fmt.Sprintf("| %s | `%s` | %s |\n", symbol, signature, definition))
+					}
+				}
+				buf.WriteString("\n")
+			}
+		}
+	}
+
 	// Format packages array (search and symbol commands)
 	if packages, ok := data["packages"].([]any); ok && len(packages) > 0 {
 		for _, pkg := range packages {
@@ -442,23 +475,6 @@ func (f *MarkdownFormatter) formatSingleResponse(buf *bytes.Buffer, data map[str
 			// Handle symbol references
 			if refs, ok := pkgMap["references"].([]any); ok && len(refs) > 0 {
 				f.formatPackageLocations(buf, refs, "References")
-			}
-
-			// Handle tree symbols (functions with signatures/definitions)
-			if symbols, ok := pkgMap["symbols"].([]any); ok && len(symbols) > 0 {
-				buf.WriteString("| Symbol | Signature | Definition |\n")
-				buf.WriteString("|--------|-----------|------------|\n")
-				for _, s := range symbols {
-					if sym, ok := s.(map[string]any); ok {
-						symbol, _ := sym["symbol"].(string)
-						signature, _ := sym["signature"].(string)
-						definition, _ := sym["definition"].(string)
-						// Escape pipes in signature
-						signature = strings.ReplaceAll(signature, "|", "\\|")
-						buf.WriteString(fmt.Sprintf("| %s | `%s` | %s |\n", symbol, signature, definition))
-					}
-				}
-				buf.WriteString("\n")
 			}
 		}
 	}

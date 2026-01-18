@@ -67,12 +67,12 @@ type TreeTargetInfo struct {
 
 // TreeResponse is the output for the tree command.
 type TreeResponse struct {
-	Query    TreeQuery      `json:"query"`
-	Target   TreeTargetInfo `json:"target"`
-	Summary  TreeSummary    `json:"summary"`
-	Callers  []*CallNode    `json:"callers"`
-	Calls    []*CallNode    `json:"calls"`
-	Packages []TreePackage  `json:"packages"`
+	Query       TreeQuery      `json:"query"`
+	Target      TreeTargetInfo `json:"target"`
+	Summary     TreeSummary    `json:"summary"`
+	Callers     []*CallNode    `json:"callers"`
+	Calls       []*CallNode    `json:"calls"`
+	Definitions []TreePackage  `json:"definitions"`
 }
 
 // Snippet represents a code snippet with its location.

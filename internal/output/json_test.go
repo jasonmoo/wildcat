@@ -28,7 +28,7 @@ func TestWriter_Write(t *testing.T) {
 		Calls: []*CallNode{
 			{Symbol: "config.validate", Callsite: "/path/to/config.go:25"},
 		},
-		Packages: []TreePackage{
+		Definitions: []TreePackage{
 			{
 				Package: "main",
 				Dir:     "/path/to",
