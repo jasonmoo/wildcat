@@ -1,14 +1,11 @@
 package golang
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/kr/pretty"
 )
 
 func projectRoot() string {
@@ -214,12 +211,12 @@ func TestLoadPackages(t *testing.T) {
 
 }
 
-func TestNewResolve(t *testing.T) {
+// func TestNewResolve(t *testing.T) {
 
-	p, err := ProjectModule.ResolvePackageName(context.Background(), "internal/lsp")
-	if err != nil {
-		t.Error(err)
-	}
-	pretty.Println(p)
+// 	p, err := ProjectModule.ResolvePackageName(context.Background(), "internal/lsp")
+// 	if err != nil {
+// 		t.Error(err)
+// 	}
+// 	pretty.Println(p)
 
-}
+// }

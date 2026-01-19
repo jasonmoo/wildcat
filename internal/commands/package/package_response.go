@@ -45,31 +45,31 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 	for _, f := range r.Files {
 		totalLines += f.LineCount
 	}
-	sb.WriteString(fmt.Sprintf("\n# Files (%d lines)\n", totalLines))
+	fmt.Fprintf(&sb, "\n# Files (%d lines)\n", totalLines)
 	for _, f := range r.Files {
-		sb.WriteString(fmt.Sprintf("%s // %d lines\n", f.Name, f.LineCount))
+		fmt.Fprintf(&sb, "%s // %d lines\n", f.Name, f.LineCount)
 	}
 
 	// Constants
-	sb.WriteString(fmt.Sprintf("\n# Constants (%d)\n", len(r.Constants)))
+	fmt.Fprintf(&sb, "\n# Constants (%d)\n", len(r.Constants))
 	for _, c := range r.Constants {
 		writeSymbolMd(&sb, c.Signature, c.Location)
 	}
 
 	// Variables
-	sb.WriteString(fmt.Sprintf("\n# Variables (%d)\n", len(r.Variables)))
+	fmt.Fprintf(&sb, "\n# Variables (%d)\n", len(r.Variables))
 	for _, v := range r.Variables {
 		writeSymbolMd(&sb, v.Signature, v.Location)
 	}
 
 	// Functions (standalone, not constructors)
-	sb.WriteString(fmt.Sprintf("\n# Functions (%d)\n", len(r.Functions)))
+	fmt.Fprintf(&sb, "\n# Functions (%d)\n", len(r.Functions))
 	for _, f := range r.Functions {
 		writeSymbolMd(&sb, f.Signature, f.Location)
 	}
 
 	// Types
-	sb.WriteString(fmt.Sprintf("\n# Types (%d)\n", len(r.Types)))
+	fmt.Fprintf(&sb, "\n# Types (%d)\n", len(r.Types))
 	for _, t := range r.Types {
 		sb.WriteString("\n")
 		// Build location with method count and interface info
@@ -97,7 +97,7 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 	}
 
 	// Imports grouped by file
-	sb.WriteString(fmt.Sprintf("\n# Imports (%d)\n", len(r.Imports)))
+	fmt.Fprintf(&sb, "\n# Imports (%d)\n", len(r.Imports))
 	if len(r.Imports) > 0 {
 		// Group by file and track line ranges
 		type fileImports struct {
@@ -139,7 +139,7 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 		// Output grouped by file
 		for _, file := range fileOrder {
 			fi := byFile[file]
-			sb.WriteString(fmt.Sprintf("# %s:%d:%d\n", file, fi.minLine, fi.maxLine))
+			fmt.Fprintf(&sb, "# %s:%d:%d\n", file, fi.minLine, fi.maxLine)
 			for _, pkg := range fi.packages {
 				sb.WriteString(pkg)
 				sb.WriteString("\n")
@@ -148,7 +148,7 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 	}
 
 	// Imported By
-	sb.WriteString(fmt.Sprintf("\n# Imported By (%d)\n", len(r.ImportedBy)))
+	fmt.Fprintf(&sb, "\n# Imported By (%d)\n", len(r.ImportedBy))
 	for _, imp := range r.ImportedBy {
 		sb.WriteString(imp.Package)
 		if imp.Location != "" {

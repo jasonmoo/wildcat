@@ -2,11 +2,14 @@ package package_cmd
 
 import (
 	"context"
+	"fmt"
 	"go/ast"
 	"go/token"
+	"path/filepath"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
+	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/kr/pretty"
 )
 
@@ -63,32 +66,63 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		return nil, commands.NewErrorf("find_package_error", "%w", err)
 	}
 
-	type symbol struct {
-		kind ast.ObjKind
-		pos  token.Position
-		d    ast.Decl
-		sig  string
+	var pkgret struct {
+		Files      []output.FileInfo      // √
+		Constants  []output.PackageSymbol // √
+		Variables  []output.PackageSymbol
+		Functions  []output.PackageSymbol // √
+		Types      []output.PackageType
+		Imports    []output.DepResult
+		ImportedBy []output.DepResult
 	}
 
-	var ss []symbol
 	for _, f := range pkg.Syntax {
+
+		fsetFile := pkg.Fset.File(f.Pos())
+		fileName := filepath.Base(fsetFile.Name())
+		pkgret.Files = append(pkgret.Files, output.FileInfo{
+			Name:      fileName,
+			LineCount: fsetFile.LineCount(),
+		})
+
 		for _, d := range f.Decls {
-			sigs, err := golang.FormatDecl(d)
-			if err != nil {
-				return nil, commands.NewErrorf("formatting_error", "%w", err)
-			}
-			for _, sig := range sigs {
-				ss = append(ss, symbol{
-					// kind:
-					pos: pkg.Fset.Position(d.Pos()),
-					// d:   d,
-					sig: sig,
+
+			switch v := d.(type) {
+
+			case *ast.FuncDecl:
+				sig, err := golang.FormatFuncDecl(v)
+				if err != nil {
+					return nil, commands.NewErrorf("format_symbol_error", "%w", err)
+				}
+				pkgret.Functions = append(pkgret.Functions, output.PackageSymbol{
+					Signature: sig,
+					Location:  makeLocation(pkg.Fset, fileName, v.Pos()),
 				})
+
+			case *ast.GenDecl:
+				for _, spec := range v.Specs {
+					switch vv := spec.(type) {
+					case *ast.TypeSpec:
+						_ = vv
+					case *ast.ValueSpec:
+						if v.Tok == token.CONST {
+							sig, err := golang.FormatValueSpec(v.Tok, vv)
+							if err != nil {
+								return nil, commands.NewErrorf("format_symbol_error", "%w", err)
+							}
+							pkgret.Constants = append(pkgret.Constants, output.PackageSymbol{
+								Signature: sig,
+								Location:  makeLocation(pkg.Fset, fileName, vv.Pos()),
+							})
+						}
+					}
+				}
 			}
+
 		}
 	}
 
-	pretty.Println(ss)
+	pretty.Println(pkgret)
 
 	return nil, nil
 
@@ -139,6 +173,10 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	// result.Summary.ImportedBy = len(result.ImportedBy)
 
 	// return result, nil
+}
+
+func makeLocation(fset *token.FileSet, fileName string, pos token.Pos) string {
+	return fmt.Sprintf("%s:%d", fileName, fset.Position(pos).Line)
 }
 
 func (c *PackageCommand) Help() commands.Help {
