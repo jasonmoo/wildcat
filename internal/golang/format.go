@@ -11,6 +11,8 @@ import (
 	"github.com/kr/pretty"
 )
 
+func ObjKind()
+
 func FormatDecl(v ast.Decl) ([]string, error) {
 	// pretty.Println(v)
 	// return "", nil

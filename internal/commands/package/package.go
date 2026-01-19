@@ -64,9 +64,10 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	}
 
 	type symbol struct {
-		pos token.Position
-		d   ast.Decl
-		sig string
+		kind ast.ObjKind
+		pos  token.Position
+		d    ast.Decl
+		sig  string
 	}
 
 	var ss []symbol
@@ -78,6 +79,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 			}
 			for _, sig := range sigs {
 				ss = append(ss, symbol{
+					// kind:
 					pos: pkg.Fset.Position(d.Pos()),
 					// d:   d,
 					sig: sig,
@@ -87,6 +89,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	}
 
 	pretty.Println(ss)
+
 	return nil, nil
 
 	// // Collect symbols from all Go files
