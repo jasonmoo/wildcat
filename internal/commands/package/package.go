@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/token"
 	"path/filepath"
+	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
@@ -69,11 +70,11 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	var pkgret struct {
 		Files      []output.FileInfo      // √
 		Constants  []output.PackageSymbol // √
-		Variables  []output.PackageSymbol
+		Variables  []output.PackageSymbol // √
 		Functions  []output.PackageSymbol // √
 		Types      []output.PackageType
-		Imports    []output.DepResult
-		ImportedBy []output.DepResult
+		Imports    []output.DepResult // √
+		ImportedBy []output.DepResult // √
 	}
 
 	for _, f := range pkg.Syntax {
@@ -102,23 +103,50 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 			case *ast.GenDecl:
 				for _, spec := range v.Specs {
 					switch vv := spec.(type) {
+					case *ast.ImportSpec:
+						// Path.Value includes quotes, trim them
+						importPath := strings.Trim(vv.Path.Value, `"`)
+						pkgret.Imports = append(pkgret.Imports, output.DepResult{
+							Package:  importPath,
+							Location: makeLocation(pkg.Fset, fileName, vv.Pos()),
+						})
 					case *ast.TypeSpec:
 						_ = vv
 					case *ast.ValueSpec:
-						if v.Tok == token.CONST {
-							sig, err := golang.FormatValueSpec(v.Tok, vv)
-							if err != nil {
-								return nil, commands.NewErrorf("format_symbol_error", "%w", err)
-							}
-							pkgret.Constants = append(pkgret.Constants, output.PackageSymbol{
-								Signature: sig,
-								Location:  makeLocation(pkg.Fset, fileName, vv.Pos()),
-							})
+						sig, err := golang.FormatValueSpec(v.Tok, vv)
+						if err != nil {
+							return nil, commands.NewErrorf("format_symbol_error", "%w", err)
+						}
+						sym := output.PackageSymbol{
+							Signature: sig,
+							Location:  makeLocation(pkg.Fset, fileName, vv.Pos()),
+						}
+						switch v.Tok {
+						case token.CONST:
+							pkgret.Constants = append(pkgret.Constants, sym)
+						case token.VAR:
+							pkgret.Variables = append(pkgret.Variables, sym)
+						default:
+							fmt.Println("unknown value spec", sym)
 						}
 					}
 				}
 			}
 
+		}
+	}
+
+	for _, p := range wc.Project.Packages {
+		for _, f := range p.Syntax {
+			for _, imp := range f.Imports {
+				if strings.Trim(imp.Path.Value, `"`) == pi.PkgPath {
+					fileName := p.Fset.Position(imp.Pos()).Filename
+					pkgret.ImportedBy = append(pkgret.ImportedBy, output.DepResult{
+						Package:  p.PkgPath,
+						Location: makeLocation(p.Fset, fileName, imp.Pos()),
+					})
+				}
+			}
 		}
 	}
 
