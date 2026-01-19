@@ -3,11 +3,10 @@ package golang
 import (
 	"context"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
+	"time"
 
 	"github.com/kr/pretty"
 )
@@ -191,32 +190,33 @@ func TestResolvePackagePath(t *testing.T) {
 
 func TestLoadPackages(t *testing.T) {
 
-	pi, err := ResolvePackageName(t.Context(), ".", "internal/lsp")
+	// pi, err := ResolvePackageName(t.Context(), ".", "./...")
+	// if err != nil {
+	// 	t.Error(err)
+	// }
+
+	start := time.Now()
+	// ps, err := LoadPackages(t.Context(), "/home/jason/go/src/github.com/jasonmoo/wildcat", "./...")
+	// _, err = LoadPackages(t.Context(), pi.ModuleDir, pi.PkgPath)
+	_, pkgs, err := LoadModulePackages(t.Context(), "/home/jason/go/src/github.com/jasonmoo/bbb")
 	if err != nil {
 		t.Error(err)
 	}
+	fmt.Println("done", time.Since(start))
 
-	ps, err := LoadPackages(t.Context(), pi.ModuleDir, pi.PkgPath)
-	if err != nil {
-		t.Error(err)
-	}
-
-	for _, p := range ps {
-		fmt.Println(p.Name, p.Errors, p.TypeErrors)
+	for _, p := range pkgs {
+		fmt.Println(p.PkgPath, p.Errors, p.TypeErrors) //slices.Collect(maps.Keys(p.Imports)))
 		// pretty.Println(p)
-		pretty.Println(p.Module)
-		pretty.Println(slices.Collect(maps.Keys(p.Imports)))
-		// fmt.Printf("%#v", p)
-		pretty.Println(p.Types.Scope().Lookup("Client").String())
+		// pretty.Println(p.Module)
+		// // fmt.Printf("%#v", p)
+		// pretty.Println(p.Types.Scope().Lookup("Client").String())
 	}
 
 }
 
 func TestNewResolve(t *testing.T) {
 
-	p, err := ResolvePackageName(context.Background(),
-		"/home/jason/go/src/github.com/jasonmoo/wildcat", "internal/lsp",
-	)
+	p, err := ProjectModule.ResolvePackageName(context.Background(), "internal/lsp")
 	if err != nil {
 		t.Error(err)
 	}

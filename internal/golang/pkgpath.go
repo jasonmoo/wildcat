@@ -3,6 +3,7 @@ package golang
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,12 +16,58 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+type Project struct {
+	Module   *packages.Module
+	Packages []*packages.Package
+}
+
+var ProjectModule = func() Project {
+	m, ps, err := LoadModulePackages(context.Background(), ".")
+	if err != nil {
+		panic(err)
+	}
+	return Project{
+		Module:   m,
+		Packages: ps,
+	}
+}()
+
 // reservedPatterns are Go toolchain patterns that expand to multiple packages.
 // These are not actual importable packages - they're special patterns used by
 // go list, go build, etc. We reject them to avoid unexpected behavior where
 // packages.Load("cmd") would load all cmd/* packages from the Go toolchain.
 // See: go help packages
 var reservedPatterns = []string{"all", "cmd", "main", "std", "tool"}
+
+// ResolvePackageName is a helpful package resolver
+// tries to resolve short packages (ie. internal to the module)
+// excludes test packages
+func (p *Project) ResolvePackageName(ctx context.Context, name string) (*PackageIdentifier, error) {
+	if slices.Contains(reservedPatterns, name) {
+		return nil, fmt.Errorf("cannot resolve %q: reserved Go pattern %v (expands to multiple packages); use ./%s for local package", name, reservedPatterns, name)
+	}
+	// first try to load as given
+	pkgs, err := packages.Load(&packages.Config{
+		Context: ctx,
+		Mode:    packages.NeedName | packages.NeedModule,
+		Dir:     p.Module.Dir,
+	}, name)
+	if err != nil {
+		panic(err)
+	}
+	if len(pkgs) == 1 && len(pkgs[0].Errors) == 0 {
+		return newPackageIdentifier(pkgs[0]), nil
+	}
+	for _, pkg := range pkgs {
+		for _, e := range pkg.Errors {
+			// if is relative and not stdlib, try to load it as module/pkg
+			if strings.Contains(e.Msg, "is not in std") {
+				return p.ResolvePackageName(ctx, path.Join(p.Module.Path, name))
+			}
+		}
+	}
+	return nil, fmt.Errorf("unable to resolve package %q to stdlib or %q", name, p.Module.Dir)
+}
 
 // ResolvePackagePath attempts to resolve a user-provided package path to its
 // full module-qualified import path. It handles:
@@ -207,49 +254,36 @@ func newPackageIdentifier(p *packages.Package) *PackageIdentifier {
 	return pi
 }
 
-// ResolvePackageName is a helpful package resolver
-// tries to resolve short packages (ie. internal to the module)
-// excludes test packages
-func ResolvePackageName(ctx context.Context, srcDir, name string) (*PackageIdentifier, error) {
-	// first try to load as given
+func LoadModulePackages(ctx context.Context, srcDir string) (*packages.Module, []*packages.Package, error) {
+	// load module first
 	ps, err := packages.Load(&packages.Config{
 		Context: ctx,
-		Mode:    packages.NeedName | packages.NeedModule,
+		Mode:    packages.NeedModule,
 		Dir:     srcDir,
-	}, name)
+	}, ".")
 	if err != nil {
-		panic(err)
+		return nil, nil, err
 	}
-	if len(ps) == 1 && len(ps[0].Errors) == 0 {
-		return newPackageIdentifier(ps[0]), nil
+	if len(ps) == 0 {
+		return nil, nil, fmt.Errorf("no packages found at location %q", srcDir)
 	}
-	for _, p := range ps {
-		for _, e := range p.Errors {
-			if strings.Contains(e.Msg, "is not in std") {
-				ps, err = packages.Load(&packages.Config{
-					Context: ctx,
-					Mode:    packages.NeedModule,
-					Dir:     srcDir,
-				}, srcDir)
-				if err != nil {
-					panic(err)
-				}
-				if len(ps) != 1 || ps[0].Module == nil {
-					panic("can't")
-				}
-				return ResolvePackageName(ctx, srcDir, path.Join(ps[0].Module.Path, name))
-			}
+	mp := ps[0]
+	if len(mp.Errors) > 0 {
+		var errs []error
+		for _, e := range mp.Errors {
+			errs = append(errs, e)
 		}
+		return nil, nil, fmt.Errorf("errors while trying to load module info in %q: %w", srcDir, errors.Join(errs...))
 	}
-	return nil, fmt.Errorf("unable to resolve package %q to stdlib or %q", name, srcDir)
-}
-
-func LoadPackages(ctx context.Context, srcDir string, patterns ...string) ([]*packages.Package, error) {
-	return packages.Load(&packages.Config{
+	if mp.Module == nil {
+		return nil, nil, fmt.Errorf("unable to parse module at location %q", srcDir)
+	}
+	// load packages for entire module
+	ps, err = packages.Load(&packages.Config{
 		Context: ctx,
 		// TODO: pare these flags down
-		Mode: packages.LoadSyntax | packages.NeedModule,
-		Dir:  srcDir,
+		Mode: packages.LoadAllSyntax,
+		Dir:  mp.Module.Dir,
 		// If Tests is set, the loader includes not just the packages
 		// matching a particular pattern but also any related test packages,
 		// including test-only variants of the package and the test executable.
@@ -262,7 +296,7 @@ func LoadPackages(ctx context.Context, srcDir string, patterns ...string) ([]*pa
 		//
 		// In build systems with explicit names for tests,
 		// setting Tests may have no effect.
-		// Tests: true,
+		Tests: true,
 		// // Logf is the logger for the config.
 		// // If the user provides a logger, debug logging is enabled.
 		// // If the GOPACKAGESDEBUG environment variable is set to true,
@@ -284,5 +318,6 @@ func LoadPackages(ctx context.Context, srcDir string, patterns ...string) ([]*pa
 		// // or to modify the syntax tree. For example, selectively eliminating
 		// // unwanted function bodies can significantly accelerate type checking.
 		// ParseFile func(fset *token.FileSet, filename string, src []byte) (*ast.File, error)
-	}, patterns...)
+	}, "./...")
+	return mp.Module, ps, nil
 }

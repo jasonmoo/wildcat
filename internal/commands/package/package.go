@@ -12,7 +12,6 @@ import (
 )
 
 type PackageCommand struct {
-	workDir string
 	pkgPath string
 }
 
@@ -21,13 +20,6 @@ var _ commands.Command[*PackageCommand] = (*PackageCommand)(nil)
 func WithPackage(path string) func(*PackageCommand) error {
 	return func(c *PackageCommand) error {
 		c.pkgPath = path
-		return nil
-	}
-}
-
-func WithWorkDir(path string) func(*PackageCommand) error {
-	return func(c *PackageCommand) error {
-		c.workDir = path
 		return nil
 	}
 }
@@ -45,28 +37,17 @@ func (c *PackageCommand) Execute(ctx context.Context, opts ...func(*PackageComma
 		}
 	}
 
-	// ensure workdir
-	if c.workDir == "" {
-		return nil, commands.NewErrorf(
-			"missing_required_param", "WithWorkDir is required for this command",
-		)
-	}
-	pi, err := golang.ResolvePackageName(ctx, c.workDir, c.pkgPath)
+	pi, err := golang.ProjectModule.ResolvePackageName(ctx, c.pkgPath)
 	if err != nil {
 		// Suggestions: []string, TODO
 		return nil, commands.NewErrorf("package_not_found", "failed to resolve package: %w", err)
 	}
 
-	ps, err := golang.LoadPackages(ctx, c.workDir, pi.PkgPath)
-	if err != nil {
-		return nil, commands.NewErrorf("go_load_packages_error", "%w", err)
-	}
-
-	for _, p := range ps {
-		// p.Errors
-		// p.Syntax[0].Decls
-		// p.Types
-	}
+	// for _, _ := range golang.ProjectModule.Packages {
+	// 	// p.Errors
+	// 	// p.Syntax[0].Decls
+	// 	// p.Types
+	// }
 
 	client, err := lsp.NewClient(ctx, lsp.ServerConfig{
 		Command: "gopls",
@@ -79,7 +60,7 @@ func (c *PackageCommand) Execute(ctx context.Context, opts ...func(*PackageComma
 	defer client.Close()
 
 	// Collect symbols from all Go files
-	collector := newPackageCollector(pkg.Dir)
+	collector := newPackageCollector(pi.PkgDir)
 
 	// Process files alphabetically
 	files := make([]string, len(pkg.GoFiles))
