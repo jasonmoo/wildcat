@@ -1,192 +1,21 @@
-package cmd
+package package_cmd
 
 import (
 	"bytes"
 	"context"
 	"fmt"
 	"go/ast"
-	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/lsp"
 	"github.com/jasonmoo/wildcat/internal/output"
-	"github.com/spf13/cobra"
 )
-
-// goListPackage represents the JSON output from `go list -json`
-type goListPackage struct {
-	Dir        string   `json:"Dir"`
-	ImportPath string   `json:"ImportPath"`
-	Name       string   `json:"Name"`
-	GoFiles    []string `json:"GoFiles"`
-	Imports    []string `json:"Imports"`
-}
-
-var packageCmd = &cobra.Command{
-	Use:   "package [path]",
-	Short: "Show package profile with symbols in godoc order",
-	Long: `Show a dense package map for AI orientation.
-
-Provides a complete package profile with all symbols organized in godoc order:
-constants, variables, functions, then types (each with constructors and methods).
-
-Examples:
-  wildcat package                    # Current package
-  wildcat package ./internal/lsp     # Specific package
-  wildcat package --exclude-stdlib   # Exclude stdlib from imports`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runPackage,
-}
-
-var (
-	pkgExcludeStdlib bool
-)
-
-func init() {
-	rootCmd.AddCommand(packageCmd)
-	packageCmd.Flags().BoolVar(&pkgExcludeStdlib, "exclude-stdlib", false, "Exclude standard library from imports")
-}
-
-func runPackage(cmd *cobra.Command, args []string) error {
-	writer, err := GetWriter(os.Stdout)
-	if err != nil {
-		return fmt.Errorf("invalid output format: %w", err)
-	}
-
-	pkgPath := "."
-	if len(args) > 0 {
-		pkgPath = args[0]
-	}
-
-	workDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
-	}
-
-	// Resolve package path (handles bare paths like "internal/lsp")
-	if pkgPath != "." {
-		resolved, err := golang.ResolvePackagePath(pkgPath, workDir)
-		if err != nil {
-			return writer.WriteError("package_not_found", err.Error(), nil, nil)
-		}
-		pkgPath = resolved
-	}
-
-	// Get package info via go list
-	pkgs, err := golang.GoListPackages(workDir, pkgPath)
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return writer.WriteError("go_list_error", fmt.Sprintf("go list failed: %s", string(exitErr.Stderr)), nil, nil)
-		}
-		return writer.WriteError("go_list_error", err.Error(), nil, nil)
-	}
-	if len(pkgs) != 1 {
-		return writer.WriteError("go_list_error", fmt.Sprintf("expected 1 package, got %d", len(pkgs)), nil, nil)
-	}
-	pkg := pkgs[0]
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Start LSP client
-	client, err := lsp.NewClient(ctx, lsp.ServerConfig{
-		Command: "gopls",
-		Args:    []string{"serve"},
-		WorkDir: workDir,
-	})
-	if err != nil {
-		return writer.WriteError("lsp_error", err.Error(), nil, nil)
-	}
-	defer client.Close()
-
-	if err := client.Initialize(ctx); err != nil {
-		return writer.WriteError("lsp_error", err.Error(), nil, nil)
-	}
-
-	// Collect symbols from all Go files
-	collector := newPackageCollector(pkg.Dir)
-
-	// Process files alphabetically
-	files := make([]string, len(pkg.GoFiles))
-	copy(files, pkg.GoFiles)
-	sort.Strings(files)
-
-	for _, file := range files {
-		fullPath := filepath.Join(pkg.Dir, file)
-		uri := lsp.FileURI(fullPath)
-
-		symbols, err := client.DocumentSymbol(ctx, uri)
-		if err != nil {
-			continue // Skip files that fail
-		}
-
-		if err := collector.addFile(fullPath, symbols); err != nil {
-			continue
-		}
-	}
-
-	// Enrich types with interface relationships
-	collector.enrichWithInterfaces(ctx, client)
-
-	// Collect file info (line counts)
-	var fileInfos []output.FileInfo
-	for _, file := range files {
-		fullPath := filepath.Join(pkg.Dir, file)
-		lineCount := countLines(fullPath)
-		fileInfos = append(fileInfos, output.FileInfo{
-			Name:      file,
-			LineCount: lineCount,
-		})
-	}
-
-	// Organize into godoc order
-	result := collector.build(pkg.ImportPath, pkg.Name, pkg.Dir)
-	result.Files = fileInfos
-
-	// Add imports with locations
-	for _, imp := range pkg.Imports {
-		if pkgExcludeStdlib && isStdlib(imp) {
-			continue
-		}
-		location := findImportLocation(pkg.Dir, pkg.GoFiles, imp)
-		result.Imports = append(result.Imports, output.DepResult{
-			Package:  imp,
-			Location: location,
-		})
-	}
-
-	// Add imported_by with locations
-	importedBy, err := findImportedBy(workDir, pkg.ImportPath)
-	if err == nil {
-		result.ImportedBy = importedBy
-	}
-
-	// Set query info
-	result.Query = output.QueryInfo{
-		Command: "package",
-		Target:  pkgPath,
-	}
-
-	// Update summary
-	result.Summary.Imports = len(result.Imports)
-	result.Summary.ImportedBy = len(result.ImportedBy)
-
-	// Use compact markdown for default and explicit -o markdown
-	if !cmd.Flags().Changed("output") || globalOutput == "markdown" {
-		fmt.Print(renderPackageMarkdown(result))
-		return nil
-	}
-
-	return writer.Write(result)
-}
 
 // packageCollector collects and organizes symbols from a package.
 type packageCollector struct {
@@ -317,24 +146,34 @@ func (c *packageCollector) extractFromAST(pf *parsedFile, sym lsp.DocumentSymbol
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			if declLine == targetLine || pf.fset.Position(d.Name.Pos()).Line == targetLine {
-				return renderFuncDecl(d)
+				s, err := golang.FormatFuncDecl(d)
+				if err != nil {
+					panic(err)
+				}
+				return s
 			}
 
 		case *ast.GenDecl:
 			// For GenDecl, check each spec
 			for _, spec := range d.Specs {
-				specLine := pf.fset.Position(spec.Pos()).Line
-
-				switch s := spec.(type) {
-				case *ast.TypeSpec:
-					if specLine == targetLine && s.Name.Name == sym.Name {
-						return renderTypeSpec(d.Tok, s)
-					}
-				case *ast.ValueSpec:
-					if specLine == targetLine {
+				if specLine := pf.fset.Position(spec.Pos()).Line; specLine == targetLine {
+					switch s := spec.(type) {
+					case *ast.TypeSpec:
+						if s.Name.Name == sym.Name {
+							s, err := golang.FormatTypeSpec(d.Tok, s)
+							if err != nil {
+								panic(err)
+							}
+							return s
+						}
+					case *ast.ValueSpec:
 						for _, name := range s.Names {
 							if name.Name == sym.Name {
-								return renderValueSpec(d.Tok, s)
+								s, err := golang.FormatValueSpec(d.Tok, s)
+								if err != nil {
+									panic(err)
+								}
+								return s
 							}
 						}
 					}
@@ -344,81 +183,6 @@ func (c *packageCollector) extractFromAST(pf *parsedFile, sym lsp.DocumentSymbol
 	}
 
 	return ""
-}
-
-// renderFuncDecl renders a function declaration without its body.
-func renderFuncDecl(decl *ast.FuncDecl) string {
-	cleaned := *decl
-	cleaned.Doc = nil
-	cleaned.Body = nil
-
-	var buf bytes.Buffer
-	if err := format.Node(&buf, token.NewFileSet(), &cleaned); err != nil {
-		return ""
-	}
-	return buf.String()
-}
-
-// renderTypeSpec renders a type specification.
-func renderTypeSpec(tok token.Token, spec *ast.TypeSpec) string {
-	spec.Doc = nil
-	spec.Comment = nil
-
-	// Strip comments from struct fields and interface methods
-	switch t := spec.Type.(type) {
-	case *ast.StructType:
-		if t.Fields != nil {
-			for _, field := range t.Fields.List {
-				field.Doc = nil
-				field.Comment = nil
-			}
-		}
-	case *ast.InterfaceType:
-		if t.Methods != nil {
-			for _, method := range t.Methods.List {
-				method.Doc = nil
-				method.Comment = nil
-			}
-		}
-	}
-
-	decl := &ast.GenDecl{
-		Tok:   tok,
-		Specs: []ast.Spec{spec},
-	}
-
-	var buf bytes.Buffer
-	if err := format.Node(&buf, token.NewFileSet(), decl); err != nil {
-		return ""
-	}
-	return buf.String()
-}
-
-// renderValueSpec renders a const or var specification.
-// For constants with multiline values, truncates to first line.
-func renderValueSpec(tok token.Token, spec *ast.ValueSpec) string {
-	spec.Doc = nil
-	spec.Comment = nil
-
-	decl := &ast.GenDecl{
-		Tok:   tok,
-		Specs: []ast.Spec{spec},
-	}
-
-	var buf bytes.Buffer
-	if err := format.Node(&buf, token.NewFileSet(), decl); err != nil {
-		return ""
-	}
-
-	result := buf.String()
-
-	// Truncate multiline constants (but not vars which may be struct literals)
-	if tok == token.CONST && strings.Contains(result, "\n") {
-		firstLine := strings.SplitN(result, "\n", 2)[0]
-		return firstLine + "..."
-	}
-
-	return result
 }
 
 func (c *packageCollector) ensureType(name string) {
@@ -511,7 +275,7 @@ func (c *packageCollector) enrichWithInterfaces(ctx context.Context, client *lsp
 	}
 }
 
-func (c *packageCollector) build(importPath, name, dir string) *output.PackageResponse {
+func (c *packageCollector) build(importPath, name, dir string) *PackageCommandResponse {
 	// Sort types alphabetically (godoc order)
 	sort.Strings(c.typeOrder)
 
@@ -534,7 +298,7 @@ func (c *packageCollector) build(importPath, name, dir string) *output.PackageRe
 		methodCount += len(info.methods)
 	}
 
-	return &output.PackageResponse{
+	return &PackageCommandResponse{
 		Package: output.PackageInfo{
 			ImportPath: importPath,
 			Name:       name,
@@ -627,154 +391,6 @@ func parseMethodReceiver(name string) (typeName, methodName string) {
 	return "", name
 }
 
-// renderPackageMarkdown renders the package response as compressed markdown.
-func renderPackageMarkdown(r *output.PackageResponse) string {
-	var sb strings.Builder
-
-	// Header
-	sb.WriteString("# package ")
-	sb.WriteString(r.Package.ImportPath)
-	sb.WriteString("\n# dir ")
-	sb.WriteString(r.Package.Dir)
-	sb.WriteString("\n")
-
-	// Files - calculate total lines first
-	totalLines := 0
-	for _, f := range r.Files {
-		totalLines += f.LineCount
-	}
-	sb.WriteString(fmt.Sprintf("\n# Files (%d lines)\n", totalLines))
-	for _, f := range r.Files {
-		sb.WriteString(fmt.Sprintf("%s // %d lines\n", f.Name, f.LineCount))
-	}
-
-	// Constants
-	sb.WriteString(fmt.Sprintf("\n# Constants (%d)\n", len(r.Constants)))
-	for _, c := range r.Constants {
-		writeSymbolMd(&sb, c.Signature, c.Location)
-	}
-
-	// Variables
-	sb.WriteString(fmt.Sprintf("\n# Variables (%d)\n", len(r.Variables)))
-	for _, v := range r.Variables {
-		writeSymbolMd(&sb, v.Signature, v.Location)
-	}
-
-	// Functions (standalone, not constructors)
-	sb.WriteString(fmt.Sprintf("\n# Functions (%d)\n", len(r.Functions)))
-	for _, f := range r.Functions {
-		writeSymbolMd(&sb, f.Signature, f.Location)
-	}
-
-	// Types
-	sb.WriteString(fmt.Sprintf("\n# Types (%d)\n", len(r.Types)))
-	for _, t := range r.Types {
-		sb.WriteString("\n")
-		// Build location with method count and interface info
-		loc := t.Location
-		if len(t.Methods) > 0 {
-			loc += fmt.Sprintf(" // %d methods", len(t.Methods))
-		}
-		if len(t.Satisfies) > 0 {
-			loc += ", satisfies: " + strings.Join(t.Satisfies, ", ")
-		}
-		if len(t.ImplementedBy) > 0 {
-			loc += ", implemented by: " + strings.Join(t.ImplementedBy, ", ")
-		}
-		writeSymbolMd(&sb, t.Signature, loc)
-
-		// Constructor functions
-		for _, f := range t.Functions {
-			writeSymbolMd(&sb, f.Signature, f.Location)
-		}
-
-		// Methods
-		for _, m := range t.Methods {
-			writeSymbolMd(&sb, m.Signature, m.Location)
-		}
-	}
-
-	// Imports grouped by file
-	sb.WriteString(fmt.Sprintf("\n# Imports (%d)\n", len(r.Imports)))
-	if len(r.Imports) > 0 {
-		// Group by file and track line ranges
-		type fileImports struct {
-			packages []string
-			minLine  int
-			maxLine  int
-		}
-		byFile := make(map[string]*fileImports)
-		var fileOrder []string
-
-		for _, imp := range r.Imports {
-			if imp.Location == "" {
-				continue
-			}
-			// Parse file:line from location
-			file, line := parseFileLineFromLocation(imp.Location)
-			if file == "" {
-				continue
-			}
-
-			if fi, ok := byFile[file]; ok {
-				fi.packages = append(fi.packages, imp.Package)
-				if line < fi.minLine {
-					fi.minLine = line
-				}
-				if line > fi.maxLine {
-					fi.maxLine = line
-				}
-			} else {
-				byFile[file] = &fileImports{
-					packages: []string{imp.Package},
-					minLine:  line,
-					maxLine:  line,
-				}
-				fileOrder = append(fileOrder, file)
-			}
-		}
-
-		// Output grouped by file
-		for _, file := range fileOrder {
-			fi := byFile[file]
-			sb.WriteString(fmt.Sprintf("# %s:%d:%d\n", file, fi.minLine, fi.maxLine))
-			for _, pkg := range fi.packages {
-				sb.WriteString(pkg)
-				sb.WriteString("\n")
-			}
-		}
-	}
-
-	// Imported By
-	sb.WriteString(fmt.Sprintf("\n# Imported By (%d)\n", len(r.ImportedBy)))
-	for _, imp := range r.ImportedBy {
-		sb.WriteString(imp.Package)
-		if imp.Location != "" {
-			sb.WriteString(" // ")
-			sb.WriteString(imp.Location)
-		}
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
-}
-
-// writeSymbolMd writes a symbol with its location as a trailing comment.
-func writeSymbolMd(sb *strings.Builder, signature, location string) {
-	// Handle multiline signatures
-	if strings.Contains(signature, "\n") {
-		sb.WriteString(signature)
-		sb.WriteString(" // ")
-		sb.WriteString(location)
-		sb.WriteString("\n")
-	} else {
-		sb.WriteString(signature)
-		sb.WriteString(" // ")
-		sb.WriteString(location)
-		sb.WriteString("\n")
-	}
-}
-
 // qualifiedInterfaceName builds a package-qualified interface name from a URI.
 // e.g., "file:///home/.../go/src/fmt/print.go" + "Stringer" -> "fmt.Stringer"
 func qualifiedInterfaceName(uri, name string) string {
@@ -829,17 +445,13 @@ func extractTypeNameAtLocation(file string, line int) string {
 
 // findImportedBy finds all packages in the module that import the target.
 func findImportedBy(workDir, targetImportPath string) ([]output.DepResult, error) {
-
-	pkgs, err := golang.GoListPackages(workDir, "./...")
+	// List all packages in the module
+	ps, err := golang.GoListPackages(workDir, "./...")
 	if err != nil {
 		return nil, err
 	}
-	if len(pkgs) != 1 {
-		return nil, fmt.Errorf("expected 1 package, got %d", len(pkgs))
-	}
-
 	var results []output.DepResult
-	for _, pkg := range pkgs {
+	for _, pkg := range ps {
 		// Check if this package imports our target
 		for _, imp := range pkg.Imports {
 			if imp == targetImportPath {
@@ -856,11 +468,6 @@ func findImportedBy(workDir, targetImportPath string) ([]output.DepResult, error
 	return results, nil
 }
 
-// isStdlib checks if an import path is from the standard library.
-func isStdlib(importPath string) bool {
-	return golang.IsStdlibImport(importPath)
-}
-
 // findImportLocation finds where a package is imported in source files.
 // Returns file:line format or empty string if not found.
 func findImportLocation(dir string, files []string, importPath string) string {
@@ -870,7 +477,6 @@ func findImportLocation(dir string, files []string, importPath string) string {
 		if err != nil {
 			continue
 		}
-
 		lines := strings.Split(string(content), "\n")
 		for i, line := range lines {
 			// Simple heuristic: look for the import path in quotes

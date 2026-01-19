@@ -1,9 +1,15 @@
 package golang
 
 import (
+	"context"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+
+	"github.com/kr/pretty"
 )
 
 func projectRoot() string {
@@ -19,11 +25,11 @@ func TestResolvePackagePath(t *testing.T) {
 	root := projectRoot()
 
 	tests := []struct {
-		name      string
-		path      string
-		srcDir    string
-		wantPath  string // empty means we just check it resolves
-		wantErr   bool
+		name     string
+		path     string
+		srcDir   string
+		wantPath string // empty means we just check it resolves
+		wantErr  bool
 	}{
 		// Stdlib packages
 		{
@@ -181,4 +187,39 @@ func TestResolvePackagePath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadPackages(t *testing.T) {
+
+	pi, err := ResolvePackageName(t.Context(), ".", "internal/lsp")
+	if err != nil {
+		t.Error(err)
+	}
+
+	ps, err := LoadPackages(t.Context(), pi.ModuleDir, pi.PkgPath)
+	if err != nil {
+		t.Error(err)
+	}
+
+	for _, p := range ps {
+		fmt.Println(p.Name, p.Errors, p.TypeErrors)
+		// pretty.Println(p)
+		pretty.Println(p.Module)
+		pretty.Println(slices.Collect(maps.Keys(p.Imports)))
+		// fmt.Printf("%#v", p)
+		pretty.Println(p.Types.Scope().Lookup("Client").String())
+	}
+
+}
+
+func TestNewResolve(t *testing.T) {
+
+	p, err := ResolvePackageName(context.Background(),
+		"/home/jason/go/src/github.com/jasonmoo/wildcat", "internal/lsp",
+	)
+	if err != nil {
+		t.Error(err)
+	}
+	pretty.Println(p)
+
 }
