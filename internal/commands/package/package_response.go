@@ -22,7 +22,29 @@ type PackageCommandResponse struct {
 }
 
 func (resp *PackageCommandResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal(resp)
+	return json.Marshal(struct {
+		Query      output.QueryInfo       `json:"query"`
+		Package    output.PackageInfo     `json:"package"`
+		Summary    output.PackageSummary  `json:"summary"`
+		Files      []output.FileInfo      `json:"files"`
+		Constants  []output.PackageSymbol `json:"constants"`
+		Variables  []output.PackageSymbol `json:"variables"`
+		Functions  []output.PackageSymbol `json:"functions"`
+		Types      []output.PackageType   `json:"types"`
+		Imports    []output.DepResult     `json:"imports"`
+		ImportedBy []output.DepResult     `json:"imported_by"`
+	}{
+		Query:      resp.Query,
+		Package:    resp.Package,
+		Summary:    resp.Summary,
+		Files:      resp.Files,
+		Constants:  resp.Constants,
+		Variables:  resp.Variables,
+		Functions:  resp.Functions,
+		Types:      resp.Types,
+		Imports:    resp.Imports,
+		ImportedBy: resp.ImportedBy,
+	})
 }
 
 func (resp *PackageCommandResponse) MarshalMarkdown() ([]byte, error) {
@@ -96,55 +118,19 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 		}
 	}
 
-	// Imports grouped by file
-	fmt.Fprintf(&sb, "\n# Imports (%d)\n", len(r.Imports))
-	if len(r.Imports) > 0 {
-		// Group by file and track line ranges
-		type fileImports struct {
-			packages []string
-			minLine  int
-			maxLine  int
+	// Imports - dedupe and list alphabetically (already sorted)
+	seen := make(map[string]bool)
+	var uniqueImports []string
+	for _, imp := range r.Imports {
+		if !seen[imp.Package] {
+			seen[imp.Package] = true
+			uniqueImports = append(uniqueImports, imp.Package)
 		}
-		byFile := make(map[string]*fileImports)
-		var fileOrder []string
-
-		for _, imp := range r.Imports {
-			if imp.Location == "" {
-				continue
-			}
-			// Parse file:line from location
-			file, line := parseFileLineFromLocation(imp.Location)
-			if file == "" {
-				continue
-			}
-
-			if fi, ok := byFile[file]; ok {
-				fi.packages = append(fi.packages, imp.Package)
-				if line < fi.minLine {
-					fi.minLine = line
-				}
-				if line > fi.maxLine {
-					fi.maxLine = line
-				}
-			} else {
-				byFile[file] = &fileImports{
-					packages: []string{imp.Package},
-					minLine:  line,
-					maxLine:  line,
-				}
-				fileOrder = append(fileOrder, file)
-			}
-		}
-
-		// Output grouped by file
-		for _, file := range fileOrder {
-			fi := byFile[file]
-			fmt.Fprintf(&sb, "# %s:%d:%d\n", file, fi.minLine, fi.maxLine)
-			for _, pkg := range fi.packages {
-				sb.WriteString(pkg)
-				sb.WriteString("\n")
-			}
-		}
+	}
+	fmt.Fprintf(&sb, "\n# Imports (%d)\n", len(uniqueImports))
+	for _, pkg := range uniqueImports {
+		sb.WriteString(pkg)
+		sb.WriteString("\n")
 	}
 
 	// Imported By

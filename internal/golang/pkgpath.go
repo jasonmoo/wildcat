@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -254,6 +255,14 @@ func newPackageIdentifier(p *packages.Package) *PackageIdentifier {
 	return pi
 }
 
+func LoadStdlibPackages(ctx context.Context) ([]*packages.Package, error) {
+	return packages.Load(&packages.Config{
+		Context: ctx,
+		Mode:    packages.LoadTypes,
+		Dir:     runtime.GOROOT(),
+	}, "std")
+}
+
 func LoadModulePackages(ctx context.Context, srcDir string) (*Project, error) {
 	// load module first
 	ps, err := packages.Load(&packages.Config{
@@ -296,7 +305,7 @@ func LoadModulePackages(ctx context.Context, srcDir string) (*Project, error) {
 		//
 		// In build systems with explicit names for tests,
 		// setting Tests may have no effect.
-		Tests: true,
+		// Tests: true,
 		// // Logf is the logger for the config.
 		// // If the user provides a logger, debug logging is enabled.
 		// // If the GOPACKAGESDEBUG environment variable is set to true,

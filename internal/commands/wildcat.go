@@ -10,6 +10,7 @@ import (
 
 type Wildcat struct {
 	Project *golang.Project
+	Stdlib  []*packages.Package
 }
 
 func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
@@ -17,8 +18,10 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	if err != nil {
 		return nil, err
 	}
+	stdps, err := golang.LoadStdlibPackages(ctx)
 	return &Wildcat{
 		Project: p,
+		Stdlib:  stdps,
 	}, nil
 }
 
