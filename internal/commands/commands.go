@@ -7,7 +7,7 @@ import (
 
 type (
 	Command[T any] interface {
-		Execute(context.Context, ...func(T) error) (Result, *Error)
+		Execute(context.Context, *Wildcat, ...func(T) error) (Result, *Error)
 		Help() Help
 		README() string
 	}

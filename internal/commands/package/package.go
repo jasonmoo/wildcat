@@ -2,13 +2,12 @@ package package_cmd
 
 import (
 	"context"
-	"path/filepath"
-	"sort"
+	"go/ast"
+	"go/token"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
-	"github.com/jasonmoo/wildcat/internal/lsp"
-	"github.com/jasonmoo/wildcat/internal/output"
+	"github.com/kr/pretty"
 )
 
 type PackageCommand struct {
@@ -28,7 +27,7 @@ func NewPackageCommand() *PackageCommand {
 	return &PackageCommand{}
 }
 
-func (c *PackageCommand) Execute(ctx context.Context, opts ...func(*PackageCommand) error) (commands.Result, *commands.Error) {
+func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*PackageCommand) error) (commands.Result, *commands.Error) {
 
 	// handle opts
 	for _, o := range opts {
@@ -37,7 +36,7 @@ func (c *PackageCommand) Execute(ctx context.Context, opts ...func(*PackageComma
 		}
 	}
 
-	pi, err := golang.ProjectModule.ResolvePackageName(ctx, c.pkgPath)
+	pi, err := wc.Project.ResolvePackageName(ctx, c.pkgPath)
 	if err != nil {
 		// Suggestions: []string, TODO
 		return nil, commands.NewErrorf("package_not_found", "failed to resolve package: %w", err)
@@ -49,82 +48,94 @@ func (c *PackageCommand) Execute(ctx context.Context, opts ...func(*PackageComma
 	// 	// p.Types
 	// }
 
-	client, err := lsp.NewClient(ctx, lsp.ServerConfig{
-		Command: "gopls",
-		Args:    []string{"serve"},
-		WorkDir: c.workDir,
-	})
+	// client, err := lsp.NewClient(ctx, lsp.ServerConfig{
+	// 	Command: "gopls",
+	// 	Args:    []string{"serve"},
+	// 	WorkDir: c.workDir,
+	// })
+	// if err != nil {
+	// 	return nil, commands.NewErrorf("lsp_error", "%w", err)
+	// }
+	// defer client.Close()
+
+	pkg, err := wc.FindPackage(ctx, pi)
 	if err != nil {
-		return nil, commands.NewErrorf("lsp_error", "%w", err)
+		return nil, commands.NewErrorf("find_package_error", "%w", err)
 	}
-	defer client.Close()
 
-	// Collect symbols from all Go files
-	collector := newPackageCollector(pi.PkgDir)
+	type symbol struct {
+		pos token.Position
+		d   ast.Decl
+		sig string
+	}
 
-	// Process files alphabetically
-	files := make([]string, len(pkg.GoFiles))
-	copy(files, pkg.GoFiles)
-	sort.Strings(files)
-
-	for _, file := range files {
-		fullPath := filepath.Join(pkg.Dir, file)
-		uri := lsp.FileURI(fullPath)
-
-		symbols, err := client.DocumentSymbol(ctx, uri)
-		if err != nil {
-			continue // Skip files that fail
+	var ss []symbol
+	for _, f := range pkg.Syntax {
+		for _, d := range f.Decls {
+			sigs, err := golang.FormatDecl(d)
+			if err != nil {
+				return nil, commands.NewErrorf("formatting_error", "%w", err)
+			}
+			for _, sig := range sigs {
+				ss = append(ss, symbol{
+					pos: pkg.Fset.Position(d.Pos()),
+					// d:   d,
+					sig: sig,
+				})
+			}
 		}
-
-		if err := collector.addFile(fullPath, symbols); err != nil {
-			continue
-		}
 	}
 
-	// Enrich types with interface relationships
-	collector.enrichWithInterfaces(ctx, client)
+	pretty.Println(ss)
+	return nil, nil
 
-	// Collect file info (line counts)
-	var fileInfos []output.FileInfo
-	for _, file := range files {
-		fullPath := filepath.Join(pkg.Dir, file)
-		lineCount := countLines(fullPath)
-		fileInfos = append(fileInfos, output.FileInfo{
-			Name:      file,
-			LineCount: lineCount,
-		})
-	}
+	// // Collect symbols from all Go files
+	// collector := newPackageCollector(pi.PkgDir)
 
-	// Organize into godoc order
-	result := collector.build(pkg.ImportPath, pkg.Name, pkg.Dir)
-	result.Files = fileInfos
+	// // Enrich types with interface relationships
+	// collector.enrichWithInterfaces(ctx, client)
 
-	// Add imports with locations
-	for _, imp := range pkg.Imports {
-		location := findImportLocation(pkg.Dir, pkg.GoFiles, imp)
-		result.Imports = append(result.Imports, output.DepResult{
-			Package:  imp,
-			Location: location,
-		})
-	}
+	// // Collect file info (line counts)
+	// var fileInfos []output.FileInfo
+	// for _, file := range files {
+	// 	fullPath := filepath.Join(pkg.Dir, file)
+	// 	lineCount := countLines(fullPath)
+	// 	fileInfos = append(fileInfos, output.FileInfo{
+	// 		Name:      file,
+	// 		LineCount: lineCount,
+	// 	})
+	// }
 
-	// Add imported_by with locations
-	importedBy, err := findImportedBy(c.workDir, pkg.ImportPath)
-	if err == nil {
-		result.ImportedBy = importedBy
-	}
+	// // Organize into godoc order
+	// result := collector.build(pkg.ImportPath, pkg.Name, pkg.Dir)
+	// result.Files = fileInfos
 
-	// Set query info
-	result.Query = output.QueryInfo{
-		Command: "package",
-		Target:  c.pkgPath,
-	}
+	// // Add imports with locations
+	// for _, imp := range pkg.Imports {
+	// 	location := findImportLocation(pkg.Dir, pkg.GoFiles, imp)
+	// 	result.Imports = append(result.Imports, output.DepResult{
+	// 		Package:  imp,
+	// 		Location: location,
+	// 	})
+	// }
 
-	// Update summary
-	result.Summary.Imports = len(result.Imports)
-	result.Summary.ImportedBy = len(result.ImportedBy)
+	// // Add imported_by with locations
+	// importedBy, err := findImportedBy(c.workDir, pkg.ImportPath)
+	// if err == nil {
+	// 	result.ImportedBy = importedBy
+	// }
 
-	return result, nil
+	// // Set query info
+	// result.Query = output.QueryInfo{
+	// 	Command: "package",
+	// 	Target:  c.pkgPath,
+	// }
+
+	// // Update summary
+	// result.Summary.Imports = len(result.Imports)
+	// result.Summary.ImportedBy = len(result.ImportedBy)
+
+	// return result, nil
 }
 
 func (c *PackageCommand) Help() commands.Help {

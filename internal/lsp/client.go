@@ -20,6 +20,10 @@ type Client struct {
 	serverReady    chan struct{}
 }
 
+const Exported = `
+
+multiline`
+
 // NewClient creates a new LSP client with the given server configuration.
 func NewClient(ctx context.Context, config ServerConfig) (*Client, error) {
 	server, err := StartServer(ctx, config)

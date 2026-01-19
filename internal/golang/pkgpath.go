@@ -21,16 +21,16 @@ type Project struct {
 	Packages []*packages.Package
 }
 
-var ProjectModule = func() Project {
-	m, ps, err := LoadModulePackages(context.Background(), ".")
-	if err != nil {
-		panic(err)
-	}
-	return Project{
-		Module:   m,
-		Packages: ps,
-	}
-}()
+// var ProjectModule = func() Project {
+// 	p, err := LoadModulePackages(context.Background(), ".")
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	return Project{
+// 		Module:   m,
+// 		Packages: ps,
+// 	}
+// }()
 
 // reservedPatterns are Go toolchain patterns that expand to multiple packages.
 // These are not actual importable packages - they're special patterns used by
@@ -254,7 +254,7 @@ func newPackageIdentifier(p *packages.Package) *PackageIdentifier {
 	return pi
 }
 
-func LoadModulePackages(ctx context.Context, srcDir string) (*packages.Module, []*packages.Package, error) {
+func LoadModulePackages(ctx context.Context, srcDir string) (*Project, error) {
 	// load module first
 	ps, err := packages.Load(&packages.Config{
 		Context: ctx,
@@ -262,10 +262,10 @@ func LoadModulePackages(ctx context.Context, srcDir string) (*packages.Module, [
 		Dir:     srcDir,
 	}, ".")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if len(ps) == 0 {
-		return nil, nil, fmt.Errorf("no packages found at location %q", srcDir)
+		return nil, fmt.Errorf("no packages found at location %q", srcDir)
 	}
 	mp := ps[0]
 	if len(mp.Errors) > 0 {
@@ -273,10 +273,10 @@ func LoadModulePackages(ctx context.Context, srcDir string) (*packages.Module, [
 		for _, e := range mp.Errors {
 			errs = append(errs, e)
 		}
-		return nil, nil, fmt.Errorf("errors while trying to load module info in %q: %w", srcDir, errors.Join(errs...))
+		return nil, fmt.Errorf("errors while trying to load module info in %q: %w", srcDir, errors.Join(errs...))
 	}
 	if mp.Module == nil {
-		return nil, nil, fmt.Errorf("unable to parse module at location %q", srcDir)
+		return nil, fmt.Errorf("unable to parse module at location %q", srcDir)
 	}
 	// load packages for entire module
 	ps, err = packages.Load(&packages.Config{
@@ -319,5 +319,8 @@ func LoadModulePackages(ctx context.Context, srcDir string) (*packages.Module, [
 		// // unwanted function bodies can significantly accelerate type checking.
 		// ParseFile func(fset *token.FileSet, filename string, src []byte) (*ast.File, error)
 	}, "./...")
-	return mp.Module, ps, nil
+	return &Project{
+		Module:   mp.Module,
+		Packages: ps,
+	}, nil
 }
