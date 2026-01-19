@@ -9,14 +9,14 @@ import (
 
 func TestPackageExecute(t *testing.T) {
 
-	wc, err := commands.LoadWildcat(t.Context(), ".")
+	wc, err := commands.LoadWildcat(t.Context(), "/home/jason/go/src/github.com/jasonmoo/bbb")
 	if err != nil {
 		t.Error(err)
 	}
 
 	pc := NewPackageCommand()
 
-	res, e := pc.Execute(t.Context(), wc, WithPackage("internal/commands/package"))
+	res, e := pc.Execute(t.Context(), wc, WithPackage("database"))
 	if e != nil {
 		t.Error(e)
 	}

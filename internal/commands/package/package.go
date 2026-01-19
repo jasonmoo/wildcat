@@ -175,6 +175,10 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 			if obj == nil {
 				continue
 			}
+			// Only consider type declarations, not variables
+			if _, ok := obj.(*gotypes.TypeName); !ok {
+				continue
+			}
 			named, ok := obj.Type().(*gotypes.Named)
 			if !ok {
 				continue
@@ -189,6 +193,10 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		for _, iname := range p.Types.Scope().Names() {
 			obj := p.Types.Scope().Lookup(iname)
 			if obj == nil {
+				continue
+			}
+			// Only consider type declarations, not variables
+			if _, ok := obj.(*gotypes.TypeName); !ok {
 				continue
 			}
 			named, ok := obj.Type().(*gotypes.Named)
@@ -238,6 +246,9 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		}
 	}
 
+	// Get the builtin error interface from universe scope
+	errorIface := gotypes.Universe.Lookup("error").Type().Underlying().(*gotypes.Interface)
+
 	// Satisfies: for each concrete type, find interfaces it implements
 	for name, tb := range types {
 		if tb.isInterface {
@@ -249,7 +260,17 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		}
 		T := obj.Type()
 		ptrT := gotypes.NewPointer(T)
+
+		// Check builtin error interface
+		if gotypes.Implements(T, errorIface) || gotypes.Implements(ptrT, errorIface) {
+			tb.satisfies = append(tb.satisfies, "error")
+		}
+
 		for _, i := range ifaces {
+			// Skip self (type shouldn't satisfy itself)
+			if i.pkgPath == pkg.PkgPath && i.name == name {
+				continue
+			}
 			iface := i.named.Underlying().(*gotypes.Interface)
 			// Skip empty interface
 			if iface.NumMethods() == 0 {
