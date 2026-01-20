@@ -59,15 +59,17 @@ func FormatFuncDecl(v *ast.FuncDecl) (string, error) {
 }
 
 func formatFuncDecl(w io.Writer, v *ast.FuncDecl) error {
-	v.Doc = nil
-	v.Body = nil
-	stripFieldList(v.Recv)
-	if v.Type != nil {
-		stripFieldList(v.Type.Params)
-		stripFieldList(v.Type.TypeParams)
-		stripFieldList(v.Type.Results)
+	// Shallow copy to avoid modifying original AST
+	cp := *v
+	cp.Doc = nil
+	cp.Body = nil
+	stripFieldList(cp.Recv)
+	if cp.Type != nil {
+		stripFieldList(cp.Type.Params)
+		stripFieldList(cp.Type.TypeParams)
+		stripFieldList(cp.Type.Results)
 	}
-	return format.Node(w, token.NewFileSet(), v)
+	return format.Node(w, token.NewFileSet(), &cp)
 }
 
 func FormatTypeSpec(tok token.Token, v *ast.TypeSpec) (string, error) {

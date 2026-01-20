@@ -100,6 +100,16 @@ func (s *Symbol) Filename() string {
 	return s.filename
 }
 
+// Pos returns the token.Pos of the symbol
+func (s *Symbol) Pos() token.Pos {
+	return s.pos
+}
+
+// Node returns the underlying AST node (*ast.FuncDecl, *ast.TypeSpec, or *ast.ValueSpec)
+func (s *Symbol) Node() ast.Node {
+	return s.node
+}
+
 // SearchName returns the fully qualified searchable name (PkgPath.Name)
 // This allows fuzzy matching like "lsp.Client" or "wildcatlspclient"
 func (s *Symbol) SearchName() string {
@@ -118,6 +128,103 @@ func (idx *SymbolIndex) Symbols() []Symbol {
 
 func (idx *SymbolIndex) Len() int {
 	return len(idx.symbols)
+}
+
+// Lookup finds a symbol by exact match. Query formats:
+//   - "FuncName" - matches any symbol with that name
+//   - "pkg.FuncName" - matches by short package name + symbol
+//   - "Type.Method" - matches method on type
+//   - "pkg.Type.Method" - matches by short package + type + method
+//   - "github.com/user/repo/pkg.Symbol" - matches by full import path
+//
+// Returns nil if not found or if multiple matches exist for ambiguous queries.
+func (idx *SymbolIndex) Lookup(query string) *Symbol {
+	// Check if query contains a full import path (has multiple slashes)
+	if strings.Count(query, "/") > 0 {
+		// Full import path: github.com/user/repo/pkg.Symbol
+		lastDot := strings.LastIndex(query, ".")
+		if lastDot == -1 {
+			return nil
+		}
+		pkgPath := query[:lastDot]
+		symbolName := query[lastDot+1:]
+
+		for i := range idx.symbols {
+			if idx.symbols[i].PkgPath == pkgPath && idx.symbols[i].Name == symbolName {
+				return &idx.symbols[i]
+			}
+		}
+		return nil
+	}
+
+	// Short form: might be "Name", "pkg.Name", "Type.Method", or "pkg.Type.Method"
+	parts := strings.Split(query, ".")
+
+	switch len(parts) {
+	case 1:
+		// Just "Name" - find unique match
+		var match *Symbol
+		for i := range idx.symbols {
+			if idx.symbols[i].Name == parts[0] {
+				if match != nil {
+					return nil // ambiguous
+				}
+				match = &idx.symbols[i]
+			}
+		}
+		return match
+
+	case 2:
+		// Could be "pkg.Name" or "Type.Method"
+		// Try pkg.Name first
+		var match *Symbol
+		for i := range idx.symbols {
+			shortPkg := idx.symbols[i].PkgPath
+			if lastSlash := strings.LastIndex(shortPkg, "/"); lastSlash >= 0 {
+				shortPkg = shortPkg[lastSlash+1:]
+			}
+			if shortPkg == parts[0] && idx.symbols[i].Name == parts[1] {
+				if match != nil {
+					return nil // ambiguous
+				}
+				match = &idx.symbols[i]
+			}
+		}
+		if match != nil {
+			return match
+		}
+		// Try Type.Method (symbol name includes receiver)
+		methodName := parts[0] + "." + parts[1]
+		for i := range idx.symbols {
+			if idx.symbols[i].Name == methodName {
+				if match != nil {
+					return nil // ambiguous
+				}
+				match = &idx.symbols[i]
+			}
+		}
+		return match
+
+	case 3:
+		// "pkg.Type.Method"
+		methodName := parts[1] + "." + parts[2]
+		var match *Symbol
+		for i := range idx.symbols {
+			shortPkg := idx.symbols[i].PkgPath
+			if lastSlash := strings.LastIndex(shortPkg, "/"); lastSlash >= 0 {
+				shortPkg = shortPkg[lastSlash+1:]
+			}
+			if shortPkg == parts[0] && idx.symbols[i].Name == methodName {
+				if match != nil {
+					return nil // ambiguous
+				}
+				match = &idx.symbols[i]
+			}
+		}
+		return match
+	}
+
+	return nil
 }
 
 // nameSource adapts SymbolIndex to match against Name only

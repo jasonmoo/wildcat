@@ -22,8 +22,8 @@ type TreeSummary struct {
 	Callees       int  `json:"callees"`                  // total callee edges
 	MaxUpDepth    int  `json:"max_up_depth,omitempty"`   // deepest caller level reached
 	MaxDownDepth  int  `json:"max_down_depth,omitempty"` // deepest callee level reached
-	UpTruncated   bool `json:"up_truncated"`   // hit up depth limit
-	DownTruncated bool `json:"down_truncated"` // hit down depth limit
+	UpTruncated   bool `json:"up_truncated"`             // hit up depth limit
+	DownTruncated bool `json:"down_truncated"`           // hit down depth limit
 }
 
 // TreeQuery describes the tree query parameters.

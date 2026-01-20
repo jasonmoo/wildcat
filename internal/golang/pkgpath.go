@@ -257,13 +257,27 @@ func LoadStdlibPackages(ctx context.Context) ([]*packages.Package, error) {
 	}, "std")
 }
 
-func LoadModulePackages(ctx context.Context, srcDir string) (*Project, error) {
-	// load module first
-	ps, err := packages.Load(&packages.Config{
+type LoadPackagesOpt func(*packages.Config) error
+
+func WithLoadPackagesTests(v bool) LoadPackagesOpt {
+	return func(c *packages.Config) error {
+		c.Tests = v
+		return nil
+	}
+}
+
+func LoadModulePackages(ctx context.Context, srcDir string, opts ...LoadPackagesOpt) (*Project, error) {
+	c := &packages.Config{
 		Context: ctx,
 		Mode:    packages.NeedModule,
 		Dir:     srcDir,
-	}, ".")
+	}
+	for _, o := range opts {
+		if err := o(c); err != nil {
+			return nil, err
+		}
+	}
+	ps, err := packages.Load(c, ".")
 	if err != nil {
 		return nil, err
 	}
