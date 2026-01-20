@@ -21,17 +21,6 @@ type Project struct {
 	Packages []*packages.Package
 }
 
-// var ProjectModule = func() Project {
-// 	p, err := LoadModulePackages(context.Background(), ".")
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// 	return Project{
-// 		Module:   m,
-// 		Packages: ps,
-// 	}
-// }()
-
 // reservedPatterns are Go toolchain patterns that expand to multiple packages.
 // These are not actual importable packages - they're special patterns used by
 // go list, go build, etc. We reject them to avoid unexpected behavior where
@@ -94,7 +83,7 @@ func ResolvePackagePath(path, srcDir string) (string, error) {
 	}
 
 	// Try go list first - it returns the canonical module-qualified import path
-	if ps, err := GoListPackages(path, srcDir); err == nil && len(ps) > 0 {
+	if ps, err := GoListPackages(srcDir, path); err == nil && len(ps) > 0 {
 		return ps[0].ImportPath, nil
 	}
 
@@ -103,7 +92,7 @@ func ResolvePackagePath(path, srcDir string) (string, error) {
 	if !strings.HasPrefix(path, ".") {
 		localPath := filepath.Join(srcDir, path)
 		if _, statErr := os.Stat(localPath); statErr == nil {
-			if ps, err := GoListPackages("./"+path, srcDir); err == nil && len(ps) > 0 {
+			if ps, err := GoListPackages(srcDir, "./"+path); err == nil && len(ps) > 0 {
 				return ps[0].ImportPath, nil
 			}
 		}
@@ -222,9 +211,15 @@ func GoListPackages(srcDir, pattern string, flags ...string) ([]*GoListPackageRe
 	if err != nil {
 		return nil, err
 	}
+	// go list -json outputs concatenated JSON objects, not an array
 	var pkgs []*GoListPackageResult
-	if err := json.Unmarshal(out, &pkgs); err != nil {
-		return nil, err
+	dec := json.NewDecoder(strings.NewReader(string(out)))
+	for dec.More() {
+		var pkg GoListPackageResult
+		if err := dec.Decode(&pkg); err != nil {
+			return nil, err
+		}
+		pkgs = append(pkgs, &pkg)
 	}
 	return pkgs, nil
 }
