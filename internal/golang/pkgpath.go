@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -259,7 +258,7 @@ func LoadStdlibPackages(ctx context.Context) ([]*packages.Package, error) {
 	return packages.Load(&packages.Config{
 		Context: ctx,
 		Mode:    packages.LoadTypes,
-		Dir:     runtime.GOROOT(),
+		Dir:     GOROOT(),
 	}, "std")
 }
 

@@ -26,15 +26,14 @@ func Execute() error {
 // commandOrder defines the display order for commands in help output.
 // Commands not in this list appear at the end alphabetically.
 var commandOrder = []string{
-	"package",     // package-level analysis
-	"new-package", // package-level analysis
-	"symbol",      // symbol-level analysis
-	"search",      // find symbols
-	"tree",        // call graph traversal
-	"channels",    // concurrency analysis
-	"readme",      // onboarding
-	"version",     // meta
-	"help",        // always last
+	"package",  // package-level analysis
+	"symbol",   // symbol-level analysis
+	"search",   // find symbols
+	"tree",     // call graph traversal
+	"channels", // concurrency analysis
+	"readme",   // onboarding
+	"version",  // meta
+	"help",     // always last
 }
 
 func init() {

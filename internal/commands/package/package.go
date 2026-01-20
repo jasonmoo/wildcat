@@ -404,7 +404,7 @@ func makeLocation(fset *token.FileSet, fileName string, pos token.Pos) string {
 
 func (c *PackageCommand) Cmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "new-package [path]",
+		Use:   "package [path]",
 		Short: "Show package profile with symbols in godoc order",
 		Long: `Show a dense package map for AI orientation.
 
@@ -412,8 +412,8 @@ Provides a complete package profile with all symbols organized in godoc order:
 constants, variables, functions, then types (each with constructors and methods).
 
 Examples:
-  wildcat new-package                    # Current package
-  wildcat new-package ./internal/lsp     # Specific package`,
+  wildcat package                    # Current package
+  wildcat package ./internal/lsp     # Specific package`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 
