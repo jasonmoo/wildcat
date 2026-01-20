@@ -44,8 +44,6 @@ var (
 )
 
 func init() {
-	rootCmd.AddCommand(searchCmd)
-
 	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Maximum results (max 100)")
 	searchCmd.Flags().StringVar(&searchScope, "scope", "project", "Scope: 'project', 'all', packages, or -pkg to exclude")
 }

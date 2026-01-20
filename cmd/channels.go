@@ -36,7 +36,6 @@ var (
 )
 
 func init() {
-	rootCmd.AddCommand(channelsCmd)
 	channelsCmd.Flags().BoolVar(&channelsExcludeTests, "exclude-tests", false, "Exclude test files")
 }
 

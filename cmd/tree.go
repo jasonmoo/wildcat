@@ -53,8 +53,6 @@ var (
 )
 
 func init() {
-	rootCmd.AddCommand(treeCmd)
-
 	treeCmd.Flags().IntVar(&treeUp, "up", 2, "Depth of callers to show (0 to skip)")
 	treeCmd.Flags().IntVar(&treeDown, "down", 2, "Depth of callees to show (0 to skip)")
 	treeCmd.Flags().BoolVar(&treeExcludeTests, "exclude-tests", false, "Exclude test files")

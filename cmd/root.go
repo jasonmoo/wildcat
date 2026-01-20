@@ -5,42 +5,37 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TODO: move this inside execute
-var rootCmd = &cobra.Command{
-	Use:   "wildcat",
-	Short: "Go static analysis CLI for AI agents",
-	Long: `Wildcat is a Go static analysis CLI optimized for AI agents.
+// globalOutput is used by GetWriter in server.go
+var globalOutput string
+
+func Execute() error {
+
+	rootCmd := &cobra.Command{
+		Use:   "wildcat",
+		Short: "Go static analysis CLI for AI agents",
+		Long: `Wildcat is a Go static analysis CLI optimized for AI agents.
 
 Uses gopls to provide symbol-based code queries with structured JSON output.
 Designed for AI tool integration with consistent structure, absolute paths,
 and actionable error messages.`,
-}
+	}
 
-var globalOutput string
-
-func Execute() error {
-	rootCmd.AddCommand(package_cmd.NewPackageCommand().Cmd())
-	return rootCmd.Execute()
-}
-
-// commandOrder defines the display order for commands in help output.
-// Commands not in this list appear at the end alphabetically.
-var commandOrder = []string{
-	"package",  // package-level analysis
-	"symbol",   // symbol-level analysis
-	"search",   // find symbols
-	"tree",     // call graph traversal
-	"channels", // concurrency analysis
-	"readme",   // onboarding
-	"version",  // meta
-	"help",     // always last
-}
-
-func init() {
+	// Configure root command
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.PersistentFlags().StringVarP(&globalOutput, "output", "o", "json", "Output format (json, yaml, markdown, template:<path>, plugin:<name>)")
 
 	// Custom usage template with ordered commands
+	commandOrder := []string{
+		"package",  // package-level analysis
+		"symbol",   // symbol-level analysis
+		"search",   // find symbols
+		"tree",     // call graph traversal
+		"channels", // concurrency analysis
+		"readme",   // onboarding
+		"version",  // meta
+		"help",     // always last
+	}
+
 	cobra.AddTemplateFunc("orderedCommands", func(cmd *cobra.Command) []*cobra.Command {
 		commands := cmd.Commands()
 		orderMap := make(map[string]int)
@@ -76,6 +71,17 @@ func init() {
 	})
 
 	rootCmd.SetUsageTemplate(usageTemplate)
+
+	// Add subcommands
+	rootCmd.AddCommand(package_cmd.NewPackageCommand().Cmd())
+	rootCmd.AddCommand(symbolCmd)
+	rootCmd.AddCommand(searchCmd)
+	rootCmd.AddCommand(treeCmd)
+	rootCmd.AddCommand(channelsCmd)
+	rootCmd.AddCommand(readmeCmd)
+	rootCmd.AddCommand(versionCmd)
+
+	return rootCmd.Execute()
 }
 
 var usageTemplate = `Usage:{{if .Runnable}}

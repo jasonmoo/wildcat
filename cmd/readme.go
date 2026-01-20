@@ -28,8 +28,6 @@ var (
 )
 
 func init() {
-	rootCmd.AddCommand(readmeCmd)
-
 	readmeCmd.Flags().BoolVar(&readmeCompact, "compact", false, "Quick reference only")
 }
 

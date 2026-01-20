@@ -50,8 +50,6 @@ var (
 )
 
 func init() {
-	rootCmd.AddCommand(symbolCmd)
-
 	symbolCmd.Flags().BoolVar(&symbolExcludeTests, "exclude-tests", false, "Exclude test files")
 	symbolCmd.Flags().StringVar(&symbolScope, "scope", "project", "Scope: 'project', 'package', packages, or -pkg to exclude")
 }
