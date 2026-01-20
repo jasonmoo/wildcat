@@ -56,6 +56,89 @@ func NewSearchCommand() *SearchCommand {
 	}
 }
 
+func (c *SearchCommand) Cmd() *cobra.Command {
+	var limit int
+	var scope string
+	var kind string
+
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Fuzzy search for symbols",
+		Long: `Search for symbols using fuzzy matching.
+
+Query Syntax:
+  Client         Fuzzy match on symbol name
+  lsp.Client     Package-qualified match (use . to search pkg.Symbol)
+  DocSym         Abbreviation match - matches "DocumentSymbol"
+
+Scoring:
+  Results are ranked by match quality. Exact matches and shorter symbols
+  score higher. Case-sensitive matches get a bonus.
+
+Examples:
+  wildcat search Client                       # fuzzy match "Client"
+  wildcat search lsp.Client                   # match in lsp package
+  wildcat search --kind func Format           # functions only
+  wildcat search --kind type,interface Node   # types and interfaces
+  wildcat search --scope all Config           # include dependencies
+  wildcat search --scope lsp Client           # only lsp package
+  wildcat search --scope commands,-test Cmd   # commands, exclude test
+  wildcat search --limit 10 Config            # top 10 matches`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wc, err := commands.LoadWildcat(cmd.Context(), ".")
+			if err != nil {
+				return err
+			}
+
+			// Parse kinds
+			var kinds []golang.SymbolKind
+			if kind != "" {
+				kinds = golang.ParseKinds(kind)
+			}
+
+			result, cmdErr := c.Execute(cmd.Context(), wc,
+				WithQuery(args[0]),
+				WithLimit(limit),
+				WithScope(scope),
+				WithKinds(kinds),
+			)
+			if cmdErr != nil {
+				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
+			}
+
+			// Check if JSON output requested
+			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
+				data, err := result.MarshalJSON()
+				if err != nil {
+					return err
+				}
+				os.Stdout.Write(data)
+				os.Stdout.WriteString("\n")
+				return nil
+			}
+
+			// Default to markdown
+			md, err := result.MarshalMarkdown()
+			if err != nil {
+				return err
+			}
+			os.Stdout.Write(md)
+			os.Stdout.WriteString("\n")
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum results")
+	cmd.Flags().StringVar(&scope, "scope", "project", "Scope: 'project', 'all', or package substrings (lsp, commands,-test)")
+	cmd.Flags().StringVar(&kind, "kind", "", "Filter by kind: func, method, type, interface, const, var (comma-separated)")
+	return cmd
+}
+
+func (c *SearchCommand) README() string {
+	return "TODO"
+}
+
 func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*SearchCommand) error) (commands.Result, *commands.Error) {
 	for _, o := range opts {
 		if err := o(c); err != nil {
@@ -187,87 +270,4 @@ func filterByScope(results []golang.SearchResult, scope, modulePath string) []go
 		filtered = append(filtered, r)
 	}
 	return filtered
-}
-
-func (c *SearchCommand) Cmd() *cobra.Command {
-	var limit int
-	var scope string
-	var kind string
-
-	cmd := &cobra.Command{
-		Use:   "search <query>",
-		Short: "Fuzzy search for symbols",
-		Long: `Search for symbols using fuzzy matching.
-
-Query Syntax:
-  Client         Fuzzy match on symbol name
-  lsp.Client     Package-qualified match (use . to search pkg.Symbol)
-  DocSym         Abbreviation match - matches "DocumentSymbol"
-
-Scoring:
-  Results are ranked by match quality. Exact matches and shorter symbols
-  score higher. Case-sensitive matches get a bonus.
-
-Examples:
-  wildcat search Client                       # fuzzy match "Client"
-  wildcat search lsp.Client                   # match in lsp package
-  wildcat search --kind func Format           # functions only
-  wildcat search --kind type,interface Node   # types and interfaces
-  wildcat search --scope all Config           # include dependencies
-  wildcat search --scope lsp Client           # only lsp package
-  wildcat search --scope commands,-test Cmd   # commands, exclude test
-  wildcat search --limit 10 Config            # top 10 matches`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			wc, err := commands.LoadWildcat(cmd.Context(), ".")
-			if err != nil {
-				return err
-			}
-
-			// Parse kinds
-			var kinds []golang.SymbolKind
-			if kind != "" {
-				kinds = golang.ParseKinds(kind)
-			}
-
-			result, cmdErr := c.Execute(cmd.Context(), wc,
-				WithQuery(args[0]),
-				WithLimit(limit),
-				WithScope(scope),
-				WithKinds(kinds),
-			)
-			if cmdErr != nil {
-				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
-			}
-
-			// Check if JSON output requested
-			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
-				data, err := result.MarshalJSON()
-				if err != nil {
-					return err
-				}
-				os.Stdout.Write(data)
-				os.Stdout.WriteString("\n")
-				return nil
-			}
-
-			// Default to markdown
-			md, err := result.MarshalMarkdown()
-			if err != nil {
-				return err
-			}
-			os.Stdout.Write(md)
-			os.Stdout.WriteString("\n")
-			return nil
-		},
-	}
-
-	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum results")
-	cmd.Flags().StringVar(&scope, "scope", "project", "Scope: 'project', 'all', or package substrings (lsp, commands,-test)")
-	cmd.Flags().StringVar(&kind, "kind", "", "Filter by kind: func, method, type, interface, const, var (comma-separated)")
-	return cmd
-}
-
-func (c *SearchCommand) README() string {
-	return "TODO"
 }

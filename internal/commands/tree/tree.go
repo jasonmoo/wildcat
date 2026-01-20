@@ -76,6 +76,84 @@ func NewTreeCommand() *TreeCommand {
 	}
 }
 
+func (c *TreeCommand) Cmd() *cobra.Command {
+	var upDepth, downDepth int
+	var scope string
+	var includeTests bool
+
+	cmd := &cobra.Command{
+		Use:   "new-tree <symbol>",
+		Short: "Build a call tree centered on a symbol (native)",
+		Long: `Build a call tree showing callers and callees of a symbol.
+
+Note: tree operates on functions and methods only.
+
+The symbol is the center point of the tree:
+  --up N    Show N levels of callers (what calls this function)
+  --down N  Show N levels of callees (what this function calls)
+
+By default, shows 2 levels in each direction.
+
+Scope:
+  all     - Include everything (stdlib, dependencies)
+  project - Project packages only (default)
+  package - Same package as starting symbol only
+
+Examples:
+  wildcat tree main.main
+  wildcat tree db.Query --up 3 --down 1
+  wildcat tree Server.Start --up 0 --down 4
+  wildcat tree Handler.ServeHTTP --scope all`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wc, err := commands.LoadWildcat(cmd.Context(), ".")
+			if err != nil {
+				return err
+			}
+
+			result, cmdErr := c.Execute(cmd.Context(), wc,
+				WithSymbol(args[0]),
+				WithUpDepth(upDepth),
+				WithDownDepth(downDepth),
+				WithScope(Scope(scope)),
+				WithIncludeTests(includeTests),
+			)
+			if cmdErr != nil {
+				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
+			}
+
+			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
+				data, err := result.MarshalJSON()
+				if err != nil {
+					return err
+				}
+				os.Stdout.Write(data)
+				os.Stdout.WriteString("\n")
+				return nil
+			}
+
+			md, err := result.MarshalMarkdown()
+			if err != nil {
+				return err
+			}
+			os.Stdout.Write(md)
+			os.Stdout.WriteString("\n")
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVar(&upDepth, "up", 2, "Depth of callers to show (0 to skip)")
+	cmd.Flags().IntVar(&downDepth, "down", 2, "Depth of callees to show (0 to skip)")
+	cmd.Flags().StringVar(&scope, "scope", "project", "Traversal scope: all, project, package")
+	cmd.Flags().BoolVar(&includeTests, "include-tests", false, "Include test files")
+
+	return cmd
+}
+
+func (c *TreeCommand) README() string {
+	return "TODO"
+}
+
 func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*TreeCommand) error) (commands.Result, *commands.Error) {
 	for _, o := range opts {
 		if err := o(c); err != nil {
@@ -477,82 +555,4 @@ func addAsLeaf(parent, child *output.CallNode) {
 			addAsLeaf(call, child)
 		}
 	}
-}
-
-func (c *TreeCommand) Cmd() *cobra.Command {
-	var upDepth, downDepth int
-	var scope string
-	var includeTests bool
-
-	cmd := &cobra.Command{
-		Use:   "new-tree <symbol>",
-		Short: "Build a call tree centered on a symbol (native)",
-		Long: `Build a call tree showing callers and callees of a symbol.
-
-Note: tree operates on functions and methods only.
-
-The symbol is the center point of the tree:
-  --up N    Show N levels of callers (what calls this function)
-  --down N  Show N levels of callees (what this function calls)
-
-By default, shows 2 levels in each direction.
-
-Scope:
-  all     - Include everything (stdlib, dependencies)
-  project - Project packages only (default)
-  package - Same package as starting symbol only
-
-Examples:
-  wildcat tree main.main
-  wildcat tree db.Query --up 3 --down 1
-  wildcat tree Server.Start --up 0 --down 4
-  wildcat tree Handler.ServeHTTP --scope all`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			wc, err := commands.LoadWildcat(cmd.Context(), ".")
-			if err != nil {
-				return err
-			}
-
-			result, cmdErr := c.Execute(cmd.Context(), wc,
-				WithSymbol(args[0]),
-				WithUpDepth(upDepth),
-				WithDownDepth(downDepth),
-				WithScope(Scope(scope)),
-				WithIncludeTests(includeTests),
-			)
-			if cmdErr != nil {
-				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
-			}
-
-			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
-				data, err := result.MarshalJSON()
-				if err != nil {
-					return err
-				}
-				os.Stdout.Write(data)
-				os.Stdout.WriteString("\n")
-				return nil
-			}
-
-			md, err := result.MarshalMarkdown()
-			if err != nil {
-				return err
-			}
-			os.Stdout.Write(md)
-			os.Stdout.WriteString("\n")
-			return nil
-		},
-	}
-
-	cmd.Flags().IntVar(&upDepth, "up", 2, "Depth of callers to show (0 to skip)")
-	cmd.Flags().IntVar(&downDepth, "down", 2, "Depth of callees to show (0 to skip)")
-	cmd.Flags().StringVar(&scope, "scope", "project", "Traversal scope: all, project, package")
-	cmd.Flags().BoolVar(&includeTests, "include-tests", false, "Include test files")
-
-	return cmd
-}
-
-func (c *TreeCommand) README() string {
-	return "TODO"
 }

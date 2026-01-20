@@ -34,6 +34,63 @@ func NewPackageCommand() *PackageCommand {
 	return &PackageCommand{}
 }
 
+func (c *PackageCommand) Cmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "package [path]",
+		Short: "Show package profile with symbols in godoc order",
+		Long: `Show a dense package map for AI orientation.
+
+Provides a complete package profile with all symbols organized in godoc order:
+constants, variables, functions, then types (each with constructors and methods).
+
+Examples:
+  wildcat package                    # Current package
+  wildcat package ./internal/lsp     # Specific package`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+
+			pkgPath := "."
+			if len(args) > 0 {
+				pkgPath = args[0]
+			}
+
+			wc, err := commands.LoadWildcat(cmd.Context(), ".")
+			if err != nil {
+				return err
+			}
+
+			result, cmdErr := c.Execute(cmd.Context(), wc, WithPackage(pkgPath))
+			if cmdErr != nil {
+				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
+			}
+
+			// Check if JSON output requested via inherited flag
+			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
+				data, err := result.MarshalJSON()
+				if err != nil {
+					return err
+				}
+				os.Stdout.Write(data)
+				os.Stdout.WriteString("\n")
+				return nil
+			}
+
+			// Default to markdown
+			md, err := result.MarshalMarkdown()
+			if err != nil {
+				return err
+			}
+			os.Stdout.Write(md)
+			os.Stdout.WriteString("\n")
+			return nil
+		},
+	}
+}
+
+func (c *PackageCommand) README() string {
+	return "TODO"
+}
+
 func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*PackageCommand) error) (commands.Result, *commands.Error) {
 
 	// handle opts
@@ -400,61 +457,4 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 
 func makeLocation(fset *token.FileSet, fileName string, pos token.Pos) string {
 	return fmt.Sprintf("%s:%d", fileName, fset.Position(pos).Line)
-}
-
-func (c *PackageCommand) Cmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "package [path]",
-		Short: "Show package profile with symbols in godoc order",
-		Long: `Show a dense package map for AI orientation.
-
-Provides a complete package profile with all symbols organized in godoc order:
-constants, variables, functions, then types (each with constructors and methods).
-
-Examples:
-  wildcat package                    # Current package
-  wildcat package ./internal/lsp     # Specific package`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-
-			pkgPath := "."
-			if len(args) > 0 {
-				pkgPath = args[0]
-			}
-
-			wc, err := commands.LoadWildcat(cmd.Context(), ".")
-			if err != nil {
-				return err
-			}
-
-			result, cmdErr := c.Execute(cmd.Context(), wc, WithPackage(pkgPath))
-			if cmdErr != nil {
-				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
-			}
-
-			// Check if JSON output requested via inherited flag
-			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
-				data, err := result.MarshalJSON()
-				if err != nil {
-					return err
-				}
-				os.Stdout.Write(data)
-				os.Stdout.WriteString("\n")
-				return nil
-			}
-
-			// Default to markdown
-			md, err := result.MarshalMarkdown()
-			if err != nil {
-				return err
-			}
-			os.Stdout.Write(md)
-			os.Stdout.WriteString("\n")
-			return nil
-		},
-	}
-}
-
-func (c *PackageCommand) README() string {
-	return "TODO"
 }

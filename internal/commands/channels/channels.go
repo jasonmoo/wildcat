@@ -43,6 +43,65 @@ func NewChannelsCommand() *ChannelsCommand {
 	return &ChannelsCommand{}
 }
 
+func (c *ChannelsCommand) Cmd() *cobra.Command {
+	var includeTests bool
+
+	cmd := &cobra.Command{
+		Use:   "channels [package] ...",
+		Short: "Show channel operations in packages",
+		Long: `Report all channel operations grouped by package and element type.
+
+Shows makes, sends, receives, closes, and select cases for channels.
+Useful for understanding concurrency patterns without precise pointer analysis.
+
+Examples:
+  wildcat channels                         # Current package
+  wildcat channels ./internal/lsp          # Specific package
+  wildcat channels internal/lsp internal/output  # Multiple packages`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wc, err := commands.LoadWildcat(cmd.Context(), ".")
+			if err != nil {
+				return err
+			}
+
+			result, cmdErr := c.Execute(cmd.Context(), wc,
+				WithPackages(args),
+				WithIncludeTests(includeTests),
+			)
+			if cmdErr != nil {
+				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
+			}
+
+			// Check if JSON output requested via inherited flag
+			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
+				data, err := result.MarshalJSON()
+				if err != nil {
+					return err
+				}
+				os.Stdout.Write(data)
+				os.Stdout.WriteString("\n")
+				return nil
+			}
+
+			// Default to markdown
+			md, err := result.MarshalMarkdown()
+			if err != nil {
+				return err
+			}
+			os.Stdout.Write(md)
+			os.Stdout.WriteString("\n")
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&includeTests, "include-tests", false, "Include test files")
+	return cmd
+}
+
+func (c *ChannelsCommand) README() string {
+	return "TODO"
+}
+
 func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*ChannelsCommand) error) (commands.Result, *commands.Error) {
 	for _, o := range opts {
 		if err := o(c); err != nil {
@@ -300,63 +359,4 @@ func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		Operations: pkgChannels,
 		Summary:    summary,
 	}, nil
-}
-
-func (c *ChannelsCommand) Cmd() *cobra.Command {
-	var includeTests bool
-
-	cmd := &cobra.Command{
-		Use:   "channels [package] ...",
-		Short: "Show channel operations in packages",
-		Long: `Report all channel operations grouped by package and element type.
-
-Shows makes, sends, receives, closes, and select cases for channels.
-Useful for understanding concurrency patterns without precise pointer analysis.
-
-Examples:
-  wildcat channels                         # Current package
-  wildcat channels ./internal/lsp          # Specific package
-  wildcat channels internal/lsp internal/output  # Multiple packages`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			wc, err := commands.LoadWildcat(cmd.Context(), ".")
-			if err != nil {
-				return err
-			}
-
-			result, cmdErr := c.Execute(cmd.Context(), wc,
-				WithPackages(args),
-				WithIncludeTests(includeTests),
-			)
-			if cmdErr != nil {
-				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
-			}
-
-			// Check if JSON output requested via inherited flag
-			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
-				data, err := result.MarshalJSON()
-				if err != nil {
-					return err
-				}
-				os.Stdout.Write(data)
-				os.Stdout.WriteString("\n")
-				return nil
-			}
-
-			// Default to markdown
-			md, err := result.MarshalMarkdown()
-			if err != nil {
-				return err
-			}
-			os.Stdout.Write(md)
-			os.Stdout.WriteString("\n")
-			return nil
-		},
-	}
-
-	cmd.Flags().BoolVar(&includeTests, "include-tests", false, "Include test files")
-	return cmd
-}
-
-func (c *ChannelsCommand) README() string {
-	return "TODO"
 }
