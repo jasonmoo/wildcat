@@ -507,6 +507,29 @@ func getPackageInfo(dir string) pkgInfo {
 	return pkgInfo{importPath: absDir, dir: absDir}
 }
 
+// scopeFilter holds parsed include/exclude package patterns.
+type scopeFilter struct {
+	includes []string // packages to include (empty means "project")
+	excludes []string // packages to exclude (- prefixed)
+}
+
+// parseScopeFilter parses a scope string into includes and excludes.
+func parseScopeFilter(scope string) scopeFilter {
+	var filter scopeFilter
+	for _, part := range strings.Split(scope, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "project" {
+			continue
+		}
+		if strings.HasPrefix(part, "-") {
+			filter.excludes = append(filter.excludes, strings.TrimPrefix(part, "-"))
+		} else {
+			filter.includes = append(filter.includes, part)
+		}
+	}
+	return filter
+}
+
 // resolvedScope holds resolved include/exclude package paths.
 type resolvedScope struct {
 	includes    map[string]bool // nil means project scope (check prefix)

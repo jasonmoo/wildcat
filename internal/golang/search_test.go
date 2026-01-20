@@ -48,7 +48,11 @@ func TestSymbolSearch(t *testing.T) {
 			// Lazy render signature and location only for results we display
 			t.Logf("  %d. [score=%d] %s [%s] %s // %s",
 				i+1, r.Score, r.Symbol.Name, r.Symbol.Kind, r.Symbol.PkgPath, r.Symbol.Location())
-			t.Logf("      sig: %s", r.Symbol.Signature())
+			sig, err := r.Symbol.Signature()
+			if err != nil {
+				t.Errorf("Signature() error: %v", err)
+			}
+			t.Logf("      sig: %s", sig)
 		}
 
 		if tc.wantTop != "" && results[0].Symbol.Name != tc.wantTop {

@@ -3,6 +3,7 @@ package cmd
 import (
 	channels_cmd "github.com/jasonmoo/wildcat/internal/commands/channels"
 	package_cmd "github.com/jasonmoo/wildcat/internal/commands/package"
+	search_cmd "github.com/jasonmoo/wildcat/internal/commands/search"
 	"github.com/spf13/cobra"
 )
 
@@ -76,7 +77,7 @@ and actionable error messages.`,
 	// Add subcommands
 	rootCmd.AddCommand(package_cmd.NewPackageCommand().Cmd())
 	rootCmd.AddCommand(symbolCmd)
-	rootCmd.AddCommand(searchCmd)
+	rootCmd.AddCommand(search_cmd.NewSearchCommand().Cmd())
 	rootCmd.AddCommand(treeCmd)
 	rootCmd.AddCommand(channels_cmd.NewChannelsCommand().Cmd())
 	rootCmd.AddCommand(readmeCmd)

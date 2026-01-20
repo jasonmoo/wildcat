@@ -4,31 +4,61 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"path/filepath"
-	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/sahilm/fuzzy"
 	"golang.org/x/tools/go/packages"
 )
 
-// SearchMode determines how the query is matched
-type SearchMode string
-
-const (
-	SearchModeFuzzy SearchMode = "fuzzy" // fuzzy matching (default)
-	SearchModeRegex SearchMode = "regex" // regex on symbol name
-)
-
-// SymbolKind represents the kind of symbol (matches Go declaration tokens)
+// SymbolKind represents the kind of symbol
 type SymbolKind string
 
 const (
-	SymbolKindFunc  SymbolKind = "func"  // functions and methods
-	SymbolKindType  SymbolKind = "type"  // struct, interface, type alias
-	SymbolKindConst SymbolKind = "const"
-	SymbolKindVar   SymbolKind = "var"
+	SymbolKindFunc      SymbolKind = "func"
+	SymbolKindMethod    SymbolKind = "method"
+	SymbolKindType      SymbolKind = "type" // struct, type alias
+	SymbolKindInterface SymbolKind = "interface"
+	SymbolKindConst     SymbolKind = "const"
+	SymbolKindVar       SymbolKind = "var"
 )
+
+// ParseKind parses a flexible kind string into SymbolKind.
+// Accepts variations like "func", "function", "fn" -> SymbolKindFunc.
+// Returns empty string if not recognized.
+func ParseKind(s string) SymbolKind {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "func", "function", "fn":
+		return SymbolKindFunc
+	case "method", "meth":
+		return SymbolKindMethod
+	case "type", "struct":
+		return SymbolKindType
+	case "interface", "iface":
+		return SymbolKindInterface
+	case "const", "constant":
+		return SymbolKindConst
+	case "var", "variable":
+		return SymbolKindVar
+	default:
+		return ""
+	}
+}
+
+// ParseKinds parses a comma-separated list of kind strings.
+// Unknown kinds are silently ignored.
+func ParseKinds(s string) []SymbolKind {
+	if s == "" {
+		return nil
+	}
+	var kinds []SymbolKind
+	for _, part := range strings.Split(s, ",") {
+		if k := ParseKind(part); k != "" {
+			kinds = append(kinds, k)
+		}
+	}
+	return kinds
+}
 
 // Symbol represents a searchable symbol from the AST
 // Stores pointers to AST nodes for lazy rendering
@@ -46,34 +76,34 @@ type Symbol struct {
 }
 
 // Signature renders the symbol's signature on demand
-func (s *Symbol) Signature() string {
+func (s *Symbol) Signature() (string, error) {
 	switch n := s.node.(type) {
 	case *ast.FuncDecl:
-		sig, err := FormatFuncDecl(n)
-		if err != nil {
-			return s.Name
-		}
-		return sig
+		return FormatFuncDecl(n)
 	case *ast.TypeSpec:
-		sig, err := FormatTypeSpec(s.tok, n)
-		if err != nil {
-			return s.Name
-		}
-		return sig
+		return FormatTypeSpec(s.tok, n)
 	case *ast.ValueSpec:
-		sig, err := FormatValueSpec(s.tok, n)
-		if err != nil {
-			return s.Name
-		}
-		return sig
+		return FormatValueSpec(s.tok, n)
 	}
-	return s.Name
+	return s.Name, nil
 }
 
-// Location renders the symbol's location on demand
+// Location renders the symbol's line range (start:end)
 func (s *Symbol) Location() string {
-	p := s.fset.Position(s.pos)
-	return fmt.Sprintf("%s:%d", filepath.Base(s.filename), p.Line)
+	start := s.fset.Position(s.pos)
+	end := s.fset.Position(s.node.End())
+	return fmt.Sprintf("%d:%d", start.Line, end.Line)
+}
+
+// Filename returns the absolute path to the file containing this symbol
+func (s *Symbol) Filename() string {
+	return s.filename
+}
+
+// SearchName returns the fully qualified searchable name (PkgPath.Name)
+// This allows fuzzy matching like "lsp.Client" or "wildcatlspclient"
+func (s *Symbol) SearchName() string {
+	return s.PkgPath + "." + s.Name
 }
 
 // SymbolIndex holds symbols for fuzzy searching
@@ -81,20 +111,26 @@ type SymbolIndex struct {
 	symbols []Symbol
 }
 
-// String implements fuzzy.Source
-func (idx *SymbolIndex) String(i int) string {
-	return idx.symbols[i].Name
-}
-
-// Len implements fuzzy.Source
-func (idx *SymbolIndex) Len() int {
-	return len(idx.symbols)
-}
-
 // Symbols returns all collected symbols
 func (idx *SymbolIndex) Symbols() []Symbol {
 	return idx.symbols
 }
+
+func (idx *SymbolIndex) Len() int {
+	return len(idx.symbols)
+}
+
+// nameSource adapts SymbolIndex to match against Name only
+type nameSource struct{ idx *SymbolIndex }
+
+func (s nameSource) String(i int) string { return s.idx.symbols[i].Name }
+func (s nameSource) Len() int            { return s.idx.Len() }
+
+// fullSource adapts SymbolIndex to match against PkgPath.Name
+type fullSource struct{ idx *SymbolIndex }
+
+func (s fullSource) String(i int) string { return s.idx.symbols[i].SearchName() }
+func (s fullSource) Len() int            { return s.idx.Len() }
 
 // SearchResult pairs a match with its symbol
 type SearchResult struct {
@@ -105,29 +141,91 @@ type SearchResult struct {
 
 // SearchOptions configures symbol search behavior
 type SearchOptions struct {
-	Mode  SearchMode   // search mode (default: fuzzy)
 	Limit int          // max results (0 = no limit)
 	Kinds []SymbolKind // filter by kind (nil = all kinds)
 }
 
-// Search performs fuzzy search on the symbol index
+// Search performs fuzzy search on the symbol index.
+// For plain queries, searches Name only.
+// For package-qualified queries (containing "."), also searches PkgPath.Name.
 func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult {
-	matches := fuzzy.FindFrom(query, idx)
+	// Search against symbol names (always)
+	nameMatches := fuzzy.FindFrom(query, nameSource{idx})
+
+	// Search against full path only for package-qualified queries like "lsp.Client"
+	var fullMatches []fuzzy.Match
+	if strings.Contains(query, ".") {
+		fullMatches = fuzzy.FindFrom(query, fullSource{idx})
+	}
+
+	// Scoring function: reward length similarity and case match
+	scoreMatch := func(name string, fuzzyScore int) int {
+		score := fuzzyScore
+
+		// Length similarity: penalize difference in length
+		// Closer length = higher score
+		lenDiff := len(name) - len(query)
+		if lenDiff < 0 {
+			lenDiff = -lenDiff
+		}
+		score -= lenDiff * 10
+
+		// Case-sensitive match bonus
+		if strings.Contains(name, query) {
+			score += 100
+		}
+
+		return score
+	}
+
+	// Merge results: for each symbol, take the best score
+	scores := make(map[int]int)    // symbol index -> best score
+	matched := make(map[int][]int) // symbol index -> matched indexes
+
+	for _, m := range nameMatches {
+		name := idx.symbols[m.Index].Name
+		score := scoreMatch(name, m.Score)
+		if score > scores[m.Index] {
+			scores[m.Index] = score
+			matched[m.Index] = m.MatchedIndexes
+		}
+	}
+
+	for _, m := range fullMatches {
+		// Full path matches get base fuzzy score (no length bonus since path is long)
+		if m.Score > scores[m.Index] {
+			scores[m.Index] = m.Score
+			matched[m.Index] = m.MatchedIndexes
+		}
+	}
+
+	// Build results sorted by score
+	type scored struct {
+		index int
+		score int
+	}
+	var sorted []scored
+	for i, s := range scores {
+		sorted = append(sorted, scored{i, s})
+	}
+	slices.SortFunc(sorted, func(a, b scored) int {
+		return b.score - a.score // descending
+	})
 
 	// Apply filters and limit
-	results := make([]SearchResult, 0, len(matches))
-	for _, m := range matches {
-		sym := &idx.symbols[m.Index]
+	results := make([]SearchResult, 0, len(sorted))
+	for _, s := range sorted {
+		sym := &idx.symbols[s.index]
 
 		// Filter by kind
-		if opts != nil && !slices.Contains(opts.Kinds, sym.Kind) {
+		if opts != nil && len(opts.Kinds) > 0 && !slices.Contains(opts.Kinds, sym.Kind) {
 			continue
 		}
 
 		results = append(results, SearchResult{
 			Symbol:         sym,
-			Score:          m.Score,
-			MatchedIndexes: m.MatchedIndexes,
+			Score:          s.score,
+			MatchedIndexes: matched[s.index],
 		})
 
 		// Apply limit

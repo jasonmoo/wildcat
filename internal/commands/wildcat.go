@@ -11,6 +11,7 @@ import (
 type Wildcat struct {
 	Project *golang.Project
 	Stdlib  []*packages.Package
+	Index   *golang.SymbolIndex
 }
 
 func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
@@ -19,9 +20,13 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 		return nil, err
 	}
 	stdps, err := golang.LoadStdlibPackages(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &Wildcat{
 		Project: p,
 		Stdlib:  stdps,
+		Index:   golang.CollectSymbols(p.Packages),
 	}, nil
 }
 

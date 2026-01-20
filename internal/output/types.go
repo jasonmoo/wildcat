@@ -149,6 +149,7 @@ type SearchQuery struct {
 	Command string `json:"command"`
 	Pattern string `json:"pattern"`
 	Scope   string `json:"scope,omitempty"`
+	Kind    string `json:"kind,omitempty"`
 }
 
 // SearchMatch represents a single symbol match within a package.
