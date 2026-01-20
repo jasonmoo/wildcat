@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/token"
 	gotypes "go/types"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/output"
+	"github.com/spf13/cobra"
 )
 
 type PackageCommand struct {
@@ -116,9 +118,9 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 				}
 				if v.Recv != nil && len(v.Recv.List) > 0 {
 					// Method - attach to receiver type
-					typeName := receiverTypeName(v.Recv.List[0].Type)
+					typeName := golang.ReceiverTypeName(v.Recv.List[0].Type)
 					ensureType(typeName).methods = append(ensureType(typeName).methods, sym)
-				} else if typeName := constructorTypeName(v.Type); typeName != "" && pkg.Types.Scope().Lookup(typeName) != nil {
+				} else if typeName := golang.ConstructorTypeName(v.Type); typeName != "" && pkg.Types.Scope().Lookup(typeName) != nil {
 					// Constructor - attach to returned type (only if type is defined in this package)
 					ensureType(typeName).functions = append(ensureType(typeName).functions, sym)
 				} else {
@@ -400,43 +402,9 @@ func makeLocation(fset *token.FileSet, fileName string, pos token.Pos) string {
 	return fmt.Sprintf("%s:%d", fileName, fset.Position(pos).Line)
 }
 
-// receiverTypeName extracts the type name from a method receiver.
-// Handles both T and *T receivers.
-func receiverTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		if ident, ok := t.X.(*ast.Ident); ok {
-			return ident.Name
-		}
-	}
-	return ""
-}
-
-// constructorTypeName returns the type name if this function looks like a constructor.
-// A constructor returns T or *T where T is a local exported type.
-func constructorTypeName(ft *ast.FuncType) string {
-	if ft.Results == nil || len(ft.Results.List) == 0 {
-		return ""
-	}
-	// Check first return type
-	ret := ft.Results.List[0].Type
-	name := ""
-	switch t := ret.(type) {
-	case *ast.Ident:
-		name = t.Name
-	case *ast.StarExpr:
-		if ident, ok := t.X.(*ast.Ident); ok {
-			name = ident.Name
-		}
-	}
-	return name
-}
-
-func (c *PackageCommand) Help() commands.Help {
-	return commands.Help{
-		Use:   "package [path]",
+func (c *PackageCommand) Cmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "new-package [path]",
 		Short: "Show package profile with symbols in godoc order",
 		Long: `Show a dense package map for AI orientation.
 
@@ -444,9 +412,46 @@ Provides a complete package profile with all symbols organized in godoc order:
 constants, variables, functions, then types (each with constructors and methods).
 
 Examples:
-  wildcat package                    # Current package
-  wildcat package ./internal/lsp     # Specific package
-  wildcat package --exclude-stdlib   # Exclude stdlib from imports`,
+  wildcat new-package                    # Current package
+  wildcat new-package ./internal/lsp     # Specific package`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+
+			pkgPath := "."
+			if len(args) > 0 {
+				pkgPath = args[0]
+			}
+
+			wc, err := commands.LoadWildcat(cmd.Context(), ".")
+			if err != nil {
+				return err
+			}
+
+			result, cmdErr := c.Execute(cmd.Context(), wc, WithPackage(pkgPath))
+			if cmdErr != nil {
+				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
+			}
+
+			// Check if JSON output requested via inherited flag
+			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
+				data, err := result.MarshalJSON()
+				if err != nil {
+					return err
+				}
+				os.Stdout.Write(data)
+				os.Stdout.WriteString("\n")
+				return nil
+			}
+
+			// Default to markdown
+			md, err := result.MarshalMarkdown()
+			if err != nil {
+				return err
+			}
+			os.Stdout.Write(md)
+			os.Stdout.WriteString("\n")
+			return nil
+		},
 	}
 }
 

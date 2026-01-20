@@ -21,15 +21,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// goListPackage represents the JSON output from `go list -json`
-type goListPackage struct {
-	Dir        string   `json:"Dir"`
-	ImportPath string   `json:"ImportPath"`
-	Name       string   `json:"Name"`
-	GoFiles    []string `json:"GoFiles"`
-	Imports    []string `json:"Imports"`
-}
-
 var packageCmd = &cobra.Command{
 	Use:   "package [path]",
 	Short: "Show package profile with symbols in godoc order",

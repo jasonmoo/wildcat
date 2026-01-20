@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	package_cmd "github.com/jasonmoo/wildcat/internal/commands/package"
 	"github.com/spf13/cobra"
 )
 
+// TODO: move this inside execute
 var rootCmd = &cobra.Command{
 	Use:   "wildcat",
 	Short: "Go static analysis CLI for AI agents",
@@ -17,20 +19,22 @@ and actionable error messages.`,
 var globalOutput string
 
 func Execute() error {
+	rootCmd.AddCommand(package_cmd.NewPackageCommand().Cmd())
 	return rootCmd.Execute()
 }
 
 // commandOrder defines the display order for commands in help output.
 // Commands not in this list appear at the end alphabetically.
 var commandOrder = []string{
-	"package",  // package-level analysis
-	"symbol",   // symbol-level analysis
-	"search",   // find symbols
-	"tree",     // call graph traversal
-	"channels", // concurrency analysis
-	"readme",   // onboarding
-	"version",  // meta
-	"help",     // always last
+	"package",     // package-level analysis
+	"new-package", // package-level analysis
+	"symbol",      // symbol-level analysis
+	"search",      // find symbols
+	"tree",        // call graph traversal
+	"channels",    // concurrency analysis
+	"readme",      // onboarding
+	"version",     // meta
+	"help",        // always last
 }
 
 func init() {

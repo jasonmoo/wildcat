@@ -3,12 +3,14 @@ package commands
 import (
 	"context"
 	"fmt"
+
+	"github.com/spf13/cobra"
 )
 
 type (
 	Command[T any] interface {
 		Execute(context.Context, *Wildcat, ...func(T) error) (Result, *Error)
-		Help() Help
+		Cmd() *cobra.Command
 		README() string
 	}
 
@@ -22,12 +24,6 @@ type (
 		Error       error                  `json:"error"`
 		Suggestions []string               `json:"suggestions"`
 		Context     map[string]interface{} `json:"context"`
-	}
-
-	Help struct {
-		Use   string
-		Short string
-		Long  string
 	}
 )
 

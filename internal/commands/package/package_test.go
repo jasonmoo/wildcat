@@ -27,4 +27,10 @@ func TestPackageExecute(t *testing.T) {
 	}
 	fmt.Println(string(data))
 
+	data, err = res.MarshalJSON()
+	if err != nil {
+		t.Error(err)
+	}
+	fmt.Println(string(data))
+
 }

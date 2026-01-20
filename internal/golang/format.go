@@ -131,3 +131,37 @@ func stripFields(fs []*ast.Field) {
 		f.Comment = nil
 	}
 }
+
+// receiverTypeName extracts the type name from a method receiver.
+// Handles both T and *T receivers.
+func ReceiverTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	}
+	return ""
+}
+
+// constructorTypeName returns the type name if this function looks like a constructor.
+// A constructor returns T or *T where T is a local exported type.
+func ConstructorTypeName(ft *ast.FuncType) string {
+	if ft.Results == nil || len(ft.Results.List) == 0 {
+		return ""
+	}
+	// Check first return type
+	ret := ft.Results.List[0].Type
+	name := ""
+	switch t := ret.(type) {
+	case *ast.Ident:
+		name = t.Name
+	case *ast.StarExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			name = ident.Name
+		}
+	}
+	return name
+}
