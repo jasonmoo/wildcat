@@ -267,3 +267,6 @@ The following commands do not require user approval:
 
 When executing commands that take a -C <dir>, avoid that pattern and instead
 cd into the target dir.  This will enable the command to be used without approval.
+
+NEVER use `go run -` or `cat <<'EOF' | go run -` patterns. They don't work.
+To test Go code, write a proper test file and use `go test`.
