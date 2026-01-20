@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	channels_cmd "github.com/jasonmoo/wildcat/internal/commands/channels"
 	package_cmd "github.com/jasonmoo/wildcat/internal/commands/package"
 	"github.com/spf13/cobra"
 )
@@ -77,7 +78,7 @@ and actionable error messages.`,
 	rootCmd.AddCommand(symbolCmd)
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(treeCmd)
-	rootCmd.AddCommand(channelsCmd)
+	rootCmd.AddCommand(channels_cmd.NewChannelsCommand().Cmd())
 	rootCmd.AddCommand(readmeCmd)
 	rootCmd.AddCommand(versionCmd)
 

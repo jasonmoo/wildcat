@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
+	"go/types"
 	"io"
 	"strings"
 
@@ -165,3 +166,50 @@ func ConstructorTypeName(ft *ast.FuncType) string {
 	}
 	return name
 }
+
+// ChannelElemType returns the element type of a channel expression, or empty string if not a channel.
+func ChannelElemType(info *types.Info, expr ast.Expr) string {
+	if t := info.TypeOf(expr); t != nil {
+		if ch, ok := t.Underlying().(*types.Chan); ok {
+			return ch.Elem().String()
+		}
+	}
+	return ""
+}
+
+// FormatNode formats an AST node to its canonical source representation.
+// Strips comments and doc strings from the node before formatting.
+func FormatNode(node ast.Node) (string, error) {
+	stripComments(node)
+	var sb strings.Builder
+	if err := format.Node(&sb, token.NewFileSet(), node); err != nil {
+		return "", err
+	}
+	return sb.String(), nil
+}
+
+// stripComments removes comments and doc strings from an AST node.
+func stripComments(node ast.Node) {
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.FuncDecl:
+			v.Doc = nil
+		case *ast.GenDecl:
+			v.Doc = nil
+		case *ast.TypeSpec:
+			v.Doc = nil
+			v.Comment = nil
+		case *ast.ValueSpec:
+			v.Doc = nil
+			v.Comment = nil
+		case *ast.Field:
+			v.Doc = nil
+			v.Comment = nil
+		case *ast.ImportSpec:
+			v.Doc = nil
+			v.Comment = nil
+		}
+		return true
+	})
+}
+
