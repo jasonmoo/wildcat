@@ -99,7 +99,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&scope, "scope", "project", "Scope: 'project', 'all', or package substrings")
-	cmd.Flags().BoolVar(&includeExported, "include-exported", false, "Include exported symbols (may have external callers)")
+	cmd.Flags().BoolVar(&includeExported, "include-exported", false, "Include symbols exported from the module (may have external callers). Symbols in internal/ packages are always included.")
 
 	return cmd
 }
@@ -128,8 +128,8 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 			continue
 		}
 
-		// Skip exported unless requested
-		if !c.includeExported && isExported(sym.Name) {
+		// Skip exported unless requested (but internal/ exports are always included)
+		if !c.includeExported && isExported(sym.Name) && !isInternalPkg(sym.Package.Identifier.PkgPath) {
 			continue
 		}
 
@@ -254,6 +254,10 @@ func isExported(name string) bool {
 	}
 	r := []rune(name)
 	return unicode.IsUpper(r[0])
+}
+
+func isInternalPkg(pkgPath string) bool {
+	return strings.Contains(pkgPath, "/internal/") || strings.HasSuffix(pkgPath, "/internal")
 }
 
 func isSpecialFunc(sym golang.Symbol) bool {
