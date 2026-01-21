@@ -152,12 +152,25 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		refCount := c.countReferences(wc, &sym, filter)
 		if refCount == 0 {
 			sig, _ := sym.Signature()
-			unused = append(unused, UnusedSymbol{
+			u := UnusedSymbol{
 				Symbol:     sym.Package.Identifier.Name + "." + sym.Name,
 				Kind:       string(sym.Kind),
 				Signature:  sig,
 				Definition: fmt.Sprintf("%s:%s", sym.Filename(), sym.Location()),
-			})
+			}
+
+			// Get parent type for methods and constructors
+			if node, ok := sym.Node().(*ast.FuncDecl); ok {
+				if node.Recv != nil && len(node.Recv.List) > 0 {
+					// Method - get receiver type
+					u.ParentType = sym.Package.Identifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
+				} else if ctorType := golang.ConstructorTypeName(node.Type); ctorType != "" {
+					// Constructor - get return type
+					u.ParentType = sym.Package.Identifier.Name + "." + ctorType
+				}
+			}
+
+			unused = append(unused, u)
 		}
 	}
 
