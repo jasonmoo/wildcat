@@ -31,12 +31,13 @@ func AnalyzeDeadCode(project *Project, includeTests bool) (*DeadCodeResult, erro
 	}
 
 	// Convert to SSA form
-	// InstantiateGenerics is required for RTA to work correctly with generics
-	prog, ssaPkgs := ssautil.AllPackages(pkgs, ssa.InstantiateGenerics)
+	// InstantiateGenerics is required for RTA to work correctly with generics.
+	// BuildSerially ensures Build() runs in the main goroutine so panics can be recovered.
+	prog, ssaPkgs := ssautil.AllPackages(pkgs, ssa.InstantiateGenerics|ssa.BuildSerially)
 
-	// Build SSA with panic recovery - the SSA builder can panic on certain
-	// edge cases involving generics or variadic parameters
-	if err := buildSSAWithRecovery(prog); err != nil {
+	// Build SSA with panic recovery.
+	// The SSA builder can panic on certain generic patterns (e.g., go-json-experiment/json).
+	if err := buildSSA(prog); err != nil {
 		return nil, err
 	}
 
@@ -115,14 +116,21 @@ func posKey(filename string, line int) string {
 	return fmt.Sprintf("%s:%d", filename, line)
 }
 
-// buildSSAWithRecovery wraps prog.Build() with panic recovery.
-// The SSA builder can panic on certain edge cases involving generics or variadic parameters.
-func buildSSAWithRecovery(prog *ssa.Program) (err error) {
+// buildSSA builds the SSA program with panic recovery.
+func buildSSA(prog *ssa.Program) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("ssa_build_panic: SSA builder panicked: %v", r)
+			err = fmt.Errorf(`deadcode analysis failed due to an upstream bug in golang.org/x/tools/go/ssa.
+
+This occurs with certain generic type patterns (e.g., github.com/go-json-experiment/json).
+A fix is expected in Go 1.26. See: https://github.com/golang/go/issues/73871
+
+Panic: %v
+
+We apologize for the inconvenience. This will work automatically once the fix is released.`, r)
 		}
 	}()
+
 	prog.Build()
 	return nil
 }
