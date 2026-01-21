@@ -12,9 +12,9 @@ import (
 var _ commands.Result = (*DeadcodeCommandResponse)(nil)
 
 type QueryInfo struct {
-	Command      string `json:"command"`
-	Target       string `json:"target,omitempty"`
-	IncludeTests bool   `json:"include_tests"`
+	Command      string   `json:"command"`
+	Targets      []string `json:"targets,omitempty"`
+	IncludeTests bool     `json:"include_tests"`
 }
 
 type DeadSymbol struct {
@@ -75,8 +75,8 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 	sb.WriteString("# Dead Code Analysis\n\n")
 
 	// Query info
-	if r.Query.Target != "" {
-		fmt.Fprintf(&sb, "target: %s\n", r.Query.Target)
+	if len(r.Query.Targets) > 0 {
+		fmt.Fprintf(&sb, "targets: %s\n", strings.Join(r.Query.Targets, ", "))
 	}
 	fmt.Fprintf(&sb, "include_tests: %v\n\n", r.Query.IncludeTests)
 

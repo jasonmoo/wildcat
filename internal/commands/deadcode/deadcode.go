@@ -15,16 +15,16 @@ import (
 )
 
 type DeadcodeCommand struct {
-	target          string // which package's symbols to report (empty = all project)
-	includeTests    bool   // include test entry points in reachability analysis
-	includeExported bool   // include exported symbols (may have external callers)
+	targets         []string // which packages' symbols to report (empty = all project)
+	includeTests    bool     // include test entry points in reachability analysis
+	includeExported bool     // include exported symbols (may have external callers)
 }
 
 var _ commands.Command[*DeadcodeCommand] = (*DeadcodeCommand)(nil)
 
-func WithTarget(target string) func(*DeadcodeCommand) error {
+func WithTargets(targets []string) func(*DeadcodeCommand) error {
 	return func(c *DeadcodeCommand) error {
-		c.target = target
+		c.targets = targets
 		return nil
 	}
 }
@@ -54,7 +54,7 @@ func (c *DeadcodeCommand) Cmd() *cobra.Command {
 	var includeExported bool
 
 	cmd := &cobra.Command{
-		Use:   "deadcode [package]",
+		Use:   "deadcode [packages...]",
 		Short: "Find unreachable code using static analysis",
 		Long: `Find functions and methods not reachable from entry points.
 
@@ -63,7 +63,7 @@ reachable from main(), init(), and test functions. This catches
 transitively dead code that simple reference counting misses.
 
 Target (optional):
-  If specified, only report dead code in packages matching the target.
+  If one or more packages specified, only report dead code in those packages.
   If omitted, report all dead code in the project.
 
 Flags:
@@ -71,24 +71,19 @@ Flags:
   --exported      Include exported symbols (may have external callers)
 
 Examples:
-  wildcat deadcode                    # find all dead code
-  wildcat deadcode internal/lsp       # dead code in lsp package
-  wildcat deadcode --tests=false      # ignore test entry points
-  wildcat deadcode --include-exported # include exported API`,
-		Args: cobra.MaximumNArgs(1),
+  wildcat deadcode                              # find all dead code
+  wildcat deadcode internal/lsp                 # dead code in lsp package
+  wildcat deadcode internal/lsp internal/errors # dead code in multiple packages
+  wildcat deadcode --tests=false                # ignore test entry points
+  wildcat deadcode --include-exported           # include exported API`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wc, err := commands.LoadWildcat(cmd.Context(), ".")
 			if err != nil {
 				return err
 			}
 
-			var target string
-			if len(args) > 0 {
-				target = args[0]
-			}
-
 			result, err := c.Execute(cmd.Context(), wc,
-				WithTarget(target),
+				WithTargets(args),
 				WithIncludeTests(includeTests),
 				WithIncludeExported(includeExported),
 			)
@@ -133,14 +128,14 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		}
 	}
 
-	// Resolve target package path if specified
-	var targetPkgPath string
-	if c.target != "" {
-		pi, err := wc.Project.ResolvePackageName(ctx, c.target)
+	// Resolve target package paths if specified
+	targetPkgPaths := make(map[string]bool)
+	for _, target := range c.targets {
+		pi, err := wc.Project.ResolvePackageName(ctx, target)
 		if err != nil {
-			return commands.NewErrorResultf("invalid_target", "cannot resolve package %q: %v", c.target, err), nil
+			return commands.NewErrorResultf("invalid_target", "cannot resolve package %q: %v", target, err), nil
 		}
-		targetPkgPath = pi.PkgPath
+		targetPkgPaths[pi.PkgPath] = true
 	}
 
 	// Run RTA analysis
@@ -157,8 +152,8 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 	totalMethodsByType := make(map[string]int)
 
 	for _, sym := range wc.Index.Symbols() {
-		// Filter by target package if specified
-		if targetPkgPath != "" && sym.Package.Identifier.PkgPath != targetPkgPath {
+		// Filter by target packages if specified
+		if len(targetPkgPaths) > 0 && !targetPkgPaths[sym.Package.Identifier.PkgPath] {
 			continue
 		}
 
@@ -252,10 +247,16 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		deadSymbols = append(deadSymbols, ds)
 	}
 
+	// Convert target map keys to slice for response
+	var targetsList []string
+	for pkgPath := range targetPkgPaths {
+		targetsList = append(targetsList, pkgPath)
+	}
+
 	return &DeadcodeCommandResponse{
 		Query: QueryInfo{
 			Command:      "deadcode",
-			Target:       targetPkgPath,
+			Targets:      targetsList,
 			IncludeTests: c.includeTests,
 		},
 		Dead:               deadSymbols,
