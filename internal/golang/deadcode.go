@@ -33,7 +33,12 @@ func AnalyzeDeadCode(project *Project, includeTests bool) (*DeadCodeResult, erro
 	// Convert to SSA form
 	// InstantiateGenerics is required for RTA to work correctly with generics
 	prog, ssaPkgs := ssautil.AllPackages(pkgs, ssa.InstantiateGenerics)
-	prog.Build()
+
+	// Build SSA with panic recovery - the SSA builder can panic on certain
+	// edge cases involving generics or variadic parameters
+	if err := buildSSAWithRecovery(prog); err != nil {
+		return nil, err
+	}
 
 	// Find root functions (entry points)
 	var roots []*ssa.Function
@@ -108,6 +113,18 @@ func AnalyzeDeadCode(project *Project, includeTests bool) (*DeadCodeResult, erro
 // posKey creates a filename:line key for position matching.
 func posKey(filename string, line int) string {
 	return fmt.Sprintf("%s:%d", filename, line)
+}
+
+// buildSSAWithRecovery wraps prog.Build() with panic recovery.
+// The SSA builder can panic on certain edge cases involving generics or variadic parameters.
+func buildSSAWithRecovery(prog *ssa.Program) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("ssa_build_panic: SSA builder panicked: %v", r)
+		}
+	}()
+	prog.Build()
+	return nil
 }
 
 // IsReachable checks if a symbol is reachable from entry points.
