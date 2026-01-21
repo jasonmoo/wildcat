@@ -21,9 +21,9 @@ type DeadSymbol struct {
 	Symbol     string `json:"symbol"`
 	Kind       string `json:"kind"`
 	Signature  string `json:"signature"`
-	Package    string `json:"package"`              // full package path
-	Filename   string `json:"filename"`             // relative filename within package
-	Location   string `json:"location"`             // line:col or start:end
+	Package    string `json:"package"`               // full package path
+	Filename   string `json:"filename"`              // relative filename within package
+	Location   string `json:"location"`              // line:col or start:end
 	ParentType string `json:"parent_type,omitempty"` // for methods: receiver type; for constructors: return type
 }
 
@@ -108,7 +108,6 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 	// Show dead packages summary at top
 	if len(deadPackages) > 0 {
 		fmt.Fprintf(&sb, "# Dead Packages (%d)\n\n", len(deadPackages))
-		sb.WriteString("These packages are entirely dead and can be deleted:\n\n")
 		for _, pkg := range deadPackages {
 			pi := r.Packages[pkg]
 			fmt.Fprintf(&sb, "- %s (%d symbols, %d files)\n", pkg, pi.TotalSymbols, len(pi.Files))
