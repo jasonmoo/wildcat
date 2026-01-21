@@ -142,7 +142,10 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	qualifiedSymbol := target.Package.Identifier.PkgPath + "." + target.Name
 
 	// Parse scope
-	scopeFilter := c.parseScope(ctx, wc, target.Package.Identifier.PkgPath)
+	scopeFilter, err := wc.ParseScope(ctx, c.scope, target.Package.Identifier.PkgPath)
+	if err != nil {
+		return nil, err
+	}
 
 	// Snippet extractor for AST-aware snippet extraction
 	extractor := output.NewSnippetExtractor()
@@ -356,64 +359,7 @@ type referenceInfo struct {
 	symbol string
 }
 
-type scopeFilter struct {
-	includes map[string]bool // nil means project scope
-	excludes map[string]bool
-}
-
-func (c *SymbolCommand) parseScope(ctx context.Context, wc *commands.Wildcat, targetPkgPath string) scopeFilter {
-	if c.scope == "package" {
-		return scopeFilter{
-			includes: map[string]bool{targetPkgPath: true},
-		}
-	}
-
-	if c.scope == "project" {
-		return scopeFilter{
-			excludes: make(map[string]bool),
-		}
-	}
-
-	var filter scopeFilter
-	filter.excludes = make(map[string]bool)
-
-	for _, part := range strings.Split(c.scope, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" || part == "project" {
-			continue
-		}
-		if strings.HasPrefix(part, "-") {
-			// Exclude pattern - resolve to full path
-			pattern := strings.TrimPrefix(part, "-")
-			if pi, err := wc.Project.ResolvePackageName(ctx, pattern); err == nil {
-				filter.excludes[pi.PkgPath] = true
-			}
-		} else {
-			// Include pattern - resolve to full path
-			if filter.includes == nil {
-				filter.includes = make(map[string]bool)
-			}
-			if pi, err := wc.Project.ResolvePackageName(ctx, part); err == nil {
-				filter.includes[pi.PkgPath] = true
-			}
-		}
-	}
-
-	return filter
-}
-
-func (c *SymbolCommand) inScope(pkgPath string, wc *commands.Wildcat, filter scopeFilter) bool {
-	if filter.excludes[pkgPath] {
-		return false
-	}
-	if filter.includes == nil {
-		// Project scope - check module prefix
-		return strings.HasPrefix(pkgPath, wc.Project.Module.Path)
-	}
-	return filter.includes[pkgPath]
-}
-
-func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol, filter scopeFilter, usageByPkg map[string]*pkgUsage) {
+func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol, filter *commands.ScopeFilter, usageByPkg map[string]*pkgUsage) {
 	// Get the target's types.Object for comparison
 	node := target.Node()
 	funcDecl, ok := node.(*ast.FuncDecl)
@@ -428,7 +374,7 @@ func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol,
 
 	// Search all packages for calls to target
 	for _, pkg := range wc.Project.Packages {
-		if !c.inScope(pkg.Identifier.PkgPath, wc, filter) {
+		if !filter.InScope(pkg.Identifier.PkgPath) {
 			continue
 		}
 
@@ -480,7 +426,7 @@ func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol,
 	}
 }
 
-func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symbol, filter scopeFilter, usageByPkg map[string]*pkgUsage) {
+func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symbol, filter *commands.ScopeFilter, usageByPkg map[string]*pkgUsage) {
 	// Get the target's types.Object
 	targetObj := c.getTargetObject(target)
 	if targetObj == nil {
@@ -498,7 +444,7 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 
 	// Search all packages for references
 	for _, pkg := range wc.Project.Packages {
-		if !c.inScope(pkg.Identifier.PkgPath, wc, filter) {
+		if !filter.InScope(pkg.Identifier.PkgPath) {
 			continue
 		}
 

@@ -53,15 +53,16 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []strin
 
 func (wc *Wildcat) NewSymbolNotFoundErrorResponse(symbol string) *ErrorResult {
 	e := NewErrorResultf("symbol_not_found", "%q not found", symbol)
-	e.Suggestions = wc.Suggestions(symbol, &golang.SearchOptions{Limit: 5})
+	e.Suggestions = wc.Suggestions(symbol, &golang.SearchOptions{Limit: 5, Exclude: symbol})
 	return e
 }
 
 func (wc *Wildcat) NewFuncNotFoundErrorResponse(symbol string) *ErrorResult {
 	e := NewErrorResultf("function_not_found", "%q not found", symbol)
 	e.Suggestions = wc.Suggestions(symbol, &golang.SearchOptions{
-		Limit: 5,
-		Kinds: []golang.SymbolKind{golang.SymbolKindFunc},
+		Limit:   5,
+		Kinds:   []golang.SymbolKind{golang.SymbolKindFunc},
+		Exclude: symbol,
 	})
 	return e
 }

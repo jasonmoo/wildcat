@@ -246,8 +246,9 @@ type SearchResult struct {
 
 // SearchOptions configures symbol search behavior
 type SearchOptions struct {
-	Limit int          // max results (0 = no limit)
-	Kinds []SymbolKind // filter by kind (nil = all kinds)
+	Limit   int          // max results (0 = no limit)
+	Kinds   []SymbolKind // filter by kind (nil = all kinds)
+	Exclude string       // symbol name to exclude from results (e.g., "pkg.Symbol")
 }
 
 // Search performs fuzzy search on the symbol index.
@@ -325,6 +326,14 @@ func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult
 		// Filter by kind
 		if opts != nil && len(opts.Kinds) > 0 && !slices.Contains(opts.Kinds, sym.Kind) {
 			continue
+		}
+
+		// Exclude specific symbol
+		if opts != nil && opts.Exclude != "" {
+			fullName := sym.Package.Identifier.Name + "." + sym.Name
+			if fullName == opts.Exclude {
+				continue
+			}
 		}
 
 		results = append(results, SearchResult{
