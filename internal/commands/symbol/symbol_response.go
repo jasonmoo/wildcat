@@ -11,11 +11,18 @@ import (
 
 var _ commands.Result = (*SymbolCommandResponse)(nil)
 
+// FunctionInfo describes a method or constructor.
+type FunctionInfo struct {
+	Symbol     string `json:"symbol"`     // qualified: pkg.Type.Method or pkg.Func
+	Signature  string `json:"signature"`
+	Definition string `json:"definition"` // file:start:end
+}
+
 type SymbolCommandResponse struct {
 	Query             output.QueryInfo        `json:"query"`
 	Target            output.TargetInfo       `json:"target"`
-	Methods           []output.PackageSymbol  `json:"methods,omitempty"`
-	Constructors      []output.PackageSymbol  `json:"constructors,omitempty"`
+	Methods           []FunctionInfo          `json:"methods,omitempty"`
+	Constructors      []FunctionInfo          `json:"constructors,omitempty"`
 	ImportedBy        []output.DepResult      `json:"imported_by"`
 	References        []output.PackageUsage   `json:"references"`
 	Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
@@ -33,8 +40,8 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		QuerySummary      output.SymbolSummary    `json:"query_summary"`
 		PackageSummary    output.SymbolSummary    `json:"package_summary"`
 		ProjectSummary    output.SymbolSummary    `json:"project_summary"`
-		Methods           []output.PackageSymbol  `json:"methods,omitempty"`
-		Constructors      []output.PackageSymbol  `json:"constructors,omitempty"`
+		Methods           []FunctionInfo          `json:"methods,omitempty"`
+		Constructors      []FunctionInfo          `json:"constructors,omitempty"`
 		ImportedBy        []output.DepResult      `json:"imported_by"`
 		References        []output.PackageUsage   `json:"references"`
 		Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
@@ -80,7 +87,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if len(r.Methods) > 0 {
 		sb.WriteString("## Methods\n\n")
 		for _, m := range r.Methods {
-			fmt.Fprintf(&sb, "- `%s` %s\n", m.Signature, m.Location)
+			fmt.Fprintf(&sb, "- **%s** `%s` %s\n", m.Symbol, m.Signature, m.Definition)
 		}
 		sb.WriteString("\n")
 	}
@@ -89,7 +96,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if len(r.Constructors) > 0 {
 		sb.WriteString("## Constructors\n\n")
 		for _, c := range r.Constructors {
-			fmt.Fprintf(&sb, "- `%s` %s\n", c.Signature, c.Location)
+			fmt.Fprintf(&sb, "- **%s** `%s` %s\n", c.Symbol, c.Signature, c.Definition)
 		}
 		sb.WriteString("\n")
 	}

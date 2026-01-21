@@ -156,7 +156,7 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	}
 
 	// Find methods and constructors for types (before references so we can exclude them)
-	var methods, constructors []output.PackageSymbol
+	var methods, constructors []FunctionInfo
 	excludeFromRefs := make(map[string]bool) // file:line keys to exclude from references
 	if target.Kind == golang.SymbolKindType || target.Kind == golang.SymbolKindInterface {
 		foundMethods := golang.FindMethods(target.Package, target.Name)
@@ -164,18 +164,26 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		for _, fn := range foundMethods {
 			sig, _ := golang.FormatFuncDecl(fn)
 			pos := target.Package.Package.Fset.Position(fn.Pos())
-			methods = append(methods, output.PackageSymbol{
-				Signature: sig,
-				Location:  fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
+			endPos := target.Package.Package.Fset.Position(fn.End())
+			// Build qualified symbol: pkg.Type.Method
+			methodSymbol := target.Package.Identifier.Name + "." + target.Name + "." + fn.Name.Name
+			methods = append(methods, FunctionInfo{
+				Symbol:     methodSymbol,
+				Signature:  sig,
+				Definition: fmt.Sprintf("%s:%d:%d", pos.Filename, pos.Line, endPos.Line),
 			})
 			excludeFromRefs[fmt.Sprintf("%s:%d", pos.Filename, pos.Line)] = true
 		}
 		for _, fn := range foundConstructors {
 			sig, _ := golang.FormatFuncDecl(fn)
 			pos := target.Package.Package.Fset.Position(fn.Pos())
-			constructors = append(constructors, output.PackageSymbol{
-				Signature: sig,
-				Location:  fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
+			endPos := target.Package.Package.Fset.Position(fn.End())
+			// Build qualified symbol: pkg.FuncName
+			constructorSymbol := target.Package.Identifier.Name + "." + fn.Name.Name
+			constructors = append(constructors, FunctionInfo{
+				Symbol:     constructorSymbol,
+				Signature:  sig,
+				Definition: fmt.Sprintf("%s:%d:%d", pos.Filename, pos.Line, endPos.Line),
 			})
 			excludeFromRefs[fmt.Sprintf("%s:%d", pos.Filename, pos.Line)] = true
 		}
@@ -495,70 +503,94 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 		}
 
 		for _, file := range pkg.Package.Syntax {
-			// Iterate over declarations to track containing function
+			// Iterate over declarations to track containing symbol
 			for _, decl := range file.Decls {
-				fn, isFn := decl.(*ast.FuncDecl)
-
-				// Build containing symbol name
-				var containingSymbol string
-				if isFn {
-					containingSymbol = pkg.Identifier.Name + "."
-					if fn.Recv != nil && len(fn.Recv.List) > 0 {
-						containingSymbol += golang.ReceiverTypeName(fn.Recv.List[0].Type) + "."
+				switch d := decl.(type) {
+				case *ast.FuncDecl:
+					// Function: symbol is pkg.Func or pkg.Type.Method
+					containingSymbol := pkg.Identifier.Name + "."
+					if d.Recv != nil && len(d.Recv.List) > 0 {
+						containingSymbol += golang.ReceiverTypeName(d.Recv.List[0].Type) + "."
 					}
-					containingSymbol += fn.Name.Name
-				}
+					containingSymbol += d.Name.Name
+					c.findRefsInNode(d, containingSymbol, pkg, target, targetObj, callerLocs, usageByPkg)
 
-				ast.Inspect(decl, func(n ast.Node) bool {
-					ident, ok := n.(*ast.Ident)
-					if !ok {
-						return true
-					}
-
-					obj := pkg.Package.TypesInfo.Uses[ident]
-					if obj == nil {
-						return true
-					}
-
-					// Check if this references our target
-					if !c.sameObject(obj, targetObj) {
-						return true
-					}
-
-					pos := pkg.Package.Fset.Position(ident.Pos())
-					key := fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
-
-					// Skip if already counted as caller
-					if callerLocs[key] {
-						return true
-					}
-
-					// Skip the definition itself
-					if pos.Filename == target.Filename() {
-						defLine, _, _ := strings.Cut(target.Location(), ":")
-						if fmt.Sprintf("%d", pos.Line) == defLine {
-							return true
+				case *ast.GenDecl:
+					// For type/var/const, iterate each spec separately
+					for _, spec := range d.Specs {
+						switch s := spec.(type) {
+						case *ast.TypeSpec:
+							containingSymbol := pkg.Identifier.Name + "." + s.Name.Name
+							c.findRefsInNode(s.Type, containingSymbol, pkg, target, targetObj, callerLocs, usageByPkg)
+						case *ast.ValueSpec:
+							// Type is shared across all names, attribute to first name
+							if s.Type != nil && len(s.Names) > 0 {
+								containingSymbol := pkg.Identifier.Name + "." + s.Names[0].Name
+								c.findRefsInNode(s.Type, containingSymbol, pkg, target, targetObj, callerLocs, usageByPkg)
+							}
+							// Each value corresponds to its name by index
+							for i, name := range s.Names {
+								if i < len(s.Values) {
+									containingSymbol := pkg.Identifier.Name + "." + name.Name
+									c.findRefsInNode(s.Values[i], containingSymbol, pkg, target, targetObj, callerLocs, usageByPkg)
+								}
+							}
 						}
 					}
-
-					// Get or create package usage
-					if usageByPkg[pkg.Identifier.PkgPath] == nil {
-						usageByPkg[pkg.Identifier.PkgPath] = &pkgUsage{pkg: pkg}
-					}
-					usageByPkg[pkg.Identifier.PkgPath].references = append(
-						usageByPkg[pkg.Identifier.PkgPath].references,
-						referenceInfo{
-							file:   pos.Filename,
-							line:   pos.Line,
-							symbol: containingSymbol,
-						},
-					)
-
-					return true
-				})
+				}
 			}
 		}
 	}
+}
+
+func (c *SymbolCommand) findRefsInNode(node ast.Node, containingSymbol string, pkg *golang.Package, target *golang.Symbol, targetObj types.Object, callerLocs map[string]bool, usageByPkg map[string]*pkgUsage) {
+	ast.Inspect(node, func(n ast.Node) bool {
+		ident, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		obj := pkg.Package.TypesInfo.Uses[ident]
+		if obj == nil {
+			return true
+		}
+
+		// Check if this references our target
+		if !c.sameObject(obj, targetObj) {
+			return true
+		}
+
+		pos := pkg.Package.Fset.Position(ident.Pos())
+		key := fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
+
+		// Skip if already counted as caller
+		if callerLocs[key] {
+			return true
+		}
+
+		// Skip the definition itself
+		if pos.Filename == target.Filename() {
+			defLine, _, _ := strings.Cut(target.Location(), ":")
+			if fmt.Sprintf("%d", pos.Line) == defLine {
+				return true
+			}
+		}
+
+		// Get or create package usage
+		if usageByPkg[pkg.Identifier.PkgPath] == nil {
+			usageByPkg[pkg.Identifier.PkgPath] = &pkgUsage{pkg: pkg}
+		}
+		usageByPkg[pkg.Identifier.PkgPath].references = append(
+			usageByPkg[pkg.Identifier.PkgPath].references,
+			referenceInfo{
+				file:   pos.Filename,
+				line:   pos.Line,
+				symbol: containingSymbol,
+			},
+		)
+
+		return true
+	})
 }
 
 func (c *SymbolCommand) getTargetObject(target *golang.Symbol) types.Object {
