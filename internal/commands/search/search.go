@@ -178,7 +178,7 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		}
 
 		matches = append(matches, SearchMatch{
-			Symbol:     r.Symbol.Name,
+			Symbol:     r.Symbol.Package.Identifier.Name + "." + r.Symbol.Name,
 			Kind:       string(r.Symbol.Kind),
 			Package:    r.Symbol.Package.Identifier.PkgPath,
 			Signature:  sig,

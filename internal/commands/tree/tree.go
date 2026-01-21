@@ -22,10 +22,11 @@ const (
 )
 
 type TreeCommand struct {
-	symbol    string
-	upDepth   int
-	downDepth int
-	scope     Scope
+	symbol        string
+	upDepth       int
+	downDepth     int
+	scope         Scope
+	targetPkgPath string // set after symbol resolution, used for ScopePackage
 }
 
 var _ commands.Command[*TreeCommand] = (*TreeCommand)(nil)
@@ -162,6 +163,9 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 		return commands.NewErrorResultf("invalid_symbol_kind", "tree requires a function or method, got %s", target.Kind), nil
 	}
 
+	// Store target package for ScopePackage filtering
+	c.targetPkgPath = target.Package.Identifier.PkgPath
+
 	funcDecl, ok := target.Node().(*ast.FuncDecl)
 	if !ok || funcDecl.Body == nil {
 		return commands.NewErrorResultf("invalid_symbol", "cannot analyze %q: no function body", c.symbol), nil
@@ -199,6 +203,7 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 			Target:  qualifiedSymbol,
 			Up:      c.upDepth,
 			Down:    c.downDepth,
+			Scope:   string(c.scope),
 		},
 		Target: output.TreeTargetInfo{
 			Symbol:     qualifiedSymbol,
@@ -405,7 +410,7 @@ func (c *TreeCommand) inScope(pkgPath string, wc *commands.Wildcat) bool {
 	case ScopeProject:
 		return strings.HasPrefix(pkgPath, wc.Project.Module.Path)
 	case ScopePackage:
-		return true // TODO: compare to target package
+		return pkgPath == c.targetPkgPath
 	}
 	return false
 }

@@ -30,8 +30,9 @@ type TreeSummary struct {
 type TreeQuery struct {
 	Command string `json:"command"`
 	Target  string `json:"target"`
-	Up      int    `json:"up"`   // caller depth requested
-	Down    int    `json:"down"` // callee depth requested
+	Up      int    `json:"up"`    // caller depth requested
+	Down    int    `json:"down"`  // callee depth requested
+	Scope   string `json:"scope"` // all, project, or package
 }
 
 // CallNode represents a node in a call chain.
