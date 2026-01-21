@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jasonmoo/wildcat/internal/golang"
 	"golang.org/x/tools/go/packages"
@@ -14,8 +13,12 @@ type Wildcat struct {
 	Index   *golang.SymbolIndex
 }
 
+type WildcatConfig struct {
+	IncludeTests bool
+}
+
 func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
-	p, err := golang.LoadModulePackages(ctx, srcDir)
+	p, err := golang.LoadModulePackages(ctx, srcDir, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -30,11 +33,35 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	}, nil
 }
 
-func (wc *Wildcat) FindPackage(ctx context.Context, pi *golang.PackageIdentifier) (*golang.Package, error) {
+func (wc *Wildcat) FindPackage(ctx context.Context, pi *golang.PackageIdentifier) *golang.Package {
 	for _, p := range wc.Project.Packages {
 		if pi.PkgPath == p.Identifier.PkgPath {
-			return p, nil
+			return p
 		}
 	}
-	return nil, fmt.Errorf("unable to find package for %q in project", pi.PkgPath)
+	return nil
+}
+
+func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []string {
+	results := wc.Index.Search(symbol, opt)
+	ret := make([]string, len(results))
+	for i, res := range results {
+		ret[i] = res.Symbol.Package.Identifier.Name + "." + res.Symbol.Name
+	}
+	return ret
+}
+
+func (wc *Wildcat) NewSymbolNotFoundErrorResponse(symbol string) *Error {
+	e := NewErrorf("symbol_not_found", "%q not found", symbol)
+	e.Suggestions = wc.Suggestions(symbol, &golang.SearchOptions{Limit: 5})
+	return e
+}
+
+func (wc *Wildcat) NewFuncNotFoundErrorResponse(symbol string) *Error {
+	e := NewErrorf("function_not_found", "%q not found", symbol)
+	e.Suggestions = wc.Suggestions(symbol, &golang.SearchOptions{
+		Limit: 5,
+		Kinds: []golang.SymbolKind{golang.SymbolKindFunc},
+	})
+	return e
 }

@@ -97,14 +97,14 @@ Examples:
 				kinds = golang.ParseKinds(kind)
 			}
 
-			result, cmdErr := c.Execute(cmd.Context(), wc,
+			result, err := c.Execute(cmd.Context(), wc,
 				WithQuery(args[0]),
 				WithLimit(limit),
 				WithScope(scope),
 				WithKinds(kinds),
 			)
-			if cmdErr != nil {
-				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
+			if err != nil {
+				return err
 			}
 
 			// Check if JSON output requested
@@ -139,15 +139,15 @@ func (c *SearchCommand) README() string {
 	return "TODO"
 }
 
-func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*SearchCommand) error) (commands.Result, *commands.Error) {
+func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*SearchCommand) error) (commands.Result, error) {
 	for _, o := range opts {
 		if err := o(c); err != nil {
-			return nil, commands.NewErrorf("opts_error", "failed to apply opt: %w", err)
+			return nil, fmt.Errorf("interal_error: failed to apply opt: %w", err)
 		}
 	}
 
 	if c.query == "" {
-		return nil, commands.NewErrorf("invalid_query", "query is required")
+		return commands.NewErrorf("invalid_query", "empty search term"), nil
 	}
 
 	// Search with options

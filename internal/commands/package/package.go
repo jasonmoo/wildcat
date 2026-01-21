@@ -59,9 +59,9 @@ Examples:
 				return err
 			}
 
-			result, cmdErr := c.Execute(cmd.Context(), wc, WithPackage(pkgPath))
-			if cmdErr != nil {
-				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
+			result, err := c.Execute(cmd.Context(), wc, WithPackage(pkgPath))
+			if err != nil {
+				return err
 			}
 
 			// Check if JSON output requested via inherited flag
@@ -91,24 +91,24 @@ func (c *PackageCommand) README() string {
 	return "TODO"
 }
 
-func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*PackageCommand) error) (commands.Result, *commands.Error) {
+func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*PackageCommand) error) (commands.Result, error) {
 
 	// handle opts
 	for _, o := range opts {
 		if err := o(c); err != nil {
-			return nil, commands.NewErrorf("opts_error", "failed to apply opt: %w", err)
+			return nil, fmt.Errorf("interal_error: failed to apply opt: %w", err)
 		}
 	}
 
 	pi, err := wc.Project.ResolvePackageName(ctx, c.pkgPath)
 	if err != nil {
 		// Suggestions: []string, TODO
-		return nil, commands.NewErrorf("package_not_found", "failed to resolve package: %w", err)
+		return commands.NewErrorf("package_not_found", "failed to resolve package: %w", err), nil
 	}
 
-	pkg, err := wc.FindPackage(ctx, pi)
-	if err != nil {
-		return nil, commands.NewErrorf("find_package_error", "%w", err)
+	pkg := wc.FindPackage(ctx, pi)
+	if pkg == nil {
+		panic("this should never happen")
 	}
 
 	var pkgret struct {
@@ -167,7 +167,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 			case *ast.FuncDecl:
 				sig, err := golang.FormatFuncDecl(v)
 				if err != nil {
-					return nil, commands.NewErrorf("format_symbol_error", "%w", err)
+					return nil, fmt.Errorf("internal_error: %w", err)
 				}
 				sym := output.PackageSymbol{
 					Signature: sig,
@@ -190,7 +190,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 					case *ast.TypeSpec:
 						sig, err := golang.FormatTypeSpec(v.Tok, vv)
 						if err != nil {
-							return nil, commands.NewErrorf("format_symbol_error", "%w", err)
+							return nil, fmt.Errorf("internal_error: %w", err)
 						}
 						tb := ensureType(vv.Name.Name)
 						tb.signature = sig
@@ -199,7 +199,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 					case *ast.ValueSpec:
 						sig, err := golang.FormatValueSpec(v.Tok, vv)
 						if err != nil {
-							return nil, commands.NewErrorf("format_symbol_error", "%w", err)
+							return nil, fmt.Errorf("internal_error: %w", err)
 						}
 						sym := output.PackageSymbol{
 							Signature: sig,

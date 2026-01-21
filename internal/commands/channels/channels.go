@@ -18,8 +18,7 @@ import (
 )
 
 type ChannelsCommand struct {
-	pkgPaths     []string
-	includeTests bool
+	pkgPaths []string
 }
 
 var _ commands.Command[*ChannelsCommand] = (*ChannelsCommand)(nil)
@@ -31,21 +30,12 @@ func WithPackages(paths []string) func(*ChannelsCommand) error {
 	}
 }
 
-func WithIncludeTests(include bool) func(*ChannelsCommand) error {
-	return func(c *ChannelsCommand) error {
-		c.includeTests = include
-		return nil
-	}
-}
-
 func NewChannelsCommand() *ChannelsCommand {
 	return &ChannelsCommand{}
 }
 
 func (c *ChannelsCommand) Cmd() *cobra.Command {
-	var includeTests bool
-
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "channels [package] ...",
 		Short: "Show channel operations in packages",
 		Long: `Report all channel operations grouped by package and element type.
@@ -63,12 +53,11 @@ Examples:
 				return err
 			}
 
-			result, cmdErr := c.Execute(cmd.Context(), wc,
+			result, err := c.Execute(cmd.Context(), wc,
 				WithPackages(args),
-				WithIncludeTests(includeTests),
 			)
-			if cmdErr != nil {
-				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
+			if err != nil {
+				return err
 			}
 
 			// Check if JSON output requested via inherited flag
@@ -92,19 +81,16 @@ Examples:
 			return nil
 		},
 	}
-
-	cmd.Flags().BoolVar(&includeTests, "include-tests", false, "Include test files")
-	return cmd
 }
 
 func (c *ChannelsCommand) README() string {
 	return "TODO"
 }
 
-func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*ChannelsCommand) error) (commands.Result, *commands.Error) {
+func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*ChannelsCommand) error) (commands.Result, error) {
 	for _, o := range opts {
 		if err := o(c); err != nil {
-			return nil, commands.NewErrorf("opts_error", "failed to apply opt: %w", err)
+			return nil, fmt.Errorf("interal_error: failed to apply opt: %w", err)
 		}
 	}
 
@@ -119,13 +105,13 @@ func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 	for _, arg := range c.pkgPaths {
 		pi, err := wc.Project.ResolvePackageName(ctx, arg)
 		if err != nil {
-			return nil, commands.NewErrorf("package_not_found", "cannot resolve %q: %w", arg, err)
+			return commands.NewErrorf("package_not_found", "cannot resolve %q: %w", arg, err), nil
 		}
 		resolvedPaths = append(resolvedPaths, pi.PkgPath)
 
-		pkg, err := wc.FindPackage(ctx, pi)
-		if err != nil {
-			return nil, commands.NewErrorf("find_package_error", "%w", err)
+		pkg := wc.FindPackage(ctx, pi)
+		if pkg == nil {
+			panic("bug")
 		}
 		targetPkgs = append(targetPkgs, pkg)
 	}
@@ -175,10 +161,6 @@ func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 				continue
 			}
 			seenFiles[filename] = true
-
-			if !c.includeTests && strings.HasSuffix(filename, "_test.go") {
-				continue
-			}
 
 			// Ensure package appears in output even if no channel ops found
 			if _, ok := ops[pkg.Identifier.PkgPath]; !ok {

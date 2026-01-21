@@ -22,11 +22,10 @@ const (
 )
 
 type TreeCommand struct {
-	symbol       string
-	upDepth      int
-	downDepth    int
-	scope        Scope
-	includeTests bool
+	symbol    string
+	upDepth   int
+	downDepth int
+	scope     Scope
 }
 
 var _ commands.Command[*TreeCommand] = (*TreeCommand)(nil)
@@ -59,13 +58,6 @@ func WithScope(s Scope) func(*TreeCommand) error {
 	}
 }
 
-func WithIncludeTests(b bool) func(*TreeCommand) error {
-	return func(c *TreeCommand) error {
-		c.includeTests = b
-		return nil
-	}
-}
-
 func NewTreeCommand() *TreeCommand {
 	return &TreeCommand{
 		upDepth:   2,
@@ -77,7 +69,6 @@ func NewTreeCommand() *TreeCommand {
 func (c *TreeCommand) Cmd() *cobra.Command {
 	var upDepth, downDepth int
 	var scope string
-	var includeTests bool
 
 	cmd := &cobra.Command{
 		Use:   "new-tree <symbol>",
@@ -109,15 +100,14 @@ Examples:
 				return err
 			}
 
-			result, cmdErr := c.Execute(cmd.Context(), wc,
+			result, err := c.Execute(cmd.Context(), wc,
 				WithSymbol(args[0]),
 				WithUpDepth(upDepth),
 				WithDownDepth(downDepth),
 				WithScope(Scope(scope)),
-				WithIncludeTests(includeTests),
 			)
-			if cmdErr != nil {
-				return fmt.Errorf("%s: %w", cmdErr.Code, cmdErr.Error)
+			if err != nil {
+				return err
 			}
 
 			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
@@ -143,7 +133,6 @@ Examples:
 	cmd.Flags().IntVar(&upDepth, "up", 2, "Depth of callers to show (0 to skip)")
 	cmd.Flags().IntVar(&downDepth, "down", 2, "Depth of callees to show (0 to skip)")
 	cmd.Flags().StringVar(&scope, "scope", "project", "Traversal scope: all, project, package")
-	cmd.Flags().BoolVar(&includeTests, "include-tests", false, "Include test files")
 
 	return cmd
 }
@@ -152,36 +141,30 @@ func (c *TreeCommand) README() string {
 	return "TODO"
 }
 
-func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*TreeCommand) error) (commands.Result, *commands.Error) {
+func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*TreeCommand) error) (commands.Result, error) {
 	for _, o := range opts {
 		if err := o(c); err != nil {
-			return nil, commands.NewErrorf("opts_error", "failed to apply opt: %w", err)
+			return nil, fmt.Errorf("interal_error: failed to apply opt: %w", err)
 		}
 	}
 
 	if c.symbol == "" {
-		return nil, commands.NewErrorf("invalid_symbol", "symbol is required")
+		return commands.NewErrorf("invalid_symbol", "symbol is required"), nil
 	}
 
 	// Find target symbol
 	target := wc.Index.Lookup(c.symbol)
 	if target == nil {
-		return nil, commands.NewErrorf("symbol_not_found", "cannot find function %q", c.symbol)
+		return wc.NewFuncNotFoundErrorResponse(c.symbol), nil
 	}
 
 	if target.Kind != golang.SymbolKindFunc && target.Kind != golang.SymbolKindMethod {
-		return nil, commands.NewErrorf("invalid_symbol_kind", "tree requires a function or method, got %s", target.Kind)
+		return commands.NewErrorf("invalid_symbol_kind", "tree requires a function or method, got %s", target.Kind), nil
 	}
 
 	funcDecl, ok := target.Node().(*ast.FuncDecl)
 	if !ok || funcDecl.Body == nil {
-		return nil, commands.NewErrorf("invalid_symbol", "cannot analyze %q: no function body", c.symbol)
-	}
-
-	// Find the package containing target
-	targetPkg, err := wc.FindPackage(ctx, &golang.PackageIdentifier{PkgPath: target.Package.Identifier.PkgPath})
-	if err != nil {
-		return nil, commands.NewErrorf("package_not_found", "cannot find package for %q: %v", c.symbol, err)
+		return commands.NewErrorf("invalid_symbol", "cannot analyze %q: no function body", c.symbol), nil
 	}
 
 	// Build target info
@@ -200,14 +183,14 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	// Build callers (--up)
 	if c.upDepth > 0 {
 		visited := make(map[string]bool)
-		callersBottomUp := c.buildCallersTree(wc, targetPkg, funcDecl, 0, visited, collected, &maxUpDepth, &totalCallers)
+		callersBottomUp := c.buildCallersTree(wc, target.Package, funcDecl, 0, visited, collected, &maxUpDepth, &totalCallers)
 		callers = invertCallersTree(callersBottomUp, qualifiedSymbol)
 	}
 
 	// Build callees (--down)
 	if c.downDepth > 0 {
 		visited := make(map[string]bool)
-		callees = c.buildCalleesTree(wc, targetPkg, funcDecl, 0, visited, collected, &maxDownDepth, &totalCallees)
+		callees = c.buildCalleesTree(wc, target.Package, funcDecl, 0, visited, collected, &maxDownDepth, &totalCallees)
 	}
 
 	return &TreeCommandResponse{
@@ -284,10 +267,6 @@ func (c *TreeCommand) buildCalleesTree(
 		// Find the callee's AST
 		calleeInfo := golang.FindFuncInfo(wc.Project.Packages, calledFn)
 
-		if !c.includeTests && calleeInfo != nil && output.IsTestFile(calleeInfo.Filename) {
-			return true
-		}
-
 		*totalCalls++
 
 		// Collect function info
@@ -362,9 +341,6 @@ func (c *TreeCommand) buildCallersTree(
 
 		for _, file := range pkg.Package.Syntax {
 			filename := pkg.Package.Fset.Position(file.Pos()).Filename
-			if !c.includeTests && output.IsTestFile(filename) {
-				continue
-			}
 
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
