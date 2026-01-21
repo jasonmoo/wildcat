@@ -8,6 +8,7 @@ import (
 
 type QueryInfo struct {
 	Command string `json:"command"`
+	Target  string `json:"target,omitempty"`
 	Scope   string `json:"scope"`
 }
 
@@ -48,6 +49,9 @@ func (r *UnusedCommandResponse) MarshalMarkdown() ([]byte, error) {
 	sb.WriteString("# Unused Symbols\n\n")
 
 	// Query info
+	if r.Query.Target != "" {
+		fmt.Fprintf(&sb, "target: %s\n", r.Query.Target)
+	}
 	fmt.Fprintf(&sb, "scope: %s\n\n", r.Query.Scope)
 
 	// Summary

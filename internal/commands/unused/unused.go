@@ -15,11 +15,19 @@ import (
 )
 
 type UnusedCommand struct {
-	scope           string
+	target          string // which package's symbols to check (empty = all project)
+	scope           string // where to look for references
 	includeExported bool
 }
 
 var _ commands.Command[*UnusedCommand] = (*UnusedCommand)(nil)
+
+func WithTarget(target string) func(*UnusedCommand) error {
+	return func(c *UnusedCommand) error {
+		c.target = target
+		return nil
+	}
+}
 
 func WithScope(scope string) func(*UnusedCommand) error {
 	return func(c *UnusedCommand) error {
@@ -46,31 +54,45 @@ func (c *UnusedCommand) Cmd() *cobra.Command {
 	var includeExported bool
 
 	cmd := &cobra.Command{
-		Use:   "unused",
+		Use:   "unused [package]",
 		Short: "Find unused symbols in the codebase",
-		Long: `Find unexported symbols with no references.
+		Long: `Find symbols with no references.
 
 Reports functions, methods, types, constants, and variables that are
 defined but never used within the analyzed scope.
 
-Scope:
+Target (optional):
+  If specified, only check symbols in packages matching the target.
+  If omitted, check all project packages.
+
+Scope (--scope):
+  Controls where to look for references.
   project       - All project packages (default)
   all           - Include dependencies
   pkg1,pkg2     - Specific package substrings
   -pkg          - Exclude packages matching substring
+  package       - Only within target package (requires target)
 
 Examples:
-  wildcat unused                              # find unused in project
-  wildcat unused --scope lsp                  # only lsp package
-  wildcat unused --scope commands,-test       # commands, exclude test
-  wildcat unused --include-exported           # include exported symbols`,
+  wildcat unused                              # all project, project-wide refs
+  wildcat unused lsp                          # lsp symbols, project-wide refs
+  wildcat unused lsp --scope package          # lsp symbols, only lsp refs
+  wildcat unused lsp --scope lsp,commands     # lsp symbols, refs in lsp+commands
+  wildcat unused --include-exported           # include public API symbols`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wc, err := commands.LoadWildcat(cmd.Context(), ".")
 			if err != nil {
 				return err
 			}
 
+			var target string
+			if len(args) > 0 {
+				target = args[0]
+			}
+
 			result, err := c.Execute(cmd.Context(), wc,
+				WithTarget(target),
 				WithScope(scope),
 				WithIncludeExported(includeExported),
 			)
@@ -117,14 +139,22 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 
 	modulePath := wc.Project.Module.Path
 
-	// Build scope filter
-	filter := c.parseScope(modulePath)
+	// Build target filter (which symbols to check)
+	targetFilter := c.parseTarget(modulePath)
 
-	// Collect all symbols in scope
+	// Build scope filter (where to look for references)
+	// Special case: "package" means use target as scope
+	scopeStr := c.scope
+	if scopeStr == "package" && c.target != "" {
+		scopeStr = c.target
+	}
+	scopeFilter := c.parseScopeFilter(scopeStr, modulePath)
+
+	// Collect all symbols matching target
 	var candidates []golang.Symbol
 	for _, sym := range wc.Index.Symbols() {
-		// Apply scope filter
-		if !c.inScope(sym.Package.Identifier.PkgPath, filter) {
+		// Apply target filter
+		if !c.inScope(sym.Package.Identifier.PkgPath, targetFilter) {
 			continue
 		}
 
@@ -146,10 +176,10 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		candidates = append(candidates, sym)
 	}
 
-	// For each candidate, count references
+	// For each candidate, count references within scope
 	var unused []UnusedSymbol
 	for _, sym := range candidates {
-		refCount := c.countReferences(wc, &sym, filter)
+		refCount := c.countReferences(wc, &sym, scopeFilter)
 		if refCount == 0 {
 			sig, _ := sym.Signature()
 			u := UnusedSymbol{
@@ -177,6 +207,7 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	return &UnusedCommandResponse{
 		Query: QueryInfo{
 			Command: "unused",
+			Target:  c.target,
 			Scope:   c.scope,
 		},
 		Unused: unused,
@@ -194,20 +225,45 @@ type scopeFilter struct {
 	modulePath  string
 }
 
-func (c *UnusedCommand) parseScope(modulePath string) scopeFilter {
+func (c *UnusedCommand) parseTarget(modulePath string) scopeFilter {
 	filter := scopeFilter{modulePath: modulePath}
 
-	if c.scope == "project" {
+	if c.target == "" {
+		// No target = all project packages
 		filter.projectOnly = true
 		return filter
 	}
 
-	if c.scope == "all" {
+	// Target specified - parse as includes
+	for _, part := range strings.Split(c.target, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if strings.HasPrefix(part, "-") {
+			filter.excludes = append(filter.excludes, strings.TrimPrefix(part, "-"))
+		} else {
+			filter.includes = append(filter.includes, part)
+		}
+	}
+
+	return filter
+}
+
+func (c *UnusedCommand) parseScopeFilter(scope, modulePath string) scopeFilter {
+	filter := scopeFilter{modulePath: modulePath}
+
+	if scope == "project" || scope == "" {
+		filter.projectOnly = true
+		return filter
+	}
+
+	if scope == "all" {
 		return filter
 	}
 
 	// Parse includes/excludes
-	for _, part := range strings.Split(c.scope, ",") {
+	for _, part := range strings.Split(scope, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" || part == "project" {
 			continue
