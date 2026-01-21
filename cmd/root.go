@@ -79,7 +79,6 @@ and actionable error messages.`,
 	rootCmd.AddCommand(package_cmd.NewPackageCommand().Cmd())
 	rootCmd.AddCommand(symbolCmd)
 	rootCmd.AddCommand(search_cmd.NewSearchCommand().Cmd())
-	rootCmd.AddCommand(treeCmd)
 	rootCmd.AddCommand(tree_cmd.NewTreeCommand().Cmd())
 	rootCmd.AddCommand(channels_cmd.NewChannelsCommand().Cmd())
 	rootCmd.AddCommand(readmeCmd)

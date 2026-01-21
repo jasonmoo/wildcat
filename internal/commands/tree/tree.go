@@ -72,8 +72,8 @@ func (c *TreeCommand) Cmd() *cobra.Command {
 	var scope string
 
 	cmd := &cobra.Command{
-		Use:   "new-tree <symbol>",
-		Short: "Build a call tree centered on a symbol (native)",
+		Use:   "tree <symbol>",
+		Short: "Build a call tree centered on a symbol",
 		Long: `Build a call tree showing callers and callees of a symbol.
 
 Note: tree operates on functions and methods only.
