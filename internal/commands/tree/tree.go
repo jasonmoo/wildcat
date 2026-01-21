@@ -149,7 +149,7 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	}
 
 	if c.symbol == "" {
-		return commands.NewErrorf("invalid_symbol", "symbol is required"), nil
+		return commands.NewErrorResultf("invalid_symbol", "symbol is required"), nil
 	}
 
 	// Find target symbol
@@ -159,12 +159,12 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	}
 
 	if target.Kind != golang.SymbolKindFunc && target.Kind != golang.SymbolKindMethod {
-		return commands.NewErrorf("invalid_symbol_kind", "tree requires a function or method, got %s", target.Kind), nil
+		return commands.NewErrorResultf("invalid_symbol_kind", "tree requires a function or method, got %s", target.Kind), nil
 	}
 
 	funcDecl, ok := target.Node().(*ast.FuncDecl)
 	if !ok || funcDecl.Body == nil {
-		return commands.NewErrorf("invalid_symbol", "cannot analyze %q: no function body", c.symbol), nil
+		return commands.NewErrorResultf("invalid_symbol", "cannot analyze %q: no function body", c.symbol), nil
 	}
 
 	// Build target info

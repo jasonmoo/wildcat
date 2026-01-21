@@ -21,7 +21,7 @@ type (
 		MarshalJSON() ([]byte, error)
 	}
 
-	Error struct {
+	ErrorResult struct {
 		Code        string                 `json:"code"`
 		Error       error                  `json:"error"`
 		Suggestions []string               `json:"suggestions"`
@@ -29,16 +29,16 @@ type (
 	}
 )
 
-var _ Result = (*Error)(nil)
+var _ Result = (*ErrorResult)(nil)
 
-func NewErrorf(code, format string, a ...interface{}) *Error {
-	return &Error{
+func NewErrorResultf(code, format string, a ...interface{}) *ErrorResult {
+	return &ErrorResult{
 		Code:  code,
 		Error: fmt.Errorf(format, a...),
 	}
 }
 
-func (e *Error) MarshalJSON() ([]byte, error) {
+func (e *ErrorResult) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Code        string                 `json:"code"`
 		Error       string                 `json:"error"`
@@ -52,7 +52,7 @@ func (e *Error) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (e *Error) MarshalMarkdown() ([]byte, error) {
+func (e *ErrorResult) MarshalMarkdown() ([]byte, error) {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "Error: (%s) %s\n", e.Code, e.Error)
 	if len(e.Suggestions) > 0 {

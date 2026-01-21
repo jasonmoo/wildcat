@@ -103,7 +103,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	pi, err := wc.Project.ResolvePackageName(ctx, c.pkgPath)
 	if err != nil {
 		// Suggestions: []string, TODO
-		return commands.NewErrorf("package_not_found", "failed to resolve package: %w", err), nil
+		return commands.NewErrorResultf("package_not_found", "failed to resolve package: %w", err), nil
 	}
 
 	pkg := wc.FindPackage(ctx, pi)

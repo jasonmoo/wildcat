@@ -105,7 +105,7 @@ func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 	for _, arg := range c.pkgPaths {
 		pi, err := wc.Project.ResolvePackageName(ctx, arg)
 		if err != nil {
-			return commands.NewErrorf("package_not_found", "cannot resolve %q: %w", arg, err), nil
+			return commands.NewErrorResultf("package_not_found", "cannot resolve %q: %w", arg, err), nil
 		}
 		resolvedPaths = append(resolvedPaths, pi.PkgPath)
 

@@ -147,7 +147,7 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	}
 
 	if c.query == "" {
-		return commands.NewErrorf("invalid_query", "empty search term"), nil
+		return commands.NewErrorResultf("invalid_query", "empty search term"), nil
 	}
 
 	// Search with options
