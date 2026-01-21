@@ -215,3 +215,38 @@ func stripComments(node ast.Node) {
 	})
 }
 
+// FindMethods returns all methods for the given type name in the package.
+func FindMethods(pkg *Package, typeName string) []*ast.FuncDecl {
+	var methods []*ast.FuncDecl
+	for _, f := range pkg.Package.Syntax {
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 {
+				continue
+			}
+			if ReceiverTypeName(fn.Recv.List[0].Type) == typeName {
+				methods = append(methods, fn)
+			}
+		}
+	}
+	return methods
+}
+
+// FindConstructors returns all functions that return the given type name.
+// A constructor is a function that returns T or *T where T matches typeName.
+func FindConstructors(pkg *Package, typeName string) []*ast.FuncDecl {
+	var constructors []*ast.FuncDecl
+	for _, f := range pkg.Package.Syntax {
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil {
+				continue // skip methods
+			}
+			if ConstructorTypeName(fn.Type) == typeName {
+				constructors = append(constructors, fn)
+			}
+		}
+	}
+	return constructors
+}
+

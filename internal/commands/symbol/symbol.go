@@ -155,6 +155,32 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		c.findCallers(wc, target, scopeFilter, usageByPkg)
 	}
 
+	// Find methods and constructors for types (before references so we can exclude them)
+	var methods, constructors []output.PackageSymbol
+	excludeFromRefs := make(map[string]bool) // file:line keys to exclude from references
+	if target.Kind == golang.SymbolKindType || target.Kind == golang.SymbolKindInterface {
+		foundMethods := golang.FindMethods(target.Package, target.Name)
+		foundConstructors := golang.FindConstructors(target.Package, target.Name)
+		for _, fn := range foundMethods {
+			sig, _ := golang.FormatFuncDecl(fn)
+			pos := target.Package.Package.Fset.Position(fn.Pos())
+			methods = append(methods, output.PackageSymbol{
+				Signature: sig,
+				Location:  fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
+			})
+			excludeFromRefs[fmt.Sprintf("%s:%d", pos.Filename, pos.Line)] = true
+		}
+		for _, fn := range foundConstructors {
+			sig, _ := golang.FormatFuncDecl(fn)
+			pos := target.Package.Package.Fset.Position(fn.Pos())
+			constructors = append(constructors, output.PackageSymbol{
+				Signature: sig,
+				Location:  fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
+			})
+			excludeFromRefs[fmt.Sprintf("%s:%d", pos.Filename, pos.Line)] = true
+		}
+	}
+
 	// Find references (for all symbol types)
 	c.findReferences(wc, target, scopeFilter, usageByPkg)
 
@@ -208,6 +234,10 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 
 		var refLocs []output.Location
 		for _, ref := range usage.references {
+			// Skip method/constructor definition lines
+			if excludeFromRefs[fmt.Sprintf("%s:%d", ref.file, ref.line)] {
+				continue
+			}
 			snippet, start, end, _ := extractor.ExtractSmart(ref.file, ref.line)
 			refLocs = append(refLocs, output.Location{
 				Location: fmt.Sprintf("%s:%d", filepath.Base(ref.file), ref.line),
@@ -278,6 +308,8 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 			Signature:  sig,
 			Definition: definition,
 		},
+		Methods:         methods,
+		Constructors:    constructors,
 		ImportedBy:      importedBy,
 		References:      packageUsages,
 		Implementations: implementations,

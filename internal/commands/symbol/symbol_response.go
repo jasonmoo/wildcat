@@ -14,6 +14,8 @@ var _ commands.Result = (*SymbolCommandResponse)(nil)
 type SymbolCommandResponse struct {
 	Query             output.QueryInfo        `json:"query"`
 	Target            output.TargetInfo       `json:"target"`
+	Methods           []output.PackageSymbol  `json:"methods,omitempty"`
+	Constructors      []output.PackageSymbol  `json:"constructors,omitempty"`
 	ImportedBy        []output.DepResult      `json:"imported_by"`
 	References        []output.PackageUsage   `json:"references"`
 	Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
@@ -31,6 +33,8 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		QuerySummary      output.SymbolSummary    `json:"query_summary"`
 		PackageSummary    output.SymbolSummary    `json:"package_summary"`
 		ProjectSummary    output.SymbolSummary    `json:"project_summary"`
+		Methods           []output.PackageSymbol  `json:"methods,omitempty"`
+		Constructors      []output.PackageSymbol  `json:"constructors,omitempty"`
 		ImportedBy        []output.DepResult      `json:"imported_by"`
 		References        []output.PackageUsage   `json:"references"`
 		Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
@@ -42,6 +46,8 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		QuerySummary:      r.QuerySummary,
 		PackageSummary:    r.PackageSummary,
 		ProjectSummary:    r.ProjectSummary,
+		Methods:           r.Methods,
+		Constructors:      r.Constructors,
 		ImportedBy:        r.ImportedBy,
 		References:        r.References,
 		Implementations:   r.Implementations,
@@ -69,6 +75,24 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	fmt.Fprintf(&sb, "| Query | %d | %d |\n", r.QuerySummary.Callers, r.QuerySummary.References)
 	fmt.Fprintf(&sb, "| Package | %d | %d |\n", r.PackageSummary.Callers, r.PackageSummary.References)
 	fmt.Fprintf(&sb, "| Project | %d | %d |\n\n", r.ProjectSummary.Callers, r.ProjectSummary.References)
+
+	// Methods
+	if len(r.Methods) > 0 {
+		sb.WriteString("## Methods\n\n")
+		for _, m := range r.Methods {
+			fmt.Fprintf(&sb, "- `%s` %s\n", m.Signature, m.Location)
+		}
+		sb.WriteString("\n")
+	}
+
+	// Constructors
+	if len(r.Constructors) > 0 {
+		sb.WriteString("## Constructors\n\n")
+		for _, c := range r.Constructors {
+			fmt.Fprintf(&sb, "- `%s` %s\n", c.Signature, c.Location)
+		}
+		sb.WriteString("\n")
+	}
 
 	// Imported by
 	if len(r.ImportedBy) > 0 {
