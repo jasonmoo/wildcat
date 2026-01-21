@@ -18,7 +18,12 @@ import (
 
 type Project struct {
 	Module   *packages.Module
-	Packages []*packages.Package
+	Packages []*Package
+}
+
+type Package struct {
+	Identifier *PackageIdentifier
+	Package    *packages.Package
 }
 
 // reservedPatterns are Go toolchain patterns that expand to multiple packages.
@@ -336,8 +341,15 @@ func LoadModulePackages(ctx context.Context, srcDir string, opts ...LoadPackages
 		// // unwanted function bodies can significantly accelerate type checking.
 		// ParseFile func(fset *token.FileSet, filename string, src []byte) (*ast.File, error)
 	}, "./...")
+	pkgs := make([]*Package, len(ps))
+	for i, pkg := range ps {
+		pkgs[i] = &Package{
+			Identifier: newPackageIdentifier(pkg),
+			Package:    pkg,
+		}
+	}
 	return &Project{
 		Module:   mp.Module,
-		Packages: ps,
+		Packages: pkgs,
 	}, nil
 }

@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"go/ast"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/jasonmoo/wildcat/internal/output"
 	"github.com/spf13/cobra"
-	"golang.org/x/tools/go/packages"
 )
 
 type Scope string
@@ -181,7 +179,7 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	}
 
 	// Find the package containing target
-	targetPkg, err := wc.FindPackage(ctx, &golang.PackageIdentifier{PkgPath: target.PkgPath})
+	targetPkg, err := wc.FindPackage(ctx, &golang.PackageIdentifier{PkgPath: target.Package.Identifier.PkgPath})
 	if err != nil {
 		return nil, commands.NewErrorf("package_not_found", "cannot find package for %q: %v", c.symbol, err)
 	}
@@ -189,7 +187,7 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	// Build target info
 	sig, _ := target.Signature()
 	definition := fmt.Sprintf("%s:%s", target.Filename(), target.Location())
-	qualifiedSymbol := golang.ShortPkgName(target.PkgPath) + "." + target.Name
+	qualifiedSymbol := target.Package.Identifier.PkgShortPath + "." + target.Name
 
 	// Track all functions for definitions section
 	collected := make(map[string]*collectedFunc)
@@ -240,7 +238,7 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 
 func (c *TreeCommand) buildCalleesTree(
 	wc *commands.Wildcat,
-	pkg *packages.Package,
+	pkg *golang.Package,
 	fn *ast.FuncDecl,
 	depth int,
 	visited map[string]bool,
@@ -255,7 +253,7 @@ func (c *TreeCommand) buildCalleesTree(
 		return nil
 	}
 
-	key := pkg.PkgPath + ":" + fn.Name.Name
+	key := pkg.Identifier.PkgPath + ":" + fn.Name.Name
 	if visited[key] {
 		return nil
 	}
@@ -274,7 +272,7 @@ func (c *TreeCommand) buildCalleesTree(
 			return true
 		}
 
-		calledFn := golang.ResolveCallExpr(pkg.TypesInfo, call)
+		calledFn := golang.ResolveCallExpr(pkg.Package.TypesInfo, call)
 		if calledFn == nil || calledFn.Pkg() == nil {
 			return true
 		}
@@ -297,11 +295,11 @@ func (c *TreeCommand) buildCalleesTree(
 			collectFromFuncInfo(calleeInfo, collected)
 		}
 
-		callPos := pkg.Fset.Position(call.Pos())
+		callPos := pkg.Package.Fset.Position(call.Pos())
 		callsite := fmt.Sprintf("%s:%d", callPos.Filename, callPos.Line)
 
 		// Build qualified name
-		qualName := golang.ShortPkgName(calledFn.Pkg().Path()) + "."
+		qualName := pkg.Identifier.PkgShortPath + "."
 		if recv := golang.ReceiverFromFunc(calledFn); recv != "" {
 			qualName += recv + "."
 		}
@@ -326,7 +324,7 @@ func (c *TreeCommand) buildCalleesTree(
 
 func (c *TreeCommand) buildCallersTree(
 	wc *commands.Wildcat,
-	targetPkg *packages.Package,
+	targetPkg *golang.Package,
 	targetFn *ast.FuncDecl,
 	depth int,
 	visited map[string]bool,
@@ -341,7 +339,7 @@ func (c *TreeCommand) buildCallersTree(
 		return nil
 	}
 
-	key := targetPkg.PkgPath + ":" + targetFn.Name.Name
+	key := targetPkg.Identifier.PkgPath + ":" + targetFn.Name.Name
 	if visited[key] {
 		return nil
 	}
@@ -349,7 +347,7 @@ func (c *TreeCommand) buildCallersTree(
 	defer delete(visited, key)
 
 	// Get target's types.Func for comparison
-	targetObj := targetPkg.TypesInfo.Defs[targetFn.Name]
+	targetObj := targetPkg.Package.TypesInfo.Defs[targetFn.Name]
 	if targetObj == nil {
 		return nil
 	}
@@ -358,12 +356,12 @@ func (c *TreeCommand) buildCallersTree(
 
 	// Search all packages for calls to target
 	for _, pkg := range wc.Project.Packages {
-		if !c.inScope(pkg.PkgPath, wc) {
+		if !c.inScope(pkg.Identifier.PkgPath, wc) {
 			continue
 		}
 
-		for _, file := range pkg.Syntax {
-			filename := pkg.Fset.Position(file.Pos()).Filename
+		for _, file := range pkg.Package.Syntax {
+			filename := pkg.Package.Fset.Position(file.Pos()).Filename
 			if !c.includeTests && output.IsTestFile(filename) {
 				continue
 			}
@@ -380,7 +378,7 @@ func (c *TreeCommand) buildCallersTree(
 						return true
 					}
 
-					calledFn := golang.ResolveCallExpr(pkg.TypesInfo, call)
+					calledFn := golang.ResolveCallExpr(pkg.Package.TypesInfo, call)
 					if calledFn == nil || calledFn != targetObj {
 						return true
 					}
@@ -399,10 +397,10 @@ func (c *TreeCommand) buildCallersTree(
 
 					collectFromFuncInfo(callerInfo, collected)
 
-					callPos := pkg.Fset.Position(call.Pos())
+					callPos := pkg.Package.Fset.Position(call.Pos())
 					callsite := fmt.Sprintf("%s:%d", callPos.Filename, callPos.Line)
 
-					qualName := golang.ShortPkgName(pkg.PkgPath) + "."
+					qualName := pkg.Identifier.PkgShortPath + "."
 					if callerInfo.Receiver != "" {
 						qualName += callerInfo.Receiver + "."
 					}
@@ -439,22 +437,20 @@ func (c *TreeCommand) inScope(pkgPath string, wc *commands.Wildcat) bool {
 // collectedFunc holds function data for definitions section
 type collectedFunc struct {
 	name       string
-	pkgPath    string
-	pkgDir     string
+	pkg        *golang.Package
 	signature  string
 	definition string
 }
 
 func collectFromSymbol(sym *golang.Symbol, collected map[string]*collectedFunc) {
-	key := sym.PkgPath + "." + sym.Name
+	key := sym.Package.Identifier.PkgPath + "." + sym.Name
 	if _, ok := collected[key]; ok {
 		return
 	}
 	sig, _ := sym.Signature()
 	collected[key] = &collectedFunc{
 		name:       sym.Name,
-		pkgPath:    sym.PkgPath,
-		pkgDir:     filepath.Dir(sym.Filename()),
+		pkg:        sym.Package,
 		signature:  sig,
 		definition: fmt.Sprintf("%s:%s", sym.Filename(), sym.Location()),
 	}
@@ -465,19 +461,18 @@ func collectFromFuncInfo(info *golang.FuncInfo, collected map[string]*collectedF
 	if info.Receiver != "" {
 		name = info.Receiver + "." + name
 	}
-	key := info.Pkg.PkgPath + "." + name
+	key := info.Pkg.Identifier.PkgPath + "." + name
 	if _, ok := collected[key]; ok {
 		return
 	}
 
 	sig, _ := golang.FormatFuncDecl(info.Decl)
-	start := info.Pkg.Fset.Position(info.Decl.Pos())
-	end := info.Pkg.Fset.Position(info.Decl.End())
+	start := info.Pkg.Package.Fset.Position(info.Decl.Pos())
+	end := info.Pkg.Package.Fset.Position(info.Decl.End())
 
 	collected[key] = &collectedFunc{
 		name:       name,
-		pkgPath:    info.Pkg.PkgPath,
-		pkgDir:     filepath.Dir(start.Filename),
+		pkg:        info.Pkg,
 		signature:  sig,
 		definition: fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line),
 	}
@@ -491,18 +486,18 @@ func groupByPackage(collected map[string]*collectedFunc) []output.TreePackage {
 	pkgMap := make(map[string]*pkgData)
 
 	for _, cf := range collected {
-		sym := golang.ShortPkgName(cf.pkgPath) + "." + cf.name
+		sym := cf.pkg.Identifier.PkgShortPath + "." + cf.name
 		fn := output.TreeFunction{
 			Symbol:     sym,
 			Signature:  cf.signature,
 			Definition: cf.definition,
 		}
 
-		if pd, ok := pkgMap[cf.pkgPath]; ok {
+		if pd, ok := pkgMap[cf.pkg.Identifier.PkgPath]; ok {
 			pd.symbols = append(pd.symbols, fn)
 		} else {
-			pkgMap[cf.pkgPath] = &pkgData{
-				dir:     cf.pkgDir,
+			pkgMap[cf.pkg.Identifier.PkgPath] = &pkgData{
+				dir:     cf.pkg.Identifier.PkgDir,
 				symbols: []output.TreeFunction{fn},
 			}
 		}

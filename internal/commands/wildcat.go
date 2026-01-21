@@ -30,9 +30,9 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	}, nil
 }
 
-func (wc *Wildcat) FindPackage(ctx context.Context, pi *golang.PackageIdentifier) (*packages.Package, error) {
+func (wc *Wildcat) FindPackage(ctx context.Context, pi *golang.PackageIdentifier) (*golang.Package, error) {
 	for _, p := range wc.Project.Packages {
-		if pi.PkgPath == p.PkgPath {
+		if pi.PkgPath == p.Identifier.PkgPath {
 			return p, nil
 		}
 	}

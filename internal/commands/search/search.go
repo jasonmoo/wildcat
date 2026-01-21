@@ -180,7 +180,7 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		matches = append(matches, SearchMatch{
 			Symbol:     r.Symbol.Name,
 			Kind:       string(r.Symbol.Kind),
-			Package:    r.Symbol.PkgPath,
+			Package:    r.Symbol.Package.Identifier.PkgPath,
 			Signature:  sig,
 			Definition: fmt.Sprintf("%s:%s", r.Symbol.Filename(), r.Symbol.Location()),
 		})
@@ -216,7 +216,7 @@ func filterByScope(results []golang.SearchResult, scope, modulePath string) []go
 		// Filter to project packages only
 		filtered := make([]golang.SearchResult, 0, len(results))
 		for _, r := range results {
-			if strings.HasPrefix(r.Symbol.PkgPath, modulePath) {
+			if strings.HasPrefix(r.Symbol.Package.Identifier.PkgPath, modulePath) {
 				filtered = append(filtered, r)
 			}
 		}
@@ -239,7 +239,7 @@ func filterByScope(results []golang.SearchResult, scope, modulePath string) []go
 
 	filtered := make([]golang.SearchResult, 0, len(results))
 	for _, r := range results {
-		pkgPath := r.Symbol.PkgPath
+		pkgPath := r.Symbol.Package.Identifier.PkgPath
 
 		// Check excludes
 		excluded := false

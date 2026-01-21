@@ -144,9 +144,9 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		return tb
 	}
 
-	for _, f := range pkg.Syntax {
+	for _, f := range pkg.Package.Syntax {
 
-		fsetFile := pkg.Fset.File(f.Pos())
+		fsetFile := pkg.Package.Fset.File(f.Pos())
 		fileName := filepath.Base(fsetFile.Name())
 		pkgret.Files = append(pkgret.Files, output.FileInfo{
 			Name:      fileName,
@@ -156,7 +156,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		for _, imp := range f.Imports {
 			pkgret.Imports = append(pkgret.Imports, output.DepResult{
 				Package:  strings.Trim(imp.Path.Value, `"`),
-				Location: makeLocation(pkg.Fset, fileName, imp.Pos()),
+				Location: makeLocation(pkg.Package.Fset, fileName, imp.Pos()),
 			})
 		}
 
@@ -171,13 +171,13 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 				}
 				sym := output.PackageSymbol{
 					Signature: sig,
-					Location:  makeLocation(pkg.Fset, fileName, v.Pos()),
+					Location:  makeLocation(pkg.Package.Fset, fileName, v.Pos()),
 				}
 				if v.Recv != nil && len(v.Recv.List) > 0 {
 					// Method - attach to receiver type
 					typeName := golang.ReceiverTypeName(v.Recv.List[0].Type)
 					ensureType(typeName).methods = append(ensureType(typeName).methods, sym)
-				} else if typeName := golang.ConstructorTypeName(v.Type); typeName != "" && pkg.Types.Scope().Lookup(typeName) != nil {
+				} else if typeName := golang.ConstructorTypeName(v.Type); typeName != "" && pkg.Package.Types.Scope().Lookup(typeName) != nil {
 					// Constructor - attach to returned type (only if type is defined in this package)
 					ensureType(typeName).functions = append(ensureType(typeName).functions, sym)
 				} else {
@@ -194,7 +194,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 						}
 						tb := ensureType(vv.Name.Name)
 						tb.signature = sig
-						tb.location = makeLocation(pkg.Fset, fileName, vv.Pos())
+						tb.location = makeLocation(pkg.Package.Fset, fileName, vv.Pos())
 						_, tb.isInterface = vv.Type.(*ast.InterfaceType)
 					case *ast.ValueSpec:
 						sig, err := golang.FormatValueSpec(v.Tok, vv)
@@ -203,7 +203,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 						}
 						sym := output.PackageSymbol{
 							Signature: sig,
-							Location:  makeLocation(pkg.Fset, fileName, vv.Pos()),
+							Location:  makeLocation(pkg.Package.Fset, fileName, vv.Pos()),
 						}
 						switch v.Tok {
 						case token.CONST:
@@ -229,8 +229,8 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	var ifaces []ifaceInfo
 	// From project packages
 	for _, p := range wc.Project.Packages {
-		for _, iname := range p.Types.Scope().Names() {
-			obj := p.Types.Scope().Lookup(iname)
+		for _, iname := range p.Package.Types.Scope().Names() {
+			obj := p.Package.Types.Scope().Lookup(iname)
 			if obj == nil {
 				continue
 			}
@@ -243,7 +243,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 				continue
 			}
 			if _, ok := named.Underlying().(*gotypes.Interface); ok {
-				ifaces = append(ifaces, ifaceInfo{p.PkgPath, iname, named})
+				ifaces = append(ifaces, ifaceInfo{p.Identifier.PkgPath, iname, named})
 			}
 		}
 	}
@@ -273,7 +273,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		if !tb.isInterface {
 			continue
 		}
-		obj := pkg.Types.Scope().Lookup(name)
+		obj := pkg.Package.Types.Scope().Lookup(name)
 		if obj == nil {
 			continue
 		}
@@ -283,8 +283,8 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		}
 		// Check all types in the project
 		for _, p := range wc.Project.Packages {
-			for _, tname := range p.Types.Scope().Names() {
-				tobj := p.Types.Scope().Lookup(tname)
+			for _, tname := range p.Package.Types.Scope().Names() {
+				tobj := p.Package.Types.Scope().Lookup(tname)
 				if tobj == nil {
 					continue
 				}
@@ -292,11 +292,11 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 				// Check both T and *T
 				if gotypes.Implements(T, iface) || gotypes.Implements(gotypes.NewPointer(T), iface) {
 					// Don't list the interface itself
-					if p.PkgPath == pkg.PkgPath && tname == name {
+					if p.Identifier.PkgPath == pkg.Identifier.PkgPath && tname == name {
 						continue
 					}
-					qualified := p.PkgPath + "." + tname
-					if p.PkgPath == pkg.PkgPath {
+					qualified := p.Identifier.PkgPath + "." + tname
+					if p.Identifier.PkgPath == pkg.Identifier.PkgPath {
 						qualified = tname // same package, just use name
 					}
 					tb.implementedBy = append(tb.implementedBy, qualified)
@@ -313,7 +313,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		if tb.isInterface {
 			continue
 		}
-		obj := pkg.Types.Scope().Lookup(name)
+		obj := pkg.Package.Types.Scope().Lookup(name)
 		if obj == nil {
 			continue
 		}
@@ -327,7 +327,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 
 		for _, i := range ifaces {
 			// Skip self (type shouldn't satisfy itself)
-			if i.pkgPath == pkg.PkgPath && i.name == name {
+			if i.pkgPath == pkg.Identifier.PkgPath && i.name == name {
 				continue
 			}
 			iface := i.named.Underlying().(*gotypes.Interface)
@@ -358,7 +358,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 
 			if implements {
 				qualified := i.pkgPath + "." + i.name
-				if i.pkgPath == pkg.PkgPath {
+				if i.pkgPath == pkg.Identifier.PkgPath {
 					qualified = i.name
 				}
 				tb.satisfies = append(tb.satisfies, qualified)
@@ -390,13 +390,13 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	}
 
 	for _, p := range wc.Project.Packages {
-		for _, f := range p.Syntax {
+		for _, f := range p.Package.Syntax {
 			for _, imp := range f.Imports {
 				if strings.Trim(imp.Path.Value, `"`) == pi.PkgPath {
-					fileName := p.Fset.Position(imp.Pos()).Filename
+					fileName := p.Package.Fset.Position(imp.Pos()).Filename
 					pkgret.ImportedBy = append(pkgret.ImportedBy, output.DepResult{
-						Package:  p.PkgPath,
-						Location: makeLocation(p.Fset, fileName, imp.Pos()),
+						Package:  p.Identifier.PkgPath,
+						Location: makeLocation(p.Package.Fset, fileName, imp.Pos()),
 					})
 				}
 			}

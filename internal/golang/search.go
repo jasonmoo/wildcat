@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/sahilm/fuzzy"
-	"golang.org/x/tools/go/packages"
 )
 
 // SymbolKind represents the kind of symbol
@@ -65,10 +64,9 @@ func ParseKinds(s string) []SymbolKind {
 type Symbol struct {
 	Name    string     // symbol name (for matching)
 	Kind    SymbolKind // func, method, type, const, var
-	PkgPath string     // full import path
+	Package *Package
 
 	// For lazy rendering
-	fset     *token.FileSet
 	filename string
 	pos      token.Pos
 	node     ast.Node    // *ast.FuncDecl, *ast.TypeSpec, or *ast.ValueSpec
@@ -90,8 +88,8 @@ func (s *Symbol) Signature() (string, error) {
 
 // Location renders the symbol's line range (start:end)
 func (s *Symbol) Location() string {
-	start := s.fset.Position(s.pos)
-	end := s.fset.Position(s.node.End())
+	start := s.Package.Package.Fset.Position(s.pos)
+	end := s.Package.Package.Fset.Position(s.node.End())
 	return fmt.Sprintf("%d:%d", start.Line, end.Line)
 }
 
@@ -113,7 +111,7 @@ func (s *Symbol) Node() ast.Node {
 // SearchName returns the fully qualified searchable name (PkgPath.Name)
 // This allows fuzzy matching like "lsp.Client" or "wildcatlspclient"
 func (s *Symbol) SearchName() string {
-	return s.PkgPath + "." + s.Name
+	return s.Package.Identifier.PkgPath + "." + s.Name
 }
 
 // SymbolIndex holds symbols for fuzzy searching
@@ -150,7 +148,7 @@ func (idx *SymbolIndex) Lookup(query string) *Symbol {
 		symbolName := query[lastDot+1:]
 
 		for i := range idx.symbols {
-			if idx.symbols[i].PkgPath == pkgPath && idx.symbols[i].Name == symbolName {
+			if idx.symbols[i].Package.Identifier.PkgPath == pkgPath && idx.symbols[i].Name == symbolName {
 				return &idx.symbols[i]
 			}
 		}
@@ -179,7 +177,7 @@ func (idx *SymbolIndex) Lookup(query string) *Symbol {
 		// Try pkg.Name first
 		var match *Symbol
 		for i := range idx.symbols {
-			shortPkg := idx.symbols[i].PkgPath
+			shortPkg := idx.symbols[i].Package.Identifier.PkgPath
 			if lastSlash := strings.LastIndex(shortPkg, "/"); lastSlash >= 0 {
 				shortPkg = shortPkg[lastSlash+1:]
 			}
@@ -210,7 +208,7 @@ func (idx *SymbolIndex) Lookup(query string) *Symbol {
 		methodName := parts[1] + "." + parts[2]
 		var match *Symbol
 		for i := range idx.symbols {
-			shortPkg := idx.symbols[i].PkgPath
+			shortPkg := idx.symbols[i].Package.Identifier.PkgPath
 			if lastSlash := strings.LastIndex(shortPkg, "/"); lastSlash >= 0 {
 				shortPkg = shortPkg[lastSlash+1:]
 			}
@@ -345,16 +343,17 @@ func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult
 }
 
 // CollectSymbols builds a SymbolIndex from loaded packages
-func CollectSymbols(pkgs []*packages.Package) *SymbolIndex {
+func CollectSymbols(pkgs []*Package) *SymbolIndex {
 	idx := &SymbolIndex{}
 
 	for _, pkg := range pkgs {
-		if pkg.TypesInfo == nil {
+
+		if pkg.Package.TypesInfo == nil {
 			continue
 		}
 
-		for _, f := range pkg.Syntax {
-			filename := pkg.Fset.Position(f.Pos()).Filename
+		for _, f := range pkg.Package.Syntax {
+			filename := pkg.Package.Fset.Position(f.Pos()).Filename
 
 			for _, decl := range f.Decls {
 				switch d := decl.(type) {
@@ -370,7 +369,7 @@ func CollectSymbols(pkgs []*packages.Package) *SymbolIndex {
 	return idx
 }
 
-func (idx *SymbolIndex) addFunc(pkg *packages.Package, filename string, d *ast.FuncDecl) {
+func (idx *SymbolIndex) addFunc(pkg *Package, filename string, d *ast.FuncDecl) {
 	name := d.Name.Name
 	kind := SymbolKindFunc
 
@@ -386,15 +385,14 @@ func (idx *SymbolIndex) addFunc(pkg *packages.Package, filename string, d *ast.F
 	idx.symbols = append(idx.symbols, Symbol{
 		Name:     name,
 		Kind:     kind,
-		PkgPath:  pkg.PkgPath,
-		fset:     pkg.Fset,
+		Package:  pkg,
 		filename: filename,
 		pos:      d.Pos(),
 		node:     d,
 	})
 }
 
-func (idx *SymbolIndex) addGenDecl(pkg *packages.Package, filename string, d *ast.GenDecl) {
+func (idx *SymbolIndex) addGenDecl(pkg *Package, filename string, d *ast.GenDecl) {
 	for _, spec := range d.Specs {
 		switch sp := spec.(type) {
 		case *ast.TypeSpec:
@@ -405,7 +403,7 @@ func (idx *SymbolIndex) addGenDecl(pkg *packages.Package, filename string, d *as
 	}
 }
 
-func (idx *SymbolIndex) addTypeSpec(pkg *packages.Package, filename string, tok token.Token, sp *ast.TypeSpec) {
+func (idx *SymbolIndex) addTypeSpec(pkg *Package, filename string, tok token.Token, sp *ast.TypeSpec) {
 	name := sp.Name.Name
 	kind := SymbolKindType
 
@@ -416,8 +414,7 @@ func (idx *SymbolIndex) addTypeSpec(pkg *packages.Package, filename string, tok 
 	idx.symbols = append(idx.symbols, Symbol{
 		Name:     name,
 		Kind:     kind,
-		PkgPath:  pkg.PkgPath,
-		fset:     pkg.Fset,
+		Package:  pkg,
 		filename: filename,
 		pos:      sp.Pos(),
 		node:     sp,
@@ -425,7 +422,7 @@ func (idx *SymbolIndex) addTypeSpec(pkg *packages.Package, filename string, tok 
 	})
 }
 
-func (idx *SymbolIndex) addValueSpec(pkg *packages.Package, filename string, tok token.Token, sp *ast.ValueSpec) {
+func (idx *SymbolIndex) addValueSpec(pkg *Package, filename string, tok token.Token, sp *ast.ValueSpec) {
 	kind := SymbolKindVar
 	if tok == token.CONST {
 		kind = SymbolKindConst
@@ -436,8 +433,7 @@ func (idx *SymbolIndex) addValueSpec(pkg *packages.Package, filename string, tok
 		idx.symbols = append(idx.symbols, Symbol{
 			Name:     ident.Name,
 			Kind:     kind,
-			PkgPath:  pkg.PkgPath,
-			fset:     pkg.Fset,
+			Package:  pkg,
 			filename: filename,
 			pos:      ident.Pos(),
 			node:     sp,
