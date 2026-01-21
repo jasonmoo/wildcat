@@ -153,14 +153,37 @@ func (r *UnusedCommandResponse) MarshalMarkdown() ([]byte, error) {
 		sb.WriteString("\n")
 	}
 
-	// Output standalone methods (parent type is NOT unused) - flat list
+	// Output standalone methods grouped by parent type if ALL methods of that type are unused
 	if len(standaloneMethods) > 0 {
-		fmt.Fprintf(&sb, "## Unused Methods (%d)\n\n", len(standaloneMethods))
+		// Group by parent type
+		methodsByParent := make(map[string][]UnusedSymbol)
+		var parentOrder []string
 		for _, m := range standaloneMethods {
-			fmt.Fprintf(&sb, "- **%s** `%s`\n", m.Symbol, m.Signature)
-			fmt.Fprintf(&sb, "  %s\n", m.Definition)
+			parent := m.ParentType
+			if parent == "" {
+				parent = "(no receiver)"
+			}
+			if _, seen := methodsByParent[parent]; !seen {
+				parentOrder = append(parentOrder, parent)
+			}
+			methodsByParent[parent] = append(methodsByParent[parent], m)
 		}
-		sb.WriteString("\n")
+
+		fmt.Fprintf(&sb, "## Unused Methods (%d)\n\n", len(standaloneMethods))
+		for _, parent := range parentOrder {
+			methods := methodsByParent[parent]
+			fmt.Fprintf(&sb, "### %s (%d)\n\n", parent, len(methods))
+			for _, m := range methods {
+				// Show just method name since parent is in header
+				name := m.Symbol
+				if idx := strings.LastIndex(name, "."); idx >= 0 {
+					name = name[idx+1:]
+				}
+				fmt.Fprintf(&sb, "- **%s** `%s`\n", name, m.Signature)
+				fmt.Fprintf(&sb, "  %s\n", m.Definition)
+			}
+			sb.WriteString("\n")
+		}
 	}
 
 	// Output constants
