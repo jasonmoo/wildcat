@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
@@ -148,7 +149,10 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		return nil, fmt.Errorf("dead code analysis failed: %w", err)
 	}
 
-	// Collect dead symbols
+	// Build package/file info for dead file/package detection
+	packages := make(map[string]PackageInfo)
+
+	// First pass: count total symbols per file/package and track dead symbols
 	var deadSymbols []DeadSymbol
 	totalMethodsByType := make(map[string]int)
 
@@ -178,6 +182,30 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			continue
 		}
 
+		// Track package/file info
+		pkgPath := sym.Package.Identifier.PkgPath
+		filename := filepath.Base(sym.Filename())
+
+		if _, ok := packages[pkgPath]; !ok {
+			packages[pkgPath] = PackageInfo{
+				Package: pkgPath,
+				Files:   make(map[string]FileInfo),
+			}
+		}
+		pkg := packages[pkgPath]
+		pkg.TotalSymbols++
+
+		if fi, ok := pkg.Files[filename]; ok {
+			fi.TotalSymbols++
+			pkg.Files[filename] = fi
+		} else {
+			pkg.Files[filename] = FileInfo{
+				Filename:     filename,
+				TotalSymbols: 1,
+			}
+		}
+		packages[pkgPath] = pkg
+
 		// Count methods by type for grouping
 		if sym.Kind == golang.SymbolKindMethod {
 			if node, ok := sym.Node().(*ast.FuncDecl); ok {
@@ -193,13 +221,23 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			continue
 		}
 
+		// Update dead counts
+		pkg = packages[pkgPath]
+		pkg.DeadSymbols++
+		fi := pkg.Files[filename]
+		fi.DeadSymbols++
+		pkg.Files[filename] = fi
+		packages[pkgPath] = pkg
+
 		// Build dead symbol info
 		sig, _ := sym.Signature()
 		ds := DeadSymbol{
-			Symbol:     sym.Package.Identifier.Name + "." + sym.Name,
-			Kind:       string(sym.Kind),
-			Signature:  sig,
-			Definition: fmt.Sprintf("%s:%s", sym.Filename(), sym.Location()),
+			Symbol:    sym.Package.Identifier.Name + "." + sym.Name,
+			Kind:      string(sym.Kind),
+			Signature: sig,
+			Package:   pkgPath,
+			Filename:  filename,
+			Location:  sym.Location(),
 		}
 
 		// Get parent type for methods and constructors
@@ -222,6 +260,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		},
 		Dead:               deadSymbols,
 		TotalMethodsByType: totalMethodsByType,
+		Packages:           packages,
 		Summary: Summary{
 			TotalSymbols: len(wc.Index.Symbols()),
 			DeadSymbols:  len(deadSymbols),
