@@ -28,24 +28,24 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Query             output.QueryInfo        `json:"query"`
 		Target            output.TargetInfo       `json:"target"`
+		QuerySummary      output.SymbolSummary    `json:"query_summary"`
+		PackageSummary    output.SymbolSummary    `json:"package_summary"`
+		ProjectSummary    output.SymbolSummary    `json:"project_summary"`
 		ImportedBy        []output.DepResult      `json:"imported_by"`
 		References        []output.PackageUsage   `json:"references"`
 		Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
 		Satisfies         []output.SymbolLocation `json:"satisfies,omitempty"`
-		QuerySummary      output.SymbolSummary    `json:"query_summary"`
-		PackageSummary    output.SymbolSummary    `json:"package_summary"`
-		ProjectSummary    output.SymbolSummary    `json:"project_summary"`
 		OtherFuzzyMatches []string                `json:"other_fuzzy_matches"`
 	}{
 		Query:             r.Query,
 		Target:            r.Target,
+		QuerySummary:      r.QuerySummary,
+		PackageSummary:    r.PackageSummary,
+		ProjectSummary:    r.ProjectSummary,
 		ImportedBy:        r.ImportedBy,
 		References:        r.References,
 		Implementations:   r.Implementations,
 		Satisfies:         r.Satisfies,
-		QuerySummary:      r.QuerySummary,
-		PackageSummary:    r.PackageSummary,
-		ProjectSummary:    r.ProjectSummary,
 		OtherFuzzyMatches: r.OtherFuzzyMatches,
 	})
 }
@@ -109,7 +109,11 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 			if len(pkg.References) > 0 {
 				sb.WriteString("#### References\n\n")
 				for _, ref := range pkg.References {
-					fmt.Fprintf(&sb, "- %s\n", ref.Location)
+					if ref.Symbol != "" {
+						fmt.Fprintf(&sb, "- %s `%s`\n", ref.Location, ref.Symbol)
+					} else {
+						fmt.Fprintf(&sb, "- %s\n", ref.Location)
+					}
 					if ref.Snippet.Source != "" {
 						sb.WriteString("  ```go\n")
 						for _, line := range strings.Split(ref.Snippet.Source, "\n") {

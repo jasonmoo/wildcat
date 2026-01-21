@@ -211,7 +211,7 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 			snippet, start, end, _ := extractor.ExtractSmart(ref.file, ref.line)
 			refLocs = append(refLocs, output.Location{
 				Location: fmt.Sprintf("%s:%d", filepath.Base(ref.file), ref.line),
-				Symbol:   "",
+				Symbol:   ref.symbol,
 				Snippet: output.Snippet{
 					Location: fmt.Sprintf("%s:%d:%d", filepath.Base(ref.file), start, end),
 					Source:   snippet,
@@ -311,8 +311,9 @@ type callerInfo struct {
 }
 
 type referenceInfo struct {
-	file string
-	line int
+	file   string
+	line   int
+	symbol string
 }
 
 type scopeFilter struct {
@@ -462,52 +463,68 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 		}
 
 		for _, file := range pkg.Package.Syntax {
-			ast.Inspect(file, func(n ast.Node) bool {
-				ident, ok := n.(*ast.Ident)
-				if !ok {
-					return true
+			// Iterate over declarations to track containing function
+			for _, decl := range file.Decls {
+				fn, isFn := decl.(*ast.FuncDecl)
+
+				// Build containing symbol name
+				var containingSymbol string
+				if isFn {
+					containingSymbol = pkg.Identifier.Name + "."
+					if fn.Recv != nil && len(fn.Recv.List) > 0 {
+						containingSymbol += golang.ReceiverTypeName(fn.Recv.List[0].Type) + "."
+					}
+					containingSymbol += fn.Name.Name
 				}
 
-				obj := pkg.Package.TypesInfo.Uses[ident]
-				if obj == nil {
-					return true
-				}
-
-				// Check if this references our target
-				if !c.sameObject(obj, targetObj) {
-					return true
-				}
-
-				pos := pkg.Package.Fset.Position(ident.Pos())
-				key := fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
-
-				// Skip if already counted as caller
-				if callerLocs[key] {
-					return true
-				}
-
-				// Skip the definition itself
-				if pos.Filename == target.Filename() {
-					defLine, _, _ := strings.Cut(target.Location(), ":")
-					if fmt.Sprintf("%d", pos.Line) == defLine {
+				ast.Inspect(decl, func(n ast.Node) bool {
+					ident, ok := n.(*ast.Ident)
+					if !ok {
 						return true
 					}
-				}
 
-				// Get or create package usage
-				if usageByPkg[pkg.Identifier.PkgPath] == nil {
-					usageByPkg[pkg.Identifier.PkgPath] = &pkgUsage{pkg: pkg}
-				}
-				usageByPkg[pkg.Identifier.PkgPath].references = append(
-					usageByPkg[pkg.Identifier.PkgPath].references,
-					referenceInfo{
-						file: pos.Filename,
-						line: pos.Line,
-					},
-				)
+					obj := pkg.Package.TypesInfo.Uses[ident]
+					if obj == nil {
+						return true
+					}
 
-				return true
-			})
+					// Check if this references our target
+					if !c.sameObject(obj, targetObj) {
+						return true
+					}
+
+					pos := pkg.Package.Fset.Position(ident.Pos())
+					key := fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
+
+					// Skip if already counted as caller
+					if callerLocs[key] {
+						return true
+					}
+
+					// Skip the definition itself
+					if pos.Filename == target.Filename() {
+						defLine, _, _ := strings.Cut(target.Location(), ":")
+						if fmt.Sprintf("%d", pos.Line) == defLine {
+							return true
+						}
+					}
+
+					// Get or create package usage
+					if usageByPkg[pkg.Identifier.PkgPath] == nil {
+						usageByPkg[pkg.Identifier.PkgPath] = &pkgUsage{pkg: pkg}
+					}
+					usageByPkg[pkg.Identifier.PkgPath].references = append(
+						usageByPkg[pkg.Identifier.PkgPath].references,
+						referenceInfo{
+							file:   pos.Filename,
+							line:   pos.Line,
+							symbol: containingSymbol,
+						},
+					)
+
+					return true
+				})
+			}
 		}
 	}
 }
