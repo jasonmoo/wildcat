@@ -2,11 +2,11 @@ package cmd
 
 import (
 	channels_cmd "github.com/jasonmoo/wildcat/internal/commands/channels"
+	deadcode_cmd "github.com/jasonmoo/wildcat/internal/commands/deadcode"
 	package_cmd "github.com/jasonmoo/wildcat/internal/commands/package"
 	search_cmd "github.com/jasonmoo/wildcat/internal/commands/search"
 	symbol_cmd "github.com/jasonmoo/wildcat/internal/commands/symbol"
 	tree_cmd "github.com/jasonmoo/wildcat/internal/commands/tree"
-	unused_cmd "github.com/jasonmoo/wildcat/internal/commands/unused"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +36,7 @@ and actionable error messages.`,
 		"search",   // find symbols
 		"tree",     // call graph traversal
 		"channels", // concurrency analysis
-		"unused",   // dead code detection
+		"deadcode", // dead code detection
 		"readme",   // onboarding
 		"version",  // meta
 		"help",     // always last
@@ -84,7 +84,7 @@ and actionable error messages.`,
 	rootCmd.AddCommand(search_cmd.NewSearchCommand().Cmd())
 	rootCmd.AddCommand(tree_cmd.NewTreeCommand().Cmd())
 	rootCmd.AddCommand(channels_cmd.NewChannelsCommand().Cmd())
-	rootCmd.AddCommand(unused_cmd.NewUnusedCommand().Cmd())
+	rootCmd.AddCommand(deadcode_cmd.NewDeadcodeCommand().Cmd())
 	rootCmd.AddCommand(readmeCmd)
 	rootCmd.AddCommand(versionCmd)
 
