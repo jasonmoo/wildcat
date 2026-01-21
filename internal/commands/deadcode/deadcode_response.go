@@ -24,11 +24,10 @@ type Summary struct {
 
 // DeadSymbol represents a single dead symbol
 type DeadSymbol struct {
-	Symbol    string `json:"symbol"`
-	Kind      string `json:"kind"`
-	Signature string `json:"signature"`
-	Filename  string `json:"filename"` // relative filename within package
-	Location  string `json:"location"` // line:col or start:end
+	Symbol     string `json:"symbol"`
+	Kind       string `json:"-"` // for future formats
+	Signature  string `json:"signature"`
+	Definition string `json:"definition"` // file:start:end
 }
 
 // FileInfo tracks symbol counts per file
@@ -66,42 +65,35 @@ type PackageDeadCode struct {
 
 // DeadcodeCommandResponse is the structured response for deadcode analysis
 type DeadcodeCommandResponse struct {
-	Query        QueryInfo                   `json:"query"`
-	Summary      Summary                     `json:"summary"`
-	DeadPackages []string                    `json:"dead_packages,omitempty"` // fully dead package paths
-	Packages     map[string]*PackageDeadCode `json:"packages,omitempty"`
+	Query        QueryInfo          `json:"query"`
+	Summary      Summary            `json:"summary"`
+	DeadPackages []string           `json:"dead_packages,omitempty"` // fully dead package paths
+	Packages     []*PackageDeadCode `json:"packages,omitempty"`
 
 	// Internal fields for building the response
 	totalMethodsByType map[string]int // tracks total methods per type for grouping logic
 }
 
 func (r *DeadcodeCommandResponse) MarshalJSON() ([]byte, error) {
-	// Sort dead packages for consistent output
+	// Sort for consistent output: dead first, then alphabetical
 	sort.Strings(r.DeadPackages)
-
-	// Sort package keys
-	var pkgOrder []string
-	for pkg := range r.Packages {
-		pkgOrder = append(pkgOrder, pkg)
-	}
-	sort.Strings(pkgOrder)
-
-	// Build ordered packages map (Go maps are unordered, but we want consistent JSON)
-	orderedPkgs := make(map[string]*PackageDeadCode)
-	for _, pkg := range pkgOrder {
-		orderedPkgs[pkg] = r.Packages[pkg]
-	}
+	sort.Slice(r.Packages, func(i, j int) bool {
+		if r.Packages[i].IsDead != r.Packages[j].IsDead {
+			return r.Packages[i].IsDead // dead packages first
+		}
+		return r.Packages[i].Package < r.Packages[j].Package
+	})
 
 	return json.Marshal(struct {
-		Query        QueryInfo                   `json:"query"`
-		Summary      Summary                     `json:"summary"`
-		DeadPackages []string                    `json:"dead_packages,omitempty"`
-		Packages     map[string]*PackageDeadCode `json:"packages,omitempty"`
+		Query        QueryInfo          `json:"query"`
+		Summary      Summary            `json:"summary"`
+		DeadPackages []string           `json:"dead_packages,omitempty"`
+		Packages     []*PackageDeadCode `json:"packages,omitempty"`
 	}{
 		Query:        r.Query,
 		Summary:      r.Summary,
 		DeadPackages: r.DeadPackages,
-		Packages:     orderedPkgs,
+		Packages:     r.Packages,
 	})
 }
 
@@ -130,36 +122,38 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if len(r.DeadPackages) > 0 {
 		fmt.Fprintf(&sb, "# Dead Packages (%d)\n\n", len(r.DeadPackages))
 		for _, pkg := range r.DeadPackages {
-			if pi := r.Packages[pkg]; pi != nil {
-				symbolCount := len(pi.Constants) + len(pi.Variables) + len(pi.Functions)
-				for _, t := range pi.Types {
-					symbolCount += 1 + len(t.Constructors) + len(t.Methods)
+			for _, pi := range r.Packages {
+				if pi.Package == pkg {
+					symbolCount := len(pi.Constants) + len(pi.Variables) + len(pi.Functions)
+					for _, t := range pi.Types {
+						symbolCount += 1 + len(t.Constructors) + len(t.Methods)
+					}
+					for _, mg := range pi.DeadMethods {
+						symbolCount += len(mg.Methods)
+					}
+					fmt.Fprintf(&sb, "- %s (%d symbols, %d files)\n", pkg, symbolCount, len(pi.FileInfo))
+					break
 				}
-				for _, mg := range pi.DeadMethods {
-					symbolCount += len(mg.Methods)
-				}
-				fmt.Fprintf(&sb, "- %s (%d symbols, %d files)\n", pkg, symbolCount, len(pi.FileInfo))
 			}
 		}
 		sb.WriteString("\n")
 	}
 
-	// Sort packages for consistent output
-	var pkgOrder []string
-	for pkg := range r.Packages {
-		pkgOrder = append(pkgOrder, pkg)
-	}
-	sort.Strings(pkgOrder)
+	// Sort packages: dead first, then alphabetical
+	sort.Slice(r.Packages, func(i, j int) bool {
+		if r.Packages[i].IsDead != r.Packages[j].IsDead {
+			return r.Packages[i].IsDead // dead packages first
+		}
+		return r.Packages[i].Package < r.Packages[j].Package
+	})
 
 	// Output each package
-	for _, pkg := range pkgOrder {
-		pi := r.Packages[pkg]
-
+	for _, pi := range r.Packages {
 		// Package header
 		if pi.IsDead {
-			fmt.Fprintf(&sb, "# package %s (DEAD)\n\n", pkg)
+			fmt.Fprintf(&sb, "# package %s (DEAD)\n\n", pi.Package)
 		} else {
-			fmt.Fprintf(&sb, "# package %s\n\n", pkg)
+			fmt.Fprintf(&sb, "# package %s\n\n", pi.Package)
 		}
 
 		// Show dead files (only if not all files are dead)
@@ -177,7 +171,7 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 		if len(pi.Constants) > 0 {
 			fmt.Fprintf(&sb, "# Constants (%d)\n", len(pi.Constants))
 			for _, d := range pi.Constants {
-				fmt.Fprintf(&sb, "%s // %s:%s\n", d.Signature, d.Filename, d.Location)
+				fmt.Fprintf(&sb, "%s // %s\n", d.Signature, d.Definition)
 			}
 			sb.WriteString("\n")
 		}
@@ -186,7 +180,7 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 		if len(pi.Variables) > 0 {
 			fmt.Fprintf(&sb, "# Variables (%d)\n", len(pi.Variables))
 			for _, d := range pi.Variables {
-				fmt.Fprintf(&sb, "%s // %s:%s\n", d.Signature, d.Filename, d.Location)
+				fmt.Fprintf(&sb, "%s // %s\n", d.Signature, d.Definition)
 			}
 			sb.WriteString("\n")
 		}
@@ -195,7 +189,7 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 		if len(pi.Functions) > 0 {
 			fmt.Fprintf(&sb, "# Functions (%d)\n", len(pi.Functions))
 			for _, d := range pi.Functions {
-				fmt.Fprintf(&sb, "%s // %s:%s\n", d.Signature, d.Filename, d.Location)
+				fmt.Fprintf(&sb, "%s // %s\n", d.Signature, d.Definition)
 			}
 			sb.WriteString("\n")
 		}
@@ -204,17 +198,17 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 		if len(pi.Types) > 0 {
 			fmt.Fprintf(&sb, "# Types (%d)\n\n", len(pi.Types))
 			for _, t := range pi.Types {
-				fmt.Fprintf(&sb, "%s // %s:%s", t.Symbol.Signature, t.Symbol.Filename, t.Symbol.Location)
+				fmt.Fprintf(&sb, "%s // %s", t.Symbol.Signature, t.Symbol.Definition)
 				if len(t.Methods) > 0 {
 					fmt.Fprintf(&sb, " // %d methods", len(t.Methods))
 				}
 				sb.WriteString("\n")
 
 				for _, c := range t.Constructors {
-					fmt.Fprintf(&sb, "%s // %s:%s\n", c.Signature, c.Filename, c.Location)
+					fmt.Fprintf(&sb, "%s // %s\n", c.Signature, c.Definition)
 				}
 				for _, m := range t.Methods {
-					fmt.Fprintf(&sb, "%s // %s:%s\n", m.Signature, m.Filename, m.Location)
+					fmt.Fprintf(&sb, "%s // %s\n", m.Signature, m.Definition)
 				}
 				sb.WriteString("\n")
 			}
@@ -235,7 +229,7 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 					fmt.Fprintf(&sb, "## %s\n", mg.ParentType)
 				}
 				for _, m := range mg.Methods {
-					fmt.Fprintf(&sb, "%s // %s:%s\n", m.Signature, m.Filename, m.Location)
+					fmt.Fprintf(&sb, "%s // %s\n", m.Signature, m.Definition)
 				}
 				sb.WriteString("\n")
 			}

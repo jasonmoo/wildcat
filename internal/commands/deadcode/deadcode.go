@@ -159,7 +159,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 	totalMethodsByType := make(map[string]int) // "pkg.Type" -> count
 
 	// Collect dead symbols grouped by package
-	packages := make(map[string]*PackageDeadCode)
+	var packages []*PackageDeadCode
 
 	// Temporary storage for grouping
 	type tempDeadSymbol struct {
@@ -231,11 +231,10 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		// Build dead symbol info
 		sig, _ := sym.Signature()
 		ds := DeadSymbol{
-			Symbol:    sym.Package.Identifier.Name + "." + sym.Name,
-			Kind:      string(sym.Kind),
-			Signature: sig,
-			Filename:  filename,
-			Location:  sym.Location(),
+			Symbol:     sym.Package.Identifier.Name + "." + sym.Name,
+			Kind:       string(sym.Kind),
+			Signature:  sig,
+			Definition: filename + ":" + sym.Location(),
 		}
 
 		// Get parent type for methods and constructors
@@ -354,7 +353,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			return deadMethods[i].ParentType < deadMethods[j].ParentType
 		})
 
-		packages[pkgPath] = &PackageDeadCode{
+		packages = append(packages, &PackageDeadCode{
 			Package:     pkgPath,
 			IsDead:      isDead,
 			DeadFiles:   deadFiles,
@@ -364,7 +363,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			Functions:   functions,
 			Types:       types,
 			DeadMethods: deadMethods,
-		}
+		})
 	}
 
 	sort.Strings(deadPackages)
