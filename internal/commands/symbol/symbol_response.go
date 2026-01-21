@@ -18,11 +18,20 @@ type FunctionInfo struct {
 	Definition string `json:"definition"` // file:start:end
 }
 
+// DescendantInfo describes a type that would be orphaned if the target is removed.
+type DescendantInfo struct {
+	Symbol     string `json:"symbol"`     // qualified: pkg.Type
+	Signature  string `json:"signature"`
+	Definition string `json:"definition"` // file:line
+	Reason     string `json:"reason"`     // why it's a descendant
+}
+
 type SymbolCommandResponse struct {
 	Query             output.QueryInfo        `json:"query"`
 	Target            output.TargetInfo       `json:"target"`
 	Methods           []FunctionInfo          `json:"methods,omitempty"`
 	Constructors      []FunctionInfo          `json:"constructors,omitempty"`
+	Descendants       []DescendantInfo        `json:"descendants,omitempty"` // types orphaned if target removed
 	ImportedBy        []output.DepResult      `json:"imported_by"`
 	References        []output.PackageUsage   `json:"references"`
 	Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
@@ -42,6 +51,7 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		ProjectSummary    output.SymbolSummary    `json:"project_summary"`
 		Methods           []FunctionInfo          `json:"methods,omitempty"`
 		Constructors      []FunctionInfo          `json:"constructors,omitempty"`
+		Descendants       []DescendantInfo        `json:"descendants,omitempty"`
 		ImportedBy        []output.DepResult      `json:"imported_by"`
 		References        []output.PackageUsage   `json:"references"`
 		Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
@@ -55,6 +65,7 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		ProjectSummary:    r.ProjectSummary,
 		Methods:           r.Methods,
 		Constructors:      r.Constructors,
+		Descendants:       r.Descendants,
 		ImportedBy:        r.ImportedBy,
 		References:        r.References,
 		Implementations:   r.Implementations,
@@ -97,6 +108,18 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		sb.WriteString("## Constructors\n\n")
 		for _, c := range r.Constructors {
 			fmt.Fprintf(&sb, "- **%s** `%s` %s\n", c.Symbol, c.Signature, c.Definition)
+		}
+		sb.WriteString("\n")
+	}
+
+	// Descendants (types orphaned if target removed)
+	if len(r.Descendants) > 0 {
+		sb.WriteString("## Descendants (orphaned if removed)\n\n")
+		for _, d := range r.Descendants {
+			fmt.Fprintf(&sb, "- **%s** `%s` %s\n", d.Symbol, d.Signature, d.Definition)
+			if d.Reason != "" {
+				fmt.Fprintf(&sb, "  - %s\n", d.Reason)
+			}
 		}
 		sb.WriteString("\n")
 	}
