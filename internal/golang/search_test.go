@@ -9,7 +9,7 @@ func TestSymbolSearch(t *testing.T) {
 	ctx := context.Background()
 
 	// Load this project's packages
-	project, err := LoadModulePackages(ctx, ".")
+	project, err := LoadModulePackages(ctx, ".", nil)
 	if err != nil {
 		t.Fatalf("LoadModulePackages: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestSymbolSearch(t *testing.T) {
 			}
 			// Lazy render signature and location only for results we display
 			t.Logf("  %d. [score=%d] %s [%s] %s // %s",
-				i+1, r.Score, r.Symbol.Name, r.Symbol.Kind, r.Symbol.PkgPath, r.Symbol.Location())
+				i+1, r.Score, r.Symbol.Name, r.Symbol.Kind, r.Symbol.Package.Identifier.PkgPath, r.Symbol.Location())
 			sig, err := r.Symbol.Signature()
 			if err != nil {
 				t.Errorf("Signature() error: %v", err)

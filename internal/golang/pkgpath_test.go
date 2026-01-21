@@ -195,14 +195,14 @@ func TestLoadPackages(t *testing.T) {
 	start := time.Now()
 	// ps, err := LoadPackages(t.Context(), "/home/jason/go/src/github.com/jasonmoo/wildcat", "./...")
 	// _, err = LoadPackages(t.Context(), pi.ModuleDir, pi.PkgPath)
-	p, err := LoadModulePackages(t.Context(), "/home/jason/go/src/github.com/jasonmoo/bbb")
+	p, err := LoadModulePackages(t.Context(), "/home/jason/go/src/github.com/jasonmoo/bbb", nil)
 	if err != nil {
 		t.Error(err)
 	}
 	fmt.Println("done", time.Since(start))
 
 	for _, pkg := range p.Packages {
-		fmt.Println(pkg.PkgPath, pkg.Errors, pkg.TypeErrors) //slices.Collect(maps.Keys(p.Imports)))
+		fmt.Println(pkg.Identifier.PkgPath, pkg.Package.Errors, pkg.Package.TypeErrors) //slices.Collect(maps.Keys(p.Imports)))
 		// pretty.Println(p)
 		// pretty.Println(p.Module)
 		// // fmt.Printf("%#v", p)
