@@ -139,6 +139,16 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 
 	modulePath := wc.Project.Module.Path
 
+	// Resolve target package path
+	if c.target == "" {
+		c.target = "."
+	}
+	pi, err := wc.Project.ResolvePackageName(ctx, c.target)
+	if err != nil {
+		return commands.NewErrorResultf("invalid_target", "cannot resolve package %q: %v", c.target, err), nil
+	}
+	c.target = pi.PkgPath
+
 	// Build target filter (which symbols to check)
 	targetFilter := c.parseTarget(modulePath)
 
@@ -176,6 +186,19 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		candidates = append(candidates, sym)
 	}
 
+	// Count total methods per type (for grouping logic)
+	totalMethodsByType := make(map[string]int)
+	for _, sym := range candidates {
+		if sym.Kind == golang.SymbolKindMethod {
+			if node, ok := sym.Node().(*ast.FuncDecl); ok {
+				if node.Recv != nil && len(node.Recv.List) > 0 {
+					parentType := sym.Package.Identifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
+					totalMethodsByType[parentType]++
+				}
+			}
+		}
+	}
+
 	// For each candidate, count references within scope
 	var unused []UnusedSymbol
 	for _, sym := range candidates {
@@ -210,7 +233,8 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 			Target:  c.target,
 			Scope:   c.scope,
 		},
-		Unused: unused,
+		Unused:             unused,
+		TotalMethodsByType: totalMethodsByType,
 		Summary: Summary{
 			Candidates: len(candidates),
 			Unused:     len(unused),
@@ -228,25 +252,15 @@ type scopeFilter struct {
 func (c *UnusedCommand) parseTarget(modulePath string) scopeFilter {
 	filter := scopeFilter{modulePath: modulePath}
 
-	if c.target == "" {
-		// No target = all project packages
+	// c.target is already resolved to full path
+	// If it equals the module path, check all project packages
+	if c.target == modulePath {
 		filter.projectOnly = true
 		return filter
 	}
 
-	// Target specified - parse as includes
-	for _, part := range strings.Split(c.target, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if strings.HasPrefix(part, "-") {
-			filter.excludes = append(filter.excludes, strings.TrimPrefix(part, "-"))
-		} else {
-			filter.includes = append(filter.includes, part)
-		}
-	}
-
+	// Use resolved target as prefix match
+	filter.includes = []string{c.target}
 	return filter
 }
 
@@ -284,17 +298,17 @@ func (c *UnusedCommand) inScope(pkgPath string, filter scopeFilter) bool {
 		return strings.HasPrefix(pkgPath, filter.modulePath)
 	}
 
-	// Check excludes
+	// Check excludes (prefix match on resolved paths)
 	for _, ex := range filter.excludes {
-		if strings.Contains(pkgPath, ex) {
+		if strings.HasPrefix(pkgPath, ex) {
 			return false
 		}
 	}
 
-	// Check includes (if specified)
+	// Check includes (prefix match to include subpackages)
 	if len(filter.includes) > 0 {
 		for _, inc := range filter.includes {
-			if strings.Contains(pkgPath, inc) {
+			if strings.HasPrefix(pkgPath, inc) {
 				return true
 			}
 		}
@@ -317,23 +331,33 @@ func isInternalPkg(pkgPath string) bool {
 }
 
 func isSpecialFunc(sym golang.Symbol) bool {
-	if sym.Kind != golang.SymbolKindFunc {
-		return false
-	}
-
 	name := sym.Name
 
 	// main and init are entry points
-	if name == "main" || name == "init" {
-		return true
+	if sym.Kind == golang.SymbolKindFunc {
+		if name == "main" || name == "init" {
+			return true
+		}
+
+		// Test functions
+		if strings.HasPrefix(name, "Test") ||
+			strings.HasPrefix(name, "Benchmark") ||
+			strings.HasPrefix(name, "Example") ||
+			strings.HasPrefix(name, "Fuzz") {
+			return true
+		}
 	}
 
-	// Test functions
-	if strings.HasPrefix(name, "Test") ||
-		strings.HasPrefix(name, "Benchmark") ||
-		strings.HasPrefix(name, "Example") ||
-		strings.HasPrefix(name, "Fuzz") {
-		return true
+	// Common interface methods called via dispatch
+	if sym.Kind == golang.SymbolKindMethod {
+		// error interface
+		if name == "Error" {
+			return true
+		}
+		// fmt.Stringer interface
+		if name == "String" {
+			return true
+		}
 	}
 
 	return false

@@ -26,9 +26,10 @@ type Summary struct {
 }
 
 type UnusedCommandResponse struct {
-	Query   QueryInfo      `json:"query"`
-	Unused  []UnusedSymbol `json:"unused"`
-	Summary Summary        `json:"summary"`
+	Query              QueryInfo      `json:"query"`
+	Unused             []UnusedSymbol `json:"unused"`
+	TotalMethodsByType map[string]int `json:"-"` // internal, for grouping logic
+	Summary            Summary        `json:"summary"`
 }
 
 func (r *UnusedCommandResponse) MarshalJSON() ([]byte, error) {
@@ -153,7 +154,7 @@ func (r *UnusedCommandResponse) MarshalMarkdown() ([]byte, error) {
 		sb.WriteString("\n")
 	}
 
-	// Output standalone methods grouped by parent type if ALL methods of that type are unused
+	// Output standalone methods - group by type only if ALL methods of that type are unused
 	if len(standaloneMethods) > 0 {
 		// Group by parent type
 		methodsByParent := make(map[string][]UnusedSymbol)
@@ -169,12 +170,28 @@ func (r *UnusedCommandResponse) MarshalMarkdown() ([]byte, error) {
 			methodsByParent[parent] = append(methodsByParent[parent], m)
 		}
 
-		fmt.Fprintf(&sb, "## Unused Methods (%d)\n\n", len(standaloneMethods))
+		// Separate into grouped (all methods unused) vs flat (partial)
+		var groupedTypes []string
+		var flatMethods []UnusedSymbol
 		for _, parent := range parentOrder {
+			unusedMethods := methodsByParent[parent]
+			totalMethods := r.TotalMethodsByType[parent]
+			if totalMethods > 0 && len(unusedMethods) == totalMethods {
+				// ALL methods are unused - group them
+				groupedTypes = append(groupedTypes, parent)
+			} else {
+				// Only some methods unused - flat list
+				flatMethods = append(flatMethods, unusedMethods...)
+			}
+		}
+
+		fmt.Fprintf(&sb, "## Unused Methods (%d)\n\n", len(standaloneMethods))
+
+		// Show grouped types first
+		for _, parent := range groupedTypes {
 			methods := methodsByParent[parent]
 			fmt.Fprintf(&sb, "### %s (%d)\n\n", parent, len(methods))
 			for _, m := range methods {
-				// Show just method name since parent is in header
 				name := m.Symbol
 				if idx := strings.LastIndex(name, "."); idx >= 0 {
 					name = name[idx+1:]
@@ -182,6 +199,15 @@ func (r *UnusedCommandResponse) MarshalMarkdown() ([]byte, error) {
 				fmt.Fprintf(&sb, "- **%s** `%s`\n", name, m.Signature)
 				fmt.Fprintf(&sb, "  %s\n", m.Definition)
 			}
+			sb.WriteString("\n")
+		}
+
+		// Show flat methods (partial unused)
+		for _, m := range flatMethods {
+			fmt.Fprintf(&sb, "- **%s** `%s`\n", m.Symbol, m.Signature)
+			fmt.Fprintf(&sb, "  %s\n", m.Definition)
+		}
+		if len(flatMethods) > 0 {
 			sb.WriteString("\n")
 		}
 	}

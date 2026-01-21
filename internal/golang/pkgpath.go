@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/tools/go/packages"
@@ -19,6 +20,14 @@ import (
 type Project struct {
 	Module   *packages.Module
 	Packages []*Package
+
+	resolveCache map[string]resolvedPackage
+	resovleMe    sync.Mutex
+}
+
+type resolvedPackage struct {
+	pi  *PackageIdentifier
+	err error
 }
 
 type Package struct {
@@ -37,30 +46,50 @@ var reservedPatterns = []string{"all", "cmd", "main", "std", "tool"}
 // tries to resolve short packages (ie. internal to the module)
 // excludes test packages
 func (p *Project) ResolvePackageName(ctx context.Context, name string) (*PackageIdentifier, error) {
-	if slices.Contains(reservedPatterns, name) {
-		return nil, fmt.Errorf("cannot resolve %q: reserved Go pattern %v (expands to multiple packages); use ./%s for local package", name, reservedPatterns, name)
+
+	p.resovleMe.Lock()
+	rp, exists := p.resolveCache[name]
+	p.resovleMe.Unlock()
+	if exists {
+		if rp.err != nil {
+			return nil, rp.err
+		}
+		return rp.pi, nil
 	}
-	// first try to load as given
-	pkgs, err := packages.Load(&packages.Config{
-		Context: ctx,
-		Mode:    packages.NeedName | packages.NeedModule,
-		Dir:     p.Module.Dir,
-	}, name)
-	if err != nil {
-		panic(err)
-	}
-	if len(pkgs) == 1 && len(pkgs[0].Errors) == 0 {
-		return newPackageIdentifier(pkgs[0]), nil
-	}
-	for _, pkg := range pkgs {
-		for _, e := range pkg.Errors {
-			// if is relative and not stdlib, try to load it as module/pkg
-			if strings.Contains(e.Msg, "is not in std") {
-				return p.ResolvePackageName(ctx, path.Join(p.Module.Path, name))
+
+	pi, err := func() (*PackageIdentifier, error) {
+		if slices.Contains(reservedPatterns, name) {
+			return nil, fmt.Errorf("cannot resolve %q: reserved Go pattern %v (expands to multiple packages); use ./%s for local package", name, reservedPatterns, name)
+		}
+		// first try to load as given
+		pkgs, err := packages.Load(&packages.Config{
+			Context: ctx,
+			Mode:    packages.NeedName | packages.NeedModule,
+			Dir:     p.Module.Dir,
+		}, name)
+		if err != nil {
+			panic(err)
+		}
+		if len(pkgs) == 1 && len(pkgs[0].Errors) == 0 {
+			return newPackageIdentifier(pkgs[0]), nil
+		}
+		for _, pkg := range pkgs {
+			for _, e := range pkg.Errors {
+				// if is relative and not stdlib, try to load it as module/pkg
+				if strings.Contains(e.Msg, "is not in std") {
+					return p.ResolvePackageName(ctx, path.Join(p.Module.Path, name))
+				}
 			}
 		}
+		return nil, fmt.Errorf("unable to resolve package %q to stdlib or %q", name, p.Module.Dir)
+	}()
+	p.resovleMe.Lock()
+	p.resolveCache[name] = resolvedPackage{
+		pi:  pi,
+		err: err,
 	}
-	return nil, fmt.Errorf("unable to resolve package %q to stdlib or %q", name, p.Module.Dir)
+	p.resovleMe.Unlock()
+	return pi, err
 }
 
 // ResolvePackagePath attempts to resolve a user-provided package path to its
