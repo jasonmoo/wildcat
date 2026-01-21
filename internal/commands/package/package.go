@@ -217,53 +217,8 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		}
 	}
 
-	// Collect all interfaces to check against: project packages + stdlib
-	type ifaceInfo struct {
-		pkgPath string
-		name    string
-		named   *gotypes.Named // the named type (may be generic)
-	}
-	var ifaces []ifaceInfo
-	// From project packages
-	for _, p := range wc.Project.Packages {
-		for _, iname := range p.Package.Types.Scope().Names() {
-			obj := p.Package.Types.Scope().Lookup(iname)
-			if obj == nil {
-				continue
-			}
-			// Only consider type declarations, not variables
-			if _, ok := obj.(*gotypes.TypeName); !ok {
-				continue
-			}
-			named, ok := obj.Type().(*gotypes.Named)
-			if !ok {
-				continue
-			}
-			if _, ok := named.Underlying().(*gotypes.Interface); ok {
-				ifaces = append(ifaces, ifaceInfo{p.Identifier.PkgPath, iname, named})
-			}
-		}
-	}
-	// From stdlib
-	for _, p := range wc.Stdlib {
-		for _, iname := range p.Types.Scope().Names() {
-			obj := p.Types.Scope().Lookup(iname)
-			if obj == nil {
-				continue
-			}
-			// Only consider type declarations, not variables
-			if _, ok := obj.(*gotypes.TypeName); !ok {
-				continue
-			}
-			named, ok := obj.Type().(*gotypes.Named)
-			if !ok {
-				continue
-			}
-			if _, ok := named.Underlying().(*gotypes.Interface); ok {
-				ifaces = append(ifaces, ifaceInfo{p.PkgPath, iname, named})
-			}
-		}
-	}
+	// Collect all interfaces from project + stdlib
+	ifaces := golang.CollectInterfaces(wc.Project, wc.Stdlib)
 
 	// ImplementedBy: for each interface in this package, find types that implement it
 	for name, tb := range types {
@@ -278,32 +233,15 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		if !ok {
 			continue
 		}
-		// Check all types in the project
-		for _, p := range wc.Project.Packages {
-			for _, tname := range p.Package.Types.Scope().Names() {
-				tobj := p.Package.Types.Scope().Lookup(tname)
-				if tobj == nil {
-					continue
-				}
-				T := tobj.Type()
-				// Check both T and *T
-				if gotypes.Implements(T, iface) || gotypes.Implements(gotypes.NewPointer(T), iface) {
-					// Don't list the interface itself
-					if p.Identifier.PkgPath == pkg.Identifier.PkgPath && tname == name {
-						continue
-					}
-					qualified := p.Identifier.PkgPath + "." + tname
-					if p.Identifier.PkgPath == pkg.Identifier.PkgPath {
-						qualified = tname // same package, just use name
-					}
-					tb.implementedBy = append(tb.implementedBy, qualified)
-				}
+		implementors := golang.FindImplementors(iface, pkg.Identifier.PkgPath, name, wc.Project.Packages)
+		for _, impl := range implementors {
+			qualified := impl.QualifiedName()
+			if impl.PkgPath() == pkg.Identifier.PkgPath {
+				qualified = impl.Name // same package, just use name
 			}
+			tb.implementedBy = append(tb.implementedBy, qualified)
 		}
 	}
-
-	// Get the builtin error interface from universe scope
-	errorIface := gotypes.Universe.Lookup("error").Type().Underlying().(*gotypes.Interface)
 
 	// Satisfies: for each concrete type, find interfaces it implements
 	for name, tb := range types {
@@ -314,52 +252,13 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		if obj == nil {
 			continue
 		}
-		T := obj.Type()
-		ptrT := gotypes.NewPointer(T)
-
-		// Check builtin error interface
-		if gotypes.Implements(T, errorIface) || gotypes.Implements(ptrT, errorIface) {
-			tb.satisfies = append(tb.satisfies, "error")
-		}
-
-		for _, i := range ifaces {
-			// Skip self (type shouldn't satisfy itself)
-			if i.pkgPath == pkg.Identifier.PkgPath && i.name == name {
-				continue
+		satisfied := golang.FindSatisfiedInterfaces(obj.Type(), pkg.Identifier.PkgPath, name, ifaces)
+		for _, iface := range satisfied {
+			qualified := iface.QualifiedName()
+			if iface.PkgPath() == pkg.Identifier.PkgPath {
+				qualified = iface.Name // same package, just use name
 			}
-			iface := i.named.Underlying().(*gotypes.Interface)
-			// Skip empty interface
-			if iface.NumMethods() == 0 {
-				continue
-			}
-
-			var implements bool
-			if i.named.TypeParams().Len() > 0 {
-				// Generic interface - try instantiating with T and *T
-				if inst, err := gotypes.Instantiate(nil, i.named, []gotypes.Type{T}, false); err == nil {
-					if instIface, ok := inst.Underlying().(*gotypes.Interface); ok {
-						implements = gotypes.Implements(T, instIface) || gotypes.Implements(ptrT, instIface)
-					}
-				}
-				if !implements {
-					if inst, err := gotypes.Instantiate(nil, i.named, []gotypes.Type{ptrT}, false); err == nil {
-						if instIface, ok := inst.Underlying().(*gotypes.Interface); ok {
-							implements = gotypes.Implements(T, instIface) || gotypes.Implements(ptrT, instIface)
-						}
-					}
-				}
-			} else {
-				// Non-generic interface
-				implements = gotypes.Implements(T, iface) || gotypes.Implements(ptrT, iface)
-			}
-
-			if implements {
-				qualified := i.pkgPath + "." + i.name
-				if i.pkgPath == pkg.Identifier.PkgPath {
-					qualified = i.name
-				}
-				tb.satisfies = append(tb.satisfies, qualified)
-			}
+			tb.satisfies = append(tb.satisfies, qualified)
 		}
 	}
 
