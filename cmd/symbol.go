@@ -166,7 +166,7 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 	targetLine := resolved.Position.Line + 1
 
 	// Extract signature and line range
-	signature, startLine, endLine := extractSymbolInfo(targetFile, targetLine, resolved.Kind)
+	signature, startLine, endLine := extractSymbolInfo(targetFile, targetLine, resolved.Kind, query.Name)
 	definition := fmt.Sprintf("%s:%d:%d", output.AbsolutePath(targetFile), startLine, endLine)
 	targetDir := filepath.Dir(targetFile)
 	targetPkgInfo := getPackageInfo(targetDir)
@@ -591,7 +591,7 @@ func resolveScopePackages(scope, targetPkgImportPath, workDir string) resolvedSc
 }
 
 // extractSymbolInfo extracts signature and line range for a symbol at the given location.
-func extractSymbolInfo(filePath string, line int, kind lsp.SymbolKind) (signature string, startLine, endLine int) {
+func extractSymbolInfo(filePath string, line int, kind lsp.SymbolKind, symbolName string) (signature string, startLine, endLine int) {
 	if !strings.HasSuffix(filePath, ".go") {
 		return "", line, line
 	}
@@ -602,6 +602,12 @@ func extractSymbolInfo(filePath string, line int, kind lsp.SymbolKind) (signatur
 		return "", line, line
 	}
 
+	// For methods like Type.Method, extract just the method name
+	simpleName := symbolName
+	if idx := strings.LastIndex(symbolName, "."); idx >= 0 {
+		simpleName = symbolName[idx+1:]
+	}
+
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
@@ -609,7 +615,7 @@ func extractSymbolInfo(filePath string, line int, kind lsp.SymbolKind) (signatur
 				continue
 			}
 			pos := fset.Position(d.Pos())
-			if pos.Line >= line-1 && pos.Line <= line+1 {
+			if pos.Line >= line-1 && pos.Line <= line+1 && d.Name.Name == simpleName {
 				endPos := fset.Position(d.End())
 				return renderFuncSignature(d), pos.Line, endPos.Line
 			}
@@ -621,7 +627,7 @@ func extractSymbolInfo(filePath string, line int, kind lsp.SymbolKind) (signatur
 						continue
 					}
 					pos := fset.Position(s.Pos())
-					if pos.Line >= line-1 && pos.Line <= line+1 {
+					if pos.Line >= line-1 && pos.Line <= line+1 && s.Name.Name == simpleName {
 						endPos := fset.Position(s.End())
 						return renderTypeSignature(s), pos.Line, endPos.Line
 					}
@@ -629,10 +635,13 @@ func extractSymbolInfo(filePath string, line int, kind lsp.SymbolKind) (signatur
 					if kind != lsp.SymbolKindConstant && kind != lsp.SymbolKindVariable {
 						continue
 					}
-					pos := fset.Position(s.Pos())
-					if pos.Line >= line-1 && pos.Line <= line+1 {
-						endPos := fset.Position(s.End())
-						return renderValueSignature(d.Tok, s), pos.Line, endPos.Line
+					// Check if any name in the spec matches
+					for _, name := range s.Names {
+						if name.Name == simpleName {
+							pos := fset.Position(s.Pos())
+							endPos := fset.Position(s.End())
+							return renderValueSignature(d.Tok, s, simpleName), pos.Line, endPos.Line
+						}
 					}
 				}
 			}
@@ -679,7 +688,7 @@ func renderTypeSignature(spec *ast.TypeSpec) string {
 }
 
 // renderValueSignature renders a const/var declaration as a signature.
-func renderValueSignature(tok token.Token, spec *ast.ValueSpec) string {
+func renderValueSignature(tok token.Token, spec *ast.ValueSpec, name string) string {
 	var buf bytes.Buffer
 	if tok == token.CONST {
 		buf.WriteString("const ")
@@ -687,7 +696,7 @@ func renderValueSignature(tok token.Token, spec *ast.ValueSpec) string {
 		buf.WriteString("var ")
 	}
 
-	buf.WriteString(spec.Names[0].Name)
+	buf.WriteString(name)
 	if spec.Type != nil {
 		buf.WriteString(" ")
 		format.Node(&buf, token.NewFileSet(), spec.Type)
