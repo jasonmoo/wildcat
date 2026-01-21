@@ -270,3 +270,33 @@ cd into the target dir.  This will enable the command to be used without approva
 
 NEVER use `go run -` or `cat <<'EOF' | go run -` patterns. They don't work.
 To test Go code, write a proper test file and use `go test`.
+
+## File Operations
+
+ALWAYS use built-in tools (Edit, Write, Read) instead of shell patterns like:
+- `cat >> file << 'EOF'`
+- `echo "..." >> file`
+- `sed -i ...`
+
+Built-in tools don't require extra approvals and are faster. The Edit tool
+handles insertions, replacements, and deletions cleanly.
+
+## Dogfooding Wildcat
+
+**Use wildcat to develop wildcat.** This is critical for finding bugs, improving
+UX, and understanding what's missing. Every time you need to understand code,
+find symbols, or explore the codebase - use wildcat instead of grep/find.
+
+A stable version of `wildcat` is installed in PATH:
+- `wildcat ...` - stable version, always works
+- `./wildcat ...` - local build (after `go build -o wildcat .`)
+
+Examples:
+```bash
+wildcat search "DeadCode"                    # find symbols
+wildcat package internal/golang              # understand a package
+wildcat deadcode internal/lsp                # find dead code
+wildcat tree internal/commands/deadcode.Execute  # trace call graphs
+```
+
+When something doesn't work well or output is confusing, create a ticket.
