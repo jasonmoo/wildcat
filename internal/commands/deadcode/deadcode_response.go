@@ -53,6 +53,7 @@ type DeadMethodGroup struct {
 // PackageDeadCode contains all dead code for a single package
 type PackageDeadCode struct {
 	Package     string              `json:"package"`
+	Dir         string              `json:"dir"`                     // package directory
 	IsDead      bool                `json:"is_dead"`                 // entire package is dead
 	DeadFiles   []string            `json:"dead_files,omitempty"`    // files where all symbols dead
 	FileInfo    map[string]FileInfo `json:"file_info,omitempty"`     // per-file stats
@@ -151,14 +152,15 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 	for _, pi := range r.Packages {
 		// Package header
 		if pi.IsDead {
-			fmt.Fprintf(&sb, "# package %s (DEAD)\n\n", pi.Package)
+			fmt.Fprintf(&sb, "# package %s (DEAD)\n", pi.Package)
 		} else {
-			fmt.Fprintf(&sb, "# package %s\n\n", pi.Package)
+			fmt.Fprintf(&sb, "# package %s\n", pi.Package)
 		}
+		fmt.Fprintf(&sb, "# dir %s\n\n", pi.Dir)
 
-		// Show dead files (only if not all files are dead)
-		if len(pi.DeadFiles) > 0 && len(pi.DeadFiles) < len(pi.FileInfo) {
-			fmt.Fprintf(&sb, "# Dead Files (%d)\n", len(pi.DeadFiles))
+		// Show dead files
+		if len(pi.DeadFiles) > 0 {
+			fmt.Fprintf(&sb, "## Dead Files (%d)\n", len(pi.DeadFiles))
 			for _, f := range pi.DeadFiles {
 				if fi, ok := pi.FileInfo[f]; ok {
 					fmt.Fprintf(&sb, "- %s (%d symbols)\n", f, fi.TotalSymbols)

@@ -151,6 +151,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		dead  int
 	}
 	type pkgStats struct {
+		dir   string
 		files map[string]*fileStats
 	}
 	stats := make(map[string]*pkgStats) // pkgPath -> stats
@@ -201,7 +202,10 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		filename := filepath.Base(sym.Filename())
 
 		if stats[pkgPath] == nil {
-			stats[pkgPath] = &pkgStats{files: make(map[string]*fileStats)}
+			stats[pkgPath] = &pkgStats{
+				dir:   sym.Package.Identifier.PkgDir,
+				files: make(map[string]*fileStats),
+			}
 		}
 		if stats[pkgPath].files[filename] == nil {
 			stats[pkgPath].files[filename] = &fileStats{}
@@ -355,6 +359,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 		packages = append(packages, &PackageDeadCode{
 			Package:     pkgPath,
+			Dir:         pkgStat.dir,
 			IsDead:      isDead,
 			DeadFiles:   deadFiles,
 			FileInfo:    fileInfo,
