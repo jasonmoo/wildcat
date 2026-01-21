@@ -35,6 +35,14 @@ type Package struct {
 	Package    *packages.Package
 }
 
+func NewProject(m *packages.Module, ps []*Package) *Project {
+	return &Project{
+		Module:       m,
+		Packages:     ps,
+		resolveCache: make(map[string]resolvedPackage),
+	}
+}
+
 // reservedPatterns are Go toolchain patterns that expand to multiple packages.
 // These are not actual importable packages - they're special patterns used by
 // go list, go build, etc. We reject them to avoid unexpected behavior where
@@ -283,6 +291,12 @@ func newPackageIdentifier(p *packages.Package) *PackageIdentifier {
 	return pi
 }
 
+func (pi *PackageIdentifier) IsInternal() bool {
+	return strings.Contains(pi.PkgPath, "/internal/") ||
+		strings.HasPrefix(pi.PkgPath, "internal/") ||
+		strings.HasSuffix(pi.PkgPath, "/internal")
+}
+
 func LoadStdlibPackages(ctx context.Context) ([]*packages.Package, error) {
 	return packages.Load(&packages.Config{
 		Context: ctx,
@@ -371,8 +385,5 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 			Package:    pkg,
 		}
 	}
-	return &Project{
-		Module:   mp.Module,
-		Packages: pkgs,
-	}, nil
+	return NewProject(mp.Module, pkgs), nil
 }

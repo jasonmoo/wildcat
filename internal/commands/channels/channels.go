@@ -108,12 +108,7 @@ func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			return commands.NewErrorResultf("package_not_found", "cannot resolve %q: %w", arg, err), nil
 		}
 		resolvedPaths = append(resolvedPaths, pi.PkgPath)
-
-		pkg := wc.FindPackage(ctx, pi)
-		if pkg == nil {
-			panic("bug")
-		}
-		targetPkgs = append(targetPkgs, pkg)
+		targetPkgs = append(targetPkgs, wc.Package(pi))
 	}
 
 	queryTarget := strings.Join(resolvedPaths, ", ")

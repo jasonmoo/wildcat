@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"strings"
+
+	"github.com/jasonmoo/wildcat/internal/golang"
 )
 
 // ScopeFilter filters packages by include/exclude patterns.
@@ -11,7 +13,8 @@ type ScopeFilter struct {
 	wc       *Wildcat
 	all      bool
 	project  bool
-	includes map[string]bool // nil means project scope (all project packages)
+	target   *golang.PackageIdentifier
+	includes map[string]bool
 	excludes map[string]bool
 }
 
@@ -24,16 +27,28 @@ type ScopeFilter struct {
 //   - "-pkg" - exclude packages matching pattern
 //
 // Each part is resolved using ResolvePackageName for consistent matching.
-func (wc *Wildcat) ParseScope(ctx context.Context, scope string) ScopeFilter {
+func (wc *Wildcat) ParseScope(ctx context.Context, scope, targetPkg string) (*ScopeFilter, error) {
 
-	filter := ScopeFilter{
+	filter := &ScopeFilter{
 		wc:       wc,
 		includes: make(map[string]bool),
 		excludes: make(map[string]bool),
 	}
 
+	if targetPkg == "" {
+		targetPkg = "."
+	}
+
+	// explicitly allow the target path
+	pi, err := wc.Project.ResolvePackageName(ctx, targetPkg)
+	if err != nil {
+		return nil, err
+	}
+	filter.target = pi
+	filter.includes[pi.PkgPath] = true
+
 	// Parse comma-separated includes/excludes
-	for _, part := range strings.Split(scope, ",") {
+	for part := range strings.SplitSeq(scope, ",") {
 		part = strings.TrimSpace(part)
 		switch {
 		case part == "":
@@ -44,26 +59,32 @@ func (wc *Wildcat) ParseScope(ctx context.Context, scope string) ScopeFilter {
 		case part == "project":
 			filter.all = false
 			filter.project = true
+		case part == "package":
+			// redundant, ignore
 		case strings.HasPrefix(part, "-"):
 			// Exclude pattern - resolve to full path
 			pattern := strings.TrimPrefix(part, "-")
-			if pi, err := wc.Project.ResolvePackageName(ctx, pattern); err == nil {
-				filter.excludes[pi.PkgPath] = true
+			pi, err := wc.Project.ResolvePackageName(ctx, pattern)
+			if err != nil {
+				return nil, err
 			}
+			filter.excludes[pi.PkgPath] = true
+			delete(filter.includes, pi.PkgPath)
 		default:
-			if pi, err := wc.Project.ResolvePackageName(ctx, part); err == nil {
-				filter.includes[pi.PkgPath] = true
+			pi, err := wc.Project.ResolvePackageName(ctx, part)
+			if err != nil {
+				return nil, err
 			}
+			filter.includes[pi.PkgPath] = true
+			delete(filter.excludes, pi.PkgPath)
 		}
 	}
 
-	return filter
+	return filter, nil
 }
 
 // InScope returns true if the package path matches the filter.
 func (f *ScopeFilter) InScope(pkgPath string) bool {
-
-	// Check excludes first
 	if f.excludes[pkgPath] {
 		return false
 	}
@@ -71,10 +92,12 @@ func (f *ScopeFilter) InScope(pkgPath string) bool {
 		return true
 	}
 	if f.project {
-		if strings.HasPrefix(pkgPath, f.wc.Project.Module.Path) {
-			return true
-		}
-		return false
+		return strings.HasPrefix(pkgPath, f.wc.Project.Module.Path)
 	}
 	return f.includes[pkgPath]
+}
+
+// IsTarget returns true if the package path is the target package.
+func (f *ScopeFilter) IsTarget(pkgPath string) bool {
+	return f.target.PkgPath == pkgPath
 }

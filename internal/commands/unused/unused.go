@@ -6,8 +6,8 @@ import (
 	"go/ast"
 	"go/types"
 	"os"
+	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
@@ -75,9 +75,9 @@ Scope (--scope):
 
 Examples:
   wildcat unused                              # all project, project-wide refs
-  wildcat unused lsp                          # lsp symbols, project-wide refs
-  wildcat unused lsp --scope package          # lsp symbols, only lsp refs
-  wildcat unused lsp --scope lsp,commands     # lsp symbols, refs in lsp+commands
+  wildcat unused interal/lsp                          # lsp symbols, project-wide refs
+  wildcat unused internal/lsp --scope package          # lsp symbols, only lsp refs
+  wildcat unused internal/lsp --scope internal/lsp,commands     # lsp symbols, refs in lsp+commands
   wildcat unused --include-exported           # include public API symbols`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -137,8 +137,6 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		}
 	}
 
-	modulePath := wc.Project.Module.Path
-
 	// Resolve target package path
 	if c.target == "" {
 		c.target = "."
@@ -149,27 +147,21 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	}
 	c.target = pi.PkgPath
 
-	// Build target filter (which symbols to check)
-	targetFilter := c.parseTarget(modulePath)
-
-	// Build scope filter (where to look for references)
-	// Special case: "package" means use target as scope
-	scopeStr := c.scope
-	if scopeStr == "package" && c.target != "" {
-		scopeStr = c.target
+	scopeFilter, err := wc.ParseScope(ctx, c.scope, c.target)
+	if err != nil {
+		return commands.NewErrorResultf("invalid_scope", "unable to apply scope %q: %v", c.scope, err), nil
 	}
-	scopeFilter := c.parseScopeFilter(scopeStr, modulePath)
 
 	// Collect all symbols matching target
 	var candidates []golang.Symbol
 	for _, sym := range wc.Index.Symbols() {
 		// Apply target filter
-		if !c.inScope(sym.Package.Identifier.PkgPath, targetFilter) {
+		if !scopeFilter.IsTarget(sym.Package.Identifier.PkgPath) {
 			continue
 		}
 
 		// Skip exported unless requested (but internal/ exports are always included)
-		if !c.includeExported && isExported(sym.Name) && !isInternalPkg(sym.Package.Identifier.PkgPath) {
+		if !c.includeExported && ast.IsExported(sym.Name) && !sym.Package.Identifier.IsInternal() {
 			continue
 		}
 
@@ -242,94 +234,6 @@ func (c *UnusedCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	}, nil
 }
 
-type scopeFilter struct {
-	projectOnly bool
-	includes    []string
-	excludes    []string
-	modulePath  string
-}
-
-func (c *UnusedCommand) parseTarget(modulePath string) scopeFilter {
-	filter := scopeFilter{modulePath: modulePath}
-
-	// c.target is already resolved to full path
-	// If it equals the module path, check all project packages
-	if c.target == modulePath {
-		filter.projectOnly = true
-		return filter
-	}
-
-	// Use resolved target as prefix match
-	filter.includes = []string{c.target}
-	return filter
-}
-
-func (c *UnusedCommand) parseScopeFilter(scope, modulePath string) scopeFilter {
-	filter := scopeFilter{modulePath: modulePath}
-
-	if scope == "project" || scope == "" {
-		filter.projectOnly = true
-		return filter
-	}
-
-	if scope == "all" {
-		return filter
-	}
-
-	// Parse includes/excludes
-	for _, part := range strings.Split(scope, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" || part == "project" {
-			continue
-		}
-		if strings.HasPrefix(part, "-") {
-			filter.excludes = append(filter.excludes, strings.TrimPrefix(part, "-"))
-		} else {
-			filter.includes = append(filter.includes, part)
-		}
-	}
-
-	return filter
-}
-
-func (c *UnusedCommand) inScope(pkgPath string, filter scopeFilter) bool {
-	// Project-only filter
-	if filter.projectOnly {
-		return strings.HasPrefix(pkgPath, filter.modulePath)
-	}
-
-	// Check excludes (prefix match on resolved paths)
-	for _, ex := range filter.excludes {
-		if strings.HasPrefix(pkgPath, ex) {
-			return false
-		}
-	}
-
-	// Check includes (prefix match to include subpackages)
-	if len(filter.includes) > 0 {
-		for _, inc := range filter.includes {
-			if strings.HasPrefix(pkgPath, inc) {
-				return true
-			}
-		}
-		return false
-	}
-
-	return true
-}
-
-func isExported(name string) bool {
-	if name == "" {
-		return false
-	}
-	r := []rune(name)
-	return unicode.IsUpper(r[0])
-}
-
-func isInternalPkg(pkgPath string) bool {
-	return strings.Contains(pkgPath, "/internal/") || strings.HasSuffix(pkgPath, "/internal")
-}
-
 func isSpecialFunc(sym golang.Symbol) bool {
 	name := sym.Name
 
@@ -350,12 +254,12 @@ func isSpecialFunc(sym golang.Symbol) bool {
 
 	// Common interface methods called via dispatch
 	if sym.Kind == golang.SymbolKindMethod {
-		// error interface
-		if name == "Error" {
+		// error interface (name is "Type.Error")
+		if strings.HasSuffix(name, ".Error") {
 			return true
 		}
-		// fmt.Stringer interface
-		if name == "String" {
+		// fmt.Stringer interface (name is "Type.String")
+		if strings.HasSuffix(name, ".String") {
 			return true
 		}
 	}
@@ -363,18 +267,18 @@ func isSpecialFunc(sym golang.Symbol) bool {
 	return false
 }
 
-func (c *UnusedCommand) countReferences(wc *commands.Wildcat, target *golang.Symbol, filter scopeFilter) int {
+func (c *UnusedCommand) countReferences(wc *commands.Wildcat, target *golang.Symbol, filter *commands.ScopeFilter) int {
 	targetObj := c.getTargetObject(target)
 	if targetObj == nil {
 		return 0
 	}
 
-	count := 0
+	var count int
 	targetFile := target.Filename()
 	targetLine := strings.Split(target.Location(), ":")[0]
 
 	for _, pkg := range wc.Project.Packages {
-		if !c.inScope(pkg.Identifier.PkgPath, filter) {
+		if !filter.InScope(pkg.Identifier.PkgPath) {
 			continue
 		}
 
@@ -396,7 +300,7 @@ func (c *UnusedCommand) countReferences(wc *commands.Wildcat, target *golang.Sym
 
 				// Skip the definition itself
 				pos := pkg.Package.Fset.Position(ident.Pos())
-				if pos.Filename == targetFile && fmt.Sprintf("%d", pos.Line) == targetLine {
+				if pos.Filename == targetFile && strconv.Itoa(pos.Line) == targetLine {
 					return true
 				}
 

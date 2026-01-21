@@ -33,13 +33,13 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	}, nil
 }
 
-func (wc *Wildcat) FindPackage(ctx context.Context, pi *golang.PackageIdentifier) *golang.Package {
+func (wc *Wildcat) Package(pi *golang.PackageIdentifier) *golang.Package {
 	for _, p := range wc.Project.Packages {
 		if pi.PkgPath == p.Identifier.PkgPath {
 			return p
 		}
 	}
-	return nil
+	panic("this should never happen")
 }
 
 func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []string {

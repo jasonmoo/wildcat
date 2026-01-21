@@ -106,10 +106,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		return commands.NewErrorResultf("package_not_found", "failed to resolve package: %w", err), nil
 	}
 
-	pkg := wc.FindPackage(ctx, pi)
-	if pkg == nil {
-		panic("this should never happen")
-	}
+	pkg := wc.Package(pi)
 
 	var pkgret struct {
 		Files      []output.FileInfo      // √
