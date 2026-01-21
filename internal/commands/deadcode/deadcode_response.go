@@ -17,55 +17,91 @@ type QueryInfo struct {
 	IncludeTests bool     `json:"include_tests"`
 }
 
-type DeadSymbol struct {
-	Symbol     string `json:"symbol"`
-	Kind       string `json:"kind"`
-	Signature  string `json:"signature"`
-	Package    string `json:"package"`               // full package path
-	Filename   string `json:"filename"`              // relative filename within package
-	Location   string `json:"location"`              // line:col or start:end
-	ParentType string `json:"parent_type,omitempty"` // for methods: receiver type; for constructors: return type
-}
-
 type Summary struct {
 	TotalSymbols int `json:"total_symbols"`
 	DeadSymbols  int `json:"dead_symbols"`
 }
 
-// FileInfo tracks symbol counts per file for dead file detection
+// DeadSymbol represents a single dead symbol
+type DeadSymbol struct {
+	Symbol    string `json:"symbol"`
+	Kind      string `json:"kind"`
+	Signature string `json:"signature"`
+	Filename  string `json:"filename"` // relative filename within package
+	Location  string `json:"location"` // line:col or start:end
+}
+
+// FileInfo tracks symbol counts per file
 type FileInfo struct {
-	Filename     string `json:"filename"`
-	TotalSymbols int    `json:"total_symbols"`
-	DeadSymbols  int    `json:"dead_symbols"`
-	Lines        int    `json:"lines"`
+	TotalSymbols int `json:"total_symbols"`
+	DeadSymbols  int `json:"dead_symbols"`
 }
 
-// PackageInfo tracks symbol counts per package for dead package detection
-type PackageInfo struct {
-	Package      string              `json:"package"`
-	TotalSymbols int                 `json:"total_symbols"`
-	DeadSymbols  int                 `json:"dead_symbols"`
-	Files        map[string]FileInfo `json:"files"`
-	TotalLines   int                 `json:"total_lines"`
+// DeadType holds a dead type with its constructors and methods
+type DeadType struct {
+	Symbol       DeadSymbol   `json:"symbol"`
+	Constructors []DeadSymbol `json:"constructors,omitempty"`
+	Methods      []DeadSymbol `json:"methods,omitempty"`
 }
 
+// DeadMethodGroup groups methods by their parent type (for types that aren't dead but have dead methods)
+type DeadMethodGroup struct {
+	ParentType string       `json:"parent_type"`
+	AllDead    bool         `json:"all_dead"` // true if all methods of this type are dead
+	Methods    []DeadSymbol `json:"methods"`
+}
+
+// PackageDeadCode contains all dead code for a single package
+type PackageDeadCode struct {
+	Package     string              `json:"package"`
+	IsDead      bool                `json:"is_dead"`                 // entire package is dead
+	DeadFiles   []string            `json:"dead_files,omitempty"`    // files where all symbols dead
+	FileInfo    map[string]FileInfo `json:"file_info,omitempty"`     // per-file stats
+	Constants   []DeadSymbol        `json:"constants,omitempty"`     // dead constants
+	Variables   []DeadSymbol        `json:"variables,omitempty"`     // dead variables
+	Functions   []DeadSymbol        `json:"functions,omitempty"`     // dead standalone functions
+	Types       []DeadType          `json:"types,omitempty"`         // dead types with their methods/constructors
+	DeadMethods []DeadMethodGroup   `json:"dead_methods,omitempty"`  // methods whose type isn't dead
+}
+
+// DeadcodeCommandResponse is the structured response for deadcode analysis
 type DeadcodeCommandResponse struct {
-	Query              QueryInfo              `json:"query"`
-	Dead               []DeadSymbol           `json:"dead"`
-	TotalMethodsByType map[string]int         `json:"-"` // internal, for grouping logic
-	Packages           map[string]PackageInfo `json:"-"` // internal, for dead file/package detection
-	Summary            Summary                `json:"summary"`
+	Query        QueryInfo                   `json:"query"`
+	Summary      Summary                     `json:"summary"`
+	DeadPackages []string                    `json:"dead_packages,omitempty"` // fully dead package paths
+	Packages     map[string]*PackageDeadCode `json:"packages,omitempty"`
+
+	// Internal fields for building the response
+	totalMethodsByType map[string]int // tracks total methods per type for grouping logic
 }
 
 func (r *DeadcodeCommandResponse) MarshalJSON() ([]byte, error) {
+	// Sort dead packages for consistent output
+	sort.Strings(r.DeadPackages)
+
+	// Sort package keys
+	var pkgOrder []string
+	for pkg := range r.Packages {
+		pkgOrder = append(pkgOrder, pkg)
+	}
+	sort.Strings(pkgOrder)
+
+	// Build ordered packages map (Go maps are unordered, but we want consistent JSON)
+	orderedPkgs := make(map[string]*PackageDeadCode)
+	for _, pkg := range pkgOrder {
+		orderedPkgs[pkg] = r.Packages[pkg]
+	}
+
 	return json.Marshal(struct {
-		Query   QueryInfo    `json:"query"`
-		Summary Summary      `json:"summary"`
-		Dead    []DeadSymbol `json:"dead"`
+		Query        QueryInfo                   `json:"query"`
+		Summary      Summary                     `json:"summary"`
+		DeadPackages []string                    `json:"dead_packages,omitempty"`
+		Packages     map[string]*PackageDeadCode `json:"packages,omitempty"`
 	}{
-		Query:   r.Query,
-		Summary: r.Summary,
-		Dead:    r.Dead,
+		Query:        r.Query,
+		Summary:      r.Summary,
+		DeadPackages: r.DeadPackages,
+		Packages:     orderedPkgs,
 	})
 }
 
@@ -85,235 +121,122 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 	fmt.Fprintf(&sb, "- Total symbols analyzed: %d\n", r.Summary.TotalSymbols)
 	fmt.Fprintf(&sb, "- Dead (unreachable) symbols: %d\n\n", r.Summary.DeadSymbols)
 
-	if len(r.Dead) == 0 {
+	if len(r.Packages) == 0 {
 		sb.WriteString("No dead code found.\n")
 		return []byte(sb.String()), nil
 	}
 
-	// Identify fully dead packages
-	var deadPackages []string
-	var partialPackages []string
-	for pkgPath, pi := range r.Packages {
-		if pi.TotalSymbols > 0 && pi.DeadSymbols == pi.TotalSymbols {
-			deadPackages = append(deadPackages, pkgPath)
-		} else if pi.DeadSymbols > 0 {
-			partialPackages = append(partialPackages, pkgPath)
-		}
-	}
-
-	// Sort for consistent output
-	sort.Strings(deadPackages)
-	sort.Strings(partialPackages)
-
 	// Show dead packages summary at top
-	if len(deadPackages) > 0 {
-		fmt.Fprintf(&sb, "# Dead Packages (%d)\n\n", len(deadPackages))
-		for _, pkg := range deadPackages {
-			pi := r.Packages[pkg]
-			fmt.Fprintf(&sb, "- %s (%d symbols, %d files)\n", pkg, pi.TotalSymbols, len(pi.Files))
+	if len(r.DeadPackages) > 0 {
+		fmt.Fprintf(&sb, "# Dead Packages (%d)\n\n", len(r.DeadPackages))
+		for _, pkg := range r.DeadPackages {
+			if pi := r.Packages[pkg]; pi != nil {
+				symbolCount := len(pi.Constants) + len(pi.Variables) + len(pi.Functions)
+				for _, t := range pi.Types {
+					symbolCount += 1 + len(t.Constructors) + len(t.Methods)
+				}
+				for _, mg := range pi.DeadMethods {
+					symbolCount += len(mg.Methods)
+				}
+				fmt.Fprintf(&sb, "- %s (%d symbols, %d files)\n", pkg, symbolCount, len(pi.FileInfo))
+			}
 		}
 		sb.WriteString("\n")
 	}
 
-	// Group symbols by package
-	byPackage := make(map[string][]DeadSymbol)
-	var packageOrder []string
-	for _, d := range r.Dead {
-		if _, seen := byPackage[d.Package]; !seen {
-			packageOrder = append(packageOrder, d.Package)
-		}
-		byPackage[d.Package] = append(byPackage[d.Package], d)
+	// Sort packages for consistent output
+	var pkgOrder []string
+	for pkg := range r.Packages {
+		pkgOrder = append(pkgOrder, pkg)
 	}
-
-	// Sort for consistent output
-	sort.Strings(packageOrder)
+	sort.Strings(pkgOrder)
 
 	// Output each package
-	for _, pkg := range packageOrder {
-		symbols := byPackage[pkg]
-
-		// Check if entire package is dead
+	for _, pkg := range pkgOrder {
 		pi := r.Packages[pkg]
-		if pi.TotalSymbols > 0 && pi.DeadSymbols == pi.TotalSymbols {
+
+		// Package header
+		if pi.IsDead {
 			fmt.Fprintf(&sb, "# package %s (DEAD)\n\n", pkg)
 		} else {
 			fmt.Fprintf(&sb, "# package %s\n\n", pkg)
 		}
 
-		// Show dead files
-		var deadFiles []string
-		for filename, fi := range pi.Files {
-			if fi.TotalSymbols > 0 && fi.DeadSymbols == fi.TotalSymbols {
-				deadFiles = append(deadFiles, filename)
-			}
-		}
-		sort.Strings(deadFiles)
-
-		if len(deadFiles) > 0 && len(deadFiles) < len(pi.Files) {
-			// Only show dead files section if not all files are dead
-			fmt.Fprintf(&sb, "# Dead Files (%d)\n", len(deadFiles))
-			for _, f := range deadFiles {
-				fi := pi.Files[f]
-				fmt.Fprintf(&sb, "- %s (%d symbols)\n", f, fi.TotalSymbols)
+		// Show dead files (only if not all files are dead)
+		if len(pi.DeadFiles) > 0 && len(pi.DeadFiles) < len(pi.FileInfo) {
+			fmt.Fprintf(&sb, "# Dead Files (%d)\n", len(pi.DeadFiles))
+			for _, f := range pi.DeadFiles {
+				if fi, ok := pi.FileInfo[f]; ok {
+					fmt.Fprintf(&sb, "- %s (%d symbols)\n", f, fi.TotalSymbols)
+				}
 			}
 			sb.WriteString("\n")
 		}
 
-		// Build set of dead types in this package for grouping
-		deadTypes := make(map[string]DeadSymbol)
-		for _, d := range symbols {
-			if d.Kind == "type" || d.Kind == "interface" {
-				deadTypes[d.Symbol] = d
-			}
-		}
-
-		// Group methods/constructors by parent type
-		methodsByType := make(map[string][]DeadSymbol)
-		constructorsByType := make(map[string][]DeadSymbol)
-		var standaloneFuncs []DeadSymbol
-		var standaloneMethods []DeadSymbol
-		var standaloneConsts []DeadSymbol
-		var standaloneVars []DeadSymbol
-
-		for _, d := range symbols {
-			switch d.Kind {
-			case "type", "interface":
-				continue
-			case "method":
-				if d.ParentType != "" {
-					if _, ok := deadTypes[d.ParentType]; ok {
-						methodsByType[d.ParentType] = append(methodsByType[d.ParentType], d)
-					} else {
-						standaloneMethods = append(standaloneMethods, d)
-					}
-				} else {
-					standaloneMethods = append(standaloneMethods, d)
-				}
-			case "func":
-				if d.ParentType != "" {
-					if _, ok := deadTypes[d.ParentType]; ok {
-						constructorsByType[d.ParentType] = append(constructorsByType[d.ParentType], d)
-					} else {
-						standaloneFuncs = append(standaloneFuncs, d)
-					}
-				} else {
-					standaloneFuncs = append(standaloneFuncs, d)
-				}
-			case "const":
-				standaloneConsts = append(standaloneConsts, d)
-			case "var":
-				standaloneVars = append(standaloneVars, d)
-			}
-		}
-
 		// Output constants
-		if len(standaloneConsts) > 0 {
-			fmt.Fprintf(&sb, "# Constants (%d)\n", len(standaloneConsts))
-			for _, d := range standaloneConsts {
+		if len(pi.Constants) > 0 {
+			fmt.Fprintf(&sb, "# Constants (%d)\n", len(pi.Constants))
+			for _, d := range pi.Constants {
 				fmt.Fprintf(&sb, "%s // %s:%s\n", d.Signature, d.Filename, d.Location)
 			}
 			sb.WriteString("\n")
 		}
 
 		// Output variables
-		if len(standaloneVars) > 0 {
-			fmt.Fprintf(&sb, "# Variables (%d)\n", len(standaloneVars))
-			for _, d := range standaloneVars {
+		if len(pi.Variables) > 0 {
+			fmt.Fprintf(&sb, "# Variables (%d)\n", len(pi.Variables))
+			for _, d := range pi.Variables {
 				fmt.Fprintf(&sb, "%s // %s:%s\n", d.Signature, d.Filename, d.Location)
 			}
 			sb.WriteString("\n")
 		}
 
-		// Output standalone functions
-		if len(standaloneFuncs) > 0 {
-			fmt.Fprintf(&sb, "# Functions (%d)\n", len(standaloneFuncs))
-			for _, d := range standaloneFuncs {
+		// Output functions
+		if len(pi.Functions) > 0 {
+			fmt.Fprintf(&sb, "# Functions (%d)\n", len(pi.Functions))
+			for _, d := range pi.Functions {
 				fmt.Fprintf(&sb, "%s // %s:%s\n", d.Signature, d.Filename, d.Location)
 			}
 			sb.WriteString("\n")
 		}
 
 		// Output types with their methods/constructors
-		if len(deadTypes) > 0 {
-			fmt.Fprintf(&sb, "# Types (%d)\n\n", len(deadTypes))
-			for _, d := range symbols {
-				if d.Kind != "type" && d.Kind != "interface" {
-					continue
-				}
-				fmt.Fprintf(&sb, "%s // %s:%s", d.Signature, d.Filename, d.Location)
-
-				// Count methods and constructors
-				ctors := constructorsByType[d.Symbol]
-				methods := methodsByType[d.Symbol]
-				var annotations []string
-				if len(methods) > 0 {
-					annotations = append(annotations, fmt.Sprintf("%d methods", len(methods)))
-				}
-				if len(annotations) > 0 {
-					fmt.Fprintf(&sb, " // %s", strings.Join(annotations, ", "))
+		if len(pi.Types) > 0 {
+			fmt.Fprintf(&sb, "# Types (%d)\n\n", len(pi.Types))
+			for _, t := range pi.Types {
+				fmt.Fprintf(&sb, "%s // %s:%s", t.Symbol.Signature, t.Symbol.Filename, t.Symbol.Location)
+				if len(t.Methods) > 0 {
+					fmt.Fprintf(&sb, " // %d methods", len(t.Methods))
 				}
 				sb.WriteString("\n")
 
-				// Show constructors
-				for _, c := range ctors {
+				for _, c := range t.Constructors {
 					fmt.Fprintf(&sb, "%s // %s:%s\n", c.Signature, c.Filename, c.Location)
 				}
-
-				// Show methods
-				for _, m := range methods {
+				for _, m := range t.Methods {
 					fmt.Fprintf(&sb, "%s // %s:%s\n", m.Signature, m.Filename, m.Location)
 				}
-
 				sb.WriteString("\n")
 			}
 		}
 
-		// Output standalone methods - group by type only if ALL methods of that type are dead
-		if len(standaloneMethods) > 0 {
-			// Group by parent type
-			methodsByParent := make(map[string][]DeadSymbol)
-			var parentOrder []string
-			for _, m := range standaloneMethods {
-				parent := m.ParentType
-				if parent == "" {
-					parent = "(no receiver)"
-				}
-				if _, seen := methodsByParent[parent]; !seen {
-					parentOrder = append(parentOrder, parent)
-				}
-				methodsByParent[parent] = append(methodsByParent[parent], m)
+		// Output dead methods (grouped by parent type)
+		if len(pi.DeadMethods) > 0 {
+			totalMethods := 0
+			for _, mg := range pi.DeadMethods {
+				totalMethods += len(mg.Methods)
 			}
+			fmt.Fprintf(&sb, "# Dead Methods (%d)\n\n", totalMethods)
 
-			// Separate into grouped (all methods dead) vs flat (partial)
-			var groupedTypes []string
-			var flatMethods []DeadSymbol
-			for _, parent := range parentOrder {
-				deadMethods := methodsByParent[parent]
-				totalMethods := r.TotalMethodsByType[parent]
-				if totalMethods > 0 && len(deadMethods) == totalMethods {
-					groupedTypes = append(groupedTypes, parent)
+			for _, mg := range pi.DeadMethods {
+				if mg.AllDead {
+					fmt.Fprintf(&sb, "## %s (%d methods)\n", mg.ParentType, len(mg.Methods))
 				} else {
-					flatMethods = append(flatMethods, deadMethods...)
+					fmt.Fprintf(&sb, "## %s\n", mg.ParentType)
 				}
-			}
-
-			fmt.Fprintf(&sb, "# Dead Methods (%d)\n\n", len(standaloneMethods))
-
-			// Show grouped types first
-			for _, parent := range groupedTypes {
-				methods := methodsByParent[parent]
-				fmt.Fprintf(&sb, "## %s (%d methods)\n", parent, len(methods))
-				for _, m := range methods {
+				for _, m := range mg.Methods {
 					fmt.Fprintf(&sb, "%s // %s:%s\n", m.Signature, m.Filename, m.Location)
 				}
-				sb.WriteString("\n")
-			}
-
-			// Show flat methods (partial dead)
-			for _, m := range flatMethods {
-				fmt.Fprintf(&sb, "%s // %s:%s\n", m.Signature, m.Filename, m.Location)
-			}
-			if len(flatMethods) > 0 {
 				sb.WriteString("\n")
 			}
 		}

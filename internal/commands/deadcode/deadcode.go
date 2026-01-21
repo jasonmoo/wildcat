@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
@@ -144,12 +145,30 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		return nil, fmt.Errorf("dead code analysis failed: %w", err)
 	}
 
-	// Build package/file info for dead file/package detection
-	packages := make(map[string]PackageInfo)
+	// Track file info per package (total symbols, dead symbols)
+	type fileStats struct {
+		total int
+		dead  int
+	}
+	type pkgStats struct {
+		files map[string]*fileStats
+	}
+	stats := make(map[string]*pkgStats) // pkgPath -> stats
 
-	// First pass: count total symbols per file/package and track dead symbols
-	var deadSymbols []DeadSymbol
-	totalMethodsByType := make(map[string]int)
+	// Track total methods per type for dead method grouping
+	totalMethodsByType := make(map[string]int) // "pkg.Type" -> count
+
+	// Collect dead symbols grouped by package
+	packages := make(map[string]*PackageDeadCode)
+
+	// Temporary storage for grouping
+	type tempDeadSymbol struct {
+		ds         DeadSymbol
+		parentType string // for methods/constructors
+	}
+	deadByPkg := make(map[string][]tempDeadSymbol)
+
+	var totalDeadSymbols int
 
 	for _, sym := range wc.Index.Symbols() {
 		// Filter by target packages if specified
@@ -177,35 +196,24 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			continue
 		}
 
-		// Track package/file info
+		// Track file stats
 		pkgPath := sym.Package.Identifier.PkgPath
 		filename := filepath.Base(sym.Filename())
 
-		if _, ok := packages[pkgPath]; !ok {
-			packages[pkgPath] = PackageInfo{
-				Package: pkgPath,
-				Files:   make(map[string]FileInfo),
-			}
+		if stats[pkgPath] == nil {
+			stats[pkgPath] = &pkgStats{files: make(map[string]*fileStats)}
 		}
-		pkg := packages[pkgPath]
-		pkg.TotalSymbols++
-
-		if fi, ok := pkg.Files[filename]; ok {
-			fi.TotalSymbols++
-			pkg.Files[filename] = fi
-		} else {
-			pkg.Files[filename] = FileInfo{
-				Filename:     filename,
-				TotalSymbols: 1,
-			}
+		if stats[pkgPath].files[filename] == nil {
+			stats[pkgPath].files[filename] = &fileStats{}
 		}
-		packages[pkgPath] = pkg
+		stats[pkgPath].files[filename].total++
 
 		// Count methods by type for grouping
+		var parentType string
 		if sym.Kind == golang.SymbolKindMethod {
 			if node, ok := sym.Node().(*ast.FuncDecl); ok {
 				if node.Recv != nil && len(node.Recv.List) > 0 {
-					parentType := sym.Package.Identifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
+					parentType = sym.Package.Identifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
 					totalMethodsByType[parentType]++
 				}
 			}
@@ -216,13 +224,9 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			continue
 		}
 
-		// Update dead counts
-		pkg = packages[pkgPath]
-		pkg.DeadSymbols++
-		fi := pkg.Files[filename]
-		fi.DeadSymbols++
-		pkg.Files[filename] = fi
-		packages[pkgPath] = pkg
+		// Update dead count
+		stats[pkgPath].files[filename].dead++
+		totalDeadSymbols++
 
 		// Build dead symbol info
 		sig, _ := sym.Signature()
@@ -230,7 +234,6 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			Symbol:    sym.Package.Identifier.Name + "." + sym.Name,
 			Kind:      string(sym.Kind),
 			Signature: sig,
-			Package:   pkgPath,
 			Filename:  filename,
 			Location:  sym.Location(),
 		}
@@ -238,14 +241,133 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		// Get parent type for methods and constructors
 		if node, ok := sym.Node().(*ast.FuncDecl); ok {
 			if node.Recv != nil && len(node.Recv.List) > 0 {
-				ds.ParentType = sym.Package.Identifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
+				parentType = sym.Package.Identifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
 			} else if ctorType := golang.ConstructorTypeName(node.Type); ctorType != "" {
-				ds.ParentType = sym.Package.Identifier.Name + "." + ctorType
+				parentType = sym.Package.Identifier.Name + "." + ctorType
 			}
 		}
 
-		deadSymbols = append(deadSymbols, ds)
+		deadByPkg[pkgPath] = append(deadByPkg[pkgPath], tempDeadSymbol{ds: ds, parentType: parentType})
 	}
+
+	// Build structured response for each package
+	var deadPackages []string
+
+	for pkgPath, deadSymbols := range deadByPkg {
+		pkgStat := stats[pkgPath]
+
+		// Build FileInfo map and detect dead files
+		fileInfo := make(map[string]FileInfo)
+		var deadFiles []string
+		totalSymbols := 0
+		deadSymbolCount := 0
+
+		for filename, fs := range pkgStat.files {
+			fileInfo[filename] = FileInfo{
+				TotalSymbols: fs.total,
+				DeadSymbols:  fs.dead,
+			}
+			totalSymbols += fs.total
+			deadSymbolCount += fs.dead
+			if fs.total > 0 && fs.dead == fs.total {
+				deadFiles = append(deadFiles, filename)
+			}
+		}
+		sort.Strings(deadFiles)
+
+		// Check if entire package is dead
+		isDead := totalSymbols > 0 && deadSymbolCount == totalSymbols
+		if isDead {
+			deadPackages = append(deadPackages, pkgPath)
+		}
+
+		// Build set of dead types for grouping
+		deadTypeSymbols := make(map[string]DeadSymbol) // "pkg.Type" -> symbol
+		for _, tds := range deadSymbols {
+			if tds.ds.Kind == "type" || tds.ds.Kind == "interface" {
+				deadTypeSymbols[tds.ds.Symbol] = tds.ds
+			}
+		}
+
+		// Group symbols
+		var constants, variables, functions []DeadSymbol
+		methodsByType := make(map[string][]DeadSymbol)    // dead type -> methods
+		constructorsByType := make(map[string][]DeadSymbol) // dead type -> constructors
+		standaloneMethodsByType := make(map[string][]DeadSymbol) // live type -> dead methods
+
+		for _, tds := range deadSymbols {
+			switch tds.ds.Kind {
+			case "type", "interface":
+				// handled separately
+			case "const":
+				constants = append(constants, tds.ds)
+			case "var":
+				variables = append(variables, tds.ds)
+			case "method":
+				if tds.parentType != "" {
+					if _, isDeadType := deadTypeSymbols[tds.parentType]; isDeadType {
+						methodsByType[tds.parentType] = append(methodsByType[tds.parentType], tds.ds)
+					} else {
+						standaloneMethodsByType[tds.parentType] = append(standaloneMethodsByType[tds.parentType], tds.ds)
+					}
+				} else {
+					standaloneMethodsByType["(no receiver)"] = append(standaloneMethodsByType["(no receiver)"], tds.ds)
+				}
+			case "func":
+				if tds.parentType != "" {
+					if _, isDeadType := deadTypeSymbols[tds.parentType]; isDeadType {
+						constructorsByType[tds.parentType] = append(constructorsByType[tds.parentType], tds.ds)
+					} else {
+						functions = append(functions, tds.ds)
+					}
+				} else {
+					functions = append(functions, tds.ds)
+				}
+			}
+		}
+
+		// Build DeadType list
+		var types []DeadType
+		for _, tds := range deadSymbols {
+			if tds.ds.Kind != "type" && tds.ds.Kind != "interface" {
+				continue
+			}
+			types = append(types, DeadType{
+				Symbol:       tds.ds,
+				Constructors: constructorsByType[tds.ds.Symbol],
+				Methods:      methodsByType[tds.ds.Symbol],
+			})
+		}
+
+		// Build DeadMethodGroup list
+		var deadMethods []DeadMethodGroup
+		for parentType, methods := range standaloneMethodsByType {
+			allDead := totalMethodsByType[parentType] > 0 && len(methods) == totalMethodsByType[parentType]
+			deadMethods = append(deadMethods, DeadMethodGroup{
+				ParentType: parentType,
+				AllDead:    allDead,
+				Methods:    methods,
+			})
+		}
+		// Sort for consistent output
+		sort.Slice(deadMethods, func(i, j int) bool {
+			return deadMethods[i].ParentType < deadMethods[j].ParentType
+		})
+
+		packages[pkgPath] = &PackageDeadCode{
+			Package:     pkgPath,
+			IsDead:      isDead,
+			DeadFiles:   deadFiles,
+			FileInfo:    fileInfo,
+			Constants:   constants,
+			Variables:   variables,
+			Functions:   functions,
+			Types:       types,
+			DeadMethods: deadMethods,
+		}
+	}
+
+	sort.Strings(deadPackages)
 
 	// Convert target map keys to slice for response
 	var targetsList []string
@@ -259,13 +381,13 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			Targets:      targetsList,
 			IncludeTests: c.includeTests,
 		},
-		Dead:               deadSymbols,
-		TotalMethodsByType: totalMethodsByType,
-		Packages:           packages,
 		Summary: Summary{
 			TotalSymbols: len(wc.Index.Symbols()),
-			DeadSymbols:  len(deadSymbols),
+			DeadSymbols:  totalDeadSymbols,
 		},
+		DeadPackages:       deadPackages,
+		Packages:           packages,
+		totalMethodsByType: totalMethodsByType,
 	}, nil
 }
 
