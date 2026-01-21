@@ -4,6 +4,7 @@ import (
 	channels_cmd "github.com/jasonmoo/wildcat/internal/commands/channels"
 	package_cmd "github.com/jasonmoo/wildcat/internal/commands/package"
 	search_cmd "github.com/jasonmoo/wildcat/internal/commands/search"
+	symbol_cmd "github.com/jasonmoo/wildcat/internal/commands/symbol"
 	tree_cmd "github.com/jasonmoo/wildcat/internal/commands/tree"
 	"github.com/spf13/cobra"
 )
@@ -80,6 +81,7 @@ and actionable error messages.`,
 	rootCmd.AddCommand(symbolCmd)
 	rootCmd.AddCommand(search_cmd.NewSearchCommand().Cmd())
 	rootCmd.AddCommand(tree_cmd.NewTreeCommand().Cmd())
+	rootCmd.AddCommand(symbol_cmd.NewSymbolCommand().Cmd())
 	rootCmd.AddCommand(channels_cmd.NewChannelsCommand().Cmd())
 	rootCmd.AddCommand(readmeCmd)
 	rootCmd.AddCommand(versionCmd)

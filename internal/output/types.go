@@ -97,9 +97,9 @@ type PackageUsage struct {
 // SymbolLocation represents a location for cross-package type relationships.
 // Used for implementations and satisfies which need full paths.
 type SymbolLocation struct {
-	Location string  `json:"location"` // full path: "/home/.../file.go:line"
-	Symbol   string  `json:"symbol"`
-	Snippet  Snippet `json:"snippet"`
+	Location  string `json:"location"`  // full path: "/home/.../file.go:line"
+	Symbol    string `json:"symbol"`    // qualified name: pkg.TypeName
+	Signature string `json:"signature"` // type signature
 }
 
 // SymbolSummary provides aggregate information about symbol usage.

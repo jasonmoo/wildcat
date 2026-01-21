@@ -350,15 +350,10 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 				}
 				line := impl.Range.Start.Line + 1
 				absFile := output.AbsolutePath(file)
-				fileName := filepath.Base(file)
-				snippet, snippetStart, snippetEnd, _ := extractor.ExtractSmart(file, line)
 				implementations = append(implementations, output.SymbolLocation{
-					Location: fmt.Sprintf("%s:%d", absFile, line),
-					Symbol:   "", // TODO: get type name
-					Snippet: output.Snippet{
-						Location: fmt.Sprintf("%s:%d:%d", fileName, snippetStart, snippetEnd),
-						Source:   snippet,
-					},
+					Location:  fmt.Sprintf("%s:%d", absFile, line),
+					Symbol:    "", // TODO: get type name
+					Signature: "", // TODO: get signature
 				})
 			}
 		}
@@ -379,15 +374,10 @@ func getImpactForSymbol(ctx context.Context, client *lsp.Client, symbolArg strin
 					}
 					line := st.Range.Start.Line + 1
 					absFile := output.AbsolutePath(file)
-					fileName := filepath.Base(file)
-					snippet, snippetStart, snippetEnd, _ := extractor.ExtractSmart(file, line)
 					satisfies = append(satisfies, output.SymbolLocation{
-						Location: fmt.Sprintf("%s:%d", absFile, line),
-						Symbol:   st.Name,
-						Snippet: output.Snippet{
-							Location: fmt.Sprintf("%s:%d:%d", fileName, snippetStart, snippetEnd),
-							Source:   snippet,
-						},
+						Location:  fmt.Sprintf("%s:%d", absFile, line),
+						Symbol:    st.Name,
+						Signature: "", // TODO: get signature
 					})
 				}
 			}
