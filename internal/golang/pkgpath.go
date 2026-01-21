@@ -343,6 +343,7 @@ func LoadModulePackages(ctx context.Context, srcDir string, opts ...LoadPackages
 	}, "./...")
 	pkgs := make([]*Package, len(ps))
 	for i, pkg := range ps {
+		pkg.Module = mp.Module
 		pkgs[i] = &Package{
 			Identifier: newPackageIdentifier(pkg),
 			Package:    pkg,

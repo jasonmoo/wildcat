@@ -46,7 +46,7 @@ func (fi *FuncInfo) QualifiedName() string {
 	if fi.Receiver != "" {
 		name = fi.Receiver + "." + name
 	}
-	return fi.Pkg.Identifier.PkgPath + "." + name
+	return fi.Pkg.Identifier.Name + "." + name
 }
 
 // FindFuncInfo locates the AST and package for a types.Func within the given packages.

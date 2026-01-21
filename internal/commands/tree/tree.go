@@ -187,7 +187,7 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	// Build target info
 	sig, _ := target.Signature()
 	definition := fmt.Sprintf("%s:%s", target.Filename(), target.Location())
-	qualifiedSymbol := target.Package.Identifier.PkgShortPath + "." + target.Name
+	qualifiedSymbol := target.Package.Identifier.Name + "." + target.Name
 
 	// Track all functions for definitions section
 	collected := make(map[string]*collectedFunc)
@@ -299,7 +299,7 @@ func (c *TreeCommand) buildCalleesTree(
 		callsite := fmt.Sprintf("%s:%d", callPos.Filename, callPos.Line)
 
 		// Build qualified name
-		qualName := pkg.Identifier.PkgShortPath + "."
+		qualName := pkg.Identifier.Name + "."
 		if recv := golang.ReceiverFromFunc(calledFn); recv != "" {
 			qualName += recv + "."
 		}
@@ -400,7 +400,7 @@ func (c *TreeCommand) buildCallersTree(
 					callPos := pkg.Package.Fset.Position(call.Pos())
 					callsite := fmt.Sprintf("%s:%d", callPos.Filename, callPos.Line)
 
-					qualName := pkg.Identifier.PkgShortPath + "."
+					qualName := pkg.Identifier.Name + "."
 					if callerInfo.Receiver != "" {
 						qualName += callerInfo.Receiver + "."
 					}
@@ -486,7 +486,7 @@ func groupByPackage(collected map[string]*collectedFunc) []output.TreePackage {
 	pkgMap := make(map[string]*pkgData)
 
 	for _, cf := range collected {
-		sym := cf.pkg.Identifier.PkgShortPath + "." + cf.name
+		sym := cf.pkg.Identifier.Name + "." + cf.name
 		fn := output.TreeFunction{
 			Symbol:     sym,
 			Signature:  cf.signature,
