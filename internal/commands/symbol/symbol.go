@@ -54,7 +54,7 @@ func (c *SymbolCommand) Cmd() *cobra.Command {
 	var scope string
 
 	cmd := &cobra.Command{
-		Use:   "new-symbol <symbol>",
+		Use:   "symbol <symbol>",
 		Short: "Complete symbol analysis: definition, callers, refs, interfaces",
 		Long: `Full profile of a symbol: everything you need to understand and modify it.
 

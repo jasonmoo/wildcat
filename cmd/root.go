@@ -78,10 +78,9 @@ and actionable error messages.`,
 
 	// Add subcommands
 	rootCmd.AddCommand(package_cmd.NewPackageCommand().Cmd())
-	rootCmd.AddCommand(symbolCmd)
+	rootCmd.AddCommand(symbol_cmd.NewSymbolCommand().Cmd())
 	rootCmd.AddCommand(search_cmd.NewSearchCommand().Cmd())
 	rootCmd.AddCommand(tree_cmd.NewTreeCommand().Cmd())
-	rootCmd.AddCommand(symbol_cmd.NewSymbolCommand().Cmd())
 	rootCmd.AddCommand(channels_cmd.NewChannelsCommand().Cmd())
 	rootCmd.AddCommand(readmeCmd)
 	rootCmd.AddCommand(versionCmd)
