@@ -40,7 +40,14 @@ type TypeInfo struct {
 	Symbol     string     `json:"symbol"` // qualified: pkg.Type
 	Signature  string     `json:"signature"`
 	Definition string     `json:"definition"` // file:line (short form when in PackageTypes context)
-	Refs       SymbolRefs `json:"refs"`
+	Refs       SymbolRefs `json:"refs,omitempty"`
+	Impls      ImplCounts `json:"impls,omitempty"` // for interfaces: how many types implement it
+}
+
+// ImplCounts tracks how many types implement an interface.
+type ImplCounts struct {
+	Package int `json:"package"` // implementations in the target symbol's package
+	Project int `json:"project"` // implementations across the project
 }
 
 // PackageTypes groups types by package for implementations/satisfies sections.
@@ -247,7 +254,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		for _, pkg := range r.Satisfies {
 			fmt.Fprintf(&sb, "### %s // %s\n\n", pkg.Package, pkg.Dir)
 			for _, sat := range pkg.Types {
-				fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", sat.Signature, sat.Definition, sat.Refs.Internal, sat.Refs.External, sat.Refs.Packages)
+				fmt.Fprintf(&sb, "%s // %s, impls(%d pkg, %d proj)\n", sat.Signature, sat.Definition, sat.Impls.Package, sat.Impls.Project)
 			}
 			sb.WriteString("\n")
 		}

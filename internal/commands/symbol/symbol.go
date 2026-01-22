@@ -931,6 +931,16 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 						sig, _ := golang.FormatTypeSpec(genDecl.Tok, ts)
 						symbolKey := pkg.Identifier.Name + "." + ts.Name.Name
 
+						// Count implementations of this interface
+						implementors := golang.FindImplementors(iface, pkg.Identifier.PkgPath, ts.Name.Name, wc.Project.Packages)
+						projectCount := len(implementors)
+						packageCount := 0
+						for _, impl := range implementors {
+							if impl.PkgPath() == target.Package.Identifier.PkgPath {
+								packageCount++
+							}
+						}
+
 						pkgPath := pkg.Identifier.PkgPath
 						if byPkg[pkgPath] == nil {
 							byPkg[pkgPath] = &PackageTypes{
@@ -942,7 +952,10 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 							Symbol:     symbolKey,
 							Signature:  sig,
 							Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
-							Refs:       getSymbolRefs(wc, symbolKey),
+							Impls: ImplCounts{
+								Package: packageCount,
+								Project: projectCount,
+							},
 						})
 					}
 				}
