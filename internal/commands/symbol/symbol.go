@@ -607,33 +607,14 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 }
 
 func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang.Symbol) []PackageTypes {
-	// Get the interface type
-	node := target.Node()
-	typeSpec, ok := node.(*ast.TypeSpec)
-	if !ok {
+	// Get the interface type using shared helper
+	iface := golang.GetInterfaceType(target)
+	if iface == nil {
 		return nil
 	}
 
-	ifaceType, ok := typeSpec.Type.(*ast.InterfaceType)
-	if !ok {
-		return nil
-	}
-
-	// Get the types.Interface
-	obj := target.Package.Package.TypesInfo.Defs[typeSpec.Name]
-	if obj == nil {
-		return nil
-	}
-	named, ok := obj.Type().(*types.Named)
-	if !ok {
-		return nil
-	}
-	iface, ok := named.Underlying().(*types.Interface)
-	if !ok {
-		return nil
-	}
-
-	_ = ifaceType // used for validation
+	// Get the types.Object for comparison (to skip the interface itself)
+	obj := golang.GetTypesObject(target)
 
 	// Group implementations by package
 	byPkg := make(map[string]*PackageTypes)
@@ -708,20 +689,13 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 // findConsumers finds functions and methods that accept the interface as a parameter.
 // This helps distinguish consumers (who depend on the contract) from implementers (who fulfill it).
 func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbol) []PackageFunctions {
-	// Get the interface type
-	node := target.Node()
-	typeSpec, ok := node.(*ast.TypeSpec)
-	if !ok {
+	// Verify it's an interface using shared helper
+	if golang.GetInterfaceType(target) == nil {
 		return nil
 	}
 
-	_, ok = typeSpec.Type.(*ast.InterfaceType)
-	if !ok {
-		return nil
-	}
-
-	// Get the types.Interface
-	obj := target.Package.Package.TypesInfo.Defs[typeSpec.Name]
+	// Get the types.Object for parameter type comparison
+	obj := golang.GetTypesObject(target)
 	if obj == nil {
 		return nil
 	}

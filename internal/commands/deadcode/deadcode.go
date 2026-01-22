@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
-	"go/types"
 	"os"
 	"path/filepath"
 	"sort"
@@ -238,7 +237,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		// Check if interface has implementations in the project.
 		// Interfaces with implementations are not dead - the implementations depend on the interface definition.
 		if sym.Kind == golang.SymbolKindInterface {
-			if iface := getInterfaceType(&sym); iface != nil {
+			if iface := golang.GetInterfaceType(&sym); iface != nil {
 				implementors := golang.FindImplementors(iface, sym.Package.Identifier.PkgPath, sym.Name, wc.Project.Packages)
 				if len(implementors) > 0 {
 					continue
@@ -460,31 +459,3 @@ func findReceiverTypeSymbol(idx *golang.SymbolIndex, methodSym *golang.Symbol) *
 	return idx.Lookup(typeName)
 }
 
-// getInterfaceType extracts the types.Interface from an interface symbol.
-func getInterfaceType(sym *golang.Symbol) *types.Interface {
-	node := sym.Node()
-	typeSpec, ok := node.(*ast.TypeSpec)
-	if !ok {
-		return nil
-	}
-
-	// Verify it's an interface type in the AST
-	if _, ok := typeSpec.Type.(*ast.InterfaceType); !ok {
-		return nil
-	}
-
-	// Get the types.Interface from type info
-	obj := sym.Package.Package.TypesInfo.Defs[typeSpec.Name]
-	if obj == nil {
-		return nil
-	}
-	named, ok := obj.Type().(*types.Named)
-	if !ok {
-		return nil
-	}
-	iface, ok := named.Underlying().(*types.Interface)
-	if !ok {
-		return nil
-	}
-	return iface
-}

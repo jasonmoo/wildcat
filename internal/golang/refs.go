@@ -196,6 +196,40 @@ func GetTypesObject(sym *Symbol) types.Object {
 	return nil
 }
 
+// GetInterfaceType extracts the types.Interface from an interface symbol.
+// Returns nil if the symbol is not an interface.
+func GetInterfaceType(sym *Symbol) *types.Interface {
+	if sym.Kind != SymbolKindInterface {
+		return nil
+	}
+
+	node := sym.Node()
+	typeSpec, ok := node.(*ast.TypeSpec)
+	if !ok {
+		return nil
+	}
+
+	// Verify it's an interface type in the AST
+	if _, ok := typeSpec.Type.(*ast.InterfaceType); !ok {
+		return nil
+	}
+
+	// Get the types.Interface from type info
+	obj := sym.Package.Package.TypesInfo.Defs[typeSpec.Name]
+	if obj == nil {
+		return nil
+	}
+	named, ok := obj.Type().(*types.Named)
+	if !ok {
+		return nil
+	}
+	iface, ok := named.Underlying().(*types.Interface)
+	if !ok {
+		return nil
+	}
+	return iface
+}
+
 // SameObject checks if two types.Object refer to the same symbol.
 func SameObject(obj, target types.Object) bool {
 	if obj == target {
