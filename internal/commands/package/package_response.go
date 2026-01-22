@@ -58,7 +58,7 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 	// Header
 	sb.WriteString("# package ")
 	sb.WriteString(r.Package.ImportPath)
-	sb.WriteString("\n# dir ")
+	sb.WriteString(" // ")
 	sb.WriteString(r.Package.Dir)
 	sb.WriteString("\n")
 
