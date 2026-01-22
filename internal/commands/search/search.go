@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
@@ -63,21 +64,30 @@ func (c *SearchCommand) Cmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
-		Short: "Fuzzy search for symbols",
-		Long: `Search for symbols using fuzzy matching.
+		Short: "Search for symbols (fuzzy or regex)",
+		Long: `Search for symbols using fuzzy matching or regex patterns.
 
 Query Syntax:
   Client         Fuzzy match on symbol name
   lsp.Client     Package-qualified match (use . to search pkg.Symbol)
   DocSym         Abbreviation match - matches "DocumentSymbol"
+  ^New.*Client$  Regex match (auto-detected from metacharacters)
+  Get[A-Z]+      Regex match on symbol names
 
-Scoring:
-  Results are ranked by match quality. Exact matches and shorter symbols
-  score higher. Case-sensitive matches get a bonus.
+Mode Detection:
+  Regex metacharacters (* + ? ^ $ [ ] { } ( ) | \) trigger regex mode.
+  Otherwise, fuzzy matching is used. Regex is case-insensitive by default.
+
+Sorting:
+  Fuzzy: Ranked by match quality, length similarity, case-sensitive bonus.
+  Regex: Sorted by symbol name length (shorter first), then alphabetically.
 
 Examples:
   wildcat search Client                       # fuzzy match "Client"
-  wildcat search lsp.Client                   # match in lsp package
+  wildcat search lsp.Client                   # fuzzy match in lsp package
+  wildcat search "^New"                       # regex: names starting with New
+  wildcat search "Client$"                    # regex: names ending with Client
+  wildcat search "Get[A-Z]+"                  # regex: Get followed by caps
   wildcat search --kind func Format           # functions only
   wildcat search --kind type,interface Node   # types and interfaces
   wildcat search --scope all Config           # include dependencies
@@ -150,11 +160,28 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		return commands.NewErrorResultf("invalid_query", "empty search term"), nil
 	}
 
-	// Search with options
-	results := wc.Index.Search(c.query, &golang.SearchOptions{
-		Limit: c.limit,
-		Kinds: c.kinds,
-	})
+	// Detect if query is a regex pattern
+	var results []golang.SearchResult
+	var searchMode string
+	if golang.IsRegexPattern(c.query) {
+		// Compile regex (case-insensitive by default)
+		pattern, err := regexp.Compile("(?i)" + c.query)
+		if err != nil {
+			return commands.NewErrorResultf("invalid_regex", "invalid regex pattern: %s", err), nil
+		}
+		results = wc.Index.RegexSearch(pattern, &golang.SearchOptions{
+			Limit: c.limit,
+			Kinds: c.kinds,
+		})
+		searchMode = "regex"
+	} else {
+		// Fuzzy search
+		results = wc.Index.Search(c.query, &golang.SearchOptions{
+			Limit: c.limit,
+			Kinds: c.kinds,
+		})
+		searchMode = "fuzzy"
+	}
 
 	// Apply scope filtering
 	if c.scope != "all" {
@@ -199,6 +226,7 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		Query: output.SearchQuery{
 			Command: "search",
 			Pattern: c.query,
+			Mode:    searchMode,
 			Scope:   c.scope,
 			Kind:    ksb.String(),
 		},

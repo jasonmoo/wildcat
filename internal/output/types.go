@@ -90,10 +90,11 @@ type Snippet struct {
 
 // Location represents a reference location within a package.
 type Location struct {
-	Location string  `json:"location"` // "file.go:line" or "file.go:line1,line2" when merged
-	Symbol   string  `json:"symbol"`
-	Snippet  Snippet `json:"snippet"`
-	RefCount int     `json:"ref_count,omitempty"` // number of refs merged into this location (0 or 1 = single ref)
+	Location string      `json:"location"` // "file.go:line" or "file.go:line1,line2" when merged
+	Symbol   string      `json:"symbol"`
+	Snippet  Snippet     `json:"snippet"`
+	RefCount int         `json:"ref_count,omitempty"` // number of refs merged into this location (0 or 1 = single ref)
+	Refs     *TargetRefs `json:"refs,omitempty"`      // reference counts for the referencing symbol
 }
 
 // PackageUsage contains callers and references within a single package.
@@ -159,6 +160,7 @@ type ErrorDetail struct {
 type SearchQuery struct {
 	Command string `json:"command"`
 	Pattern string `json:"pattern"`
+	Mode    string `json:"mode,omitempty"` // "fuzzy" or "regex"
 	Scope   string `json:"scope,omitempty"`
 	Kind    string `json:"kind,omitempty"`
 }
@@ -220,14 +222,16 @@ type PackageInfo struct {
 
 // PackageSymbol represents a symbol in a package.
 type PackageSymbol struct {
-	Signature string `json:"signature"`
-	Location  string `json:"location,omitempty"` // file:line[:line_end] - omitted for fields
+	Signature string      `json:"signature"`
+	Location  string      `json:"location,omitempty"` // file:line[:line_end] - omitted for fields
+	Refs      *TargetRefs `json:"refs,omitempty"`
 }
 
 // PackageType represents a type with its functions and methods.
 type PackageType struct {
 	Signature     string          `json:"signature"`
 	Location      string          `json:"location"`
+	Refs          *TargetRefs     `json:"refs,omitempty"`
 	Functions     []PackageSymbol `json:"functions,omitempty"`
 	Methods       []PackageSymbol `json:"methods,omitempty"`
 	Satisfies     []string        `json:"satisfies,omitempty"`      // interfaces this type implements

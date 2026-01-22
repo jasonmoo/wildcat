@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -452,4 +453,65 @@ func (idx *SymbolIndex) addValueSpec(pkg *Package, filename string, tok token.To
 			tok:      tok,
 		})
 	}
+}
+
+// IsRegexPattern detects if a query contains regex metacharacters.
+// Returns true if the query should be treated as a regex pattern.
+func IsRegexPattern(query string) bool {
+	// Common regex metacharacters that indicate intent to use regex
+	// Excluding '.' since it's used for package.Symbol qualification
+	metaChars := []byte{'*', '+', '?', '^', '$', '[', ']', '{', '}', '(', ')', '|', '\\'}
+	for _, c := range metaChars {
+		if strings.ContainsRune(query, rune(c)) {
+			return true
+		}
+	}
+	return false
+}
+
+// RegexSearch searches symbols using a compiled regex pattern against symbol names.
+// Matches against the symbol Name field only (e.g., "Client", "Type.Method").
+// Results are sorted by symbol name length (shorter first).
+func (idx *SymbolIndex) RegexSearch(pattern *regexp.Regexp, opts *SearchOptions) []SearchResult {
+	var results []SearchResult
+
+	for i := range idx.symbols {
+		sym := &idx.symbols[i]
+
+		// Filter by kind if specified
+		if opts != nil && len(opts.Kinds) > 0 && !slices.Contains(opts.Kinds, sym.Kind) {
+			continue
+		}
+
+		// Exclude specific symbols
+		if opts != nil && len(opts.Exclude) > 0 {
+			fullName := sym.Package.Identifier.Name + "." + sym.Name
+			if slices.Contains(opts.Exclude, fullName) {
+				continue
+			}
+		}
+
+		// Match against symbol name only
+		if pattern.MatchString(sym.Name) {
+			results = append(results, SearchResult{
+				Symbol: sym,
+				Score:  len(sym.Name), // Use length for sorting (shorter = better)
+			})
+		}
+	}
+
+	// Sort by name length ascending (shorter first), then alphabetically
+	slices.SortFunc(results, func(a, b SearchResult) int {
+		if a.Score != b.Score {
+			return a.Score - b.Score // ascending (shorter first)
+		}
+		return strings.Compare(a.Symbol.Name, b.Symbol.Name)
+	})
+
+	// Apply limit
+	if opts != nil && opts.Limit > 0 && len(results) > opts.Limit {
+		results = results[:opts.Limit]
+	}
+
+	return results
 }
