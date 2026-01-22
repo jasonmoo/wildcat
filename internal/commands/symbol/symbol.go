@@ -267,8 +267,11 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	var implementations []PackageTypes
 	var satisfies []PackageTypes
 
+	var consumers []PackageFunctions
+
 	if target.Kind == golang.SymbolKindInterface {
 		implementations = c.findImplementations(wc, target)
+		consumers = c.findConsumers(wc, target)
 	}
 	if target.Kind == golang.SymbolKindType {
 		satisfies = c.findSatisfies(wc, target)
@@ -450,6 +453,7 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 		ImportedBy:      importedBy,
 		References:      packageUsages,
 		Implementations: implementations,
+		Consumers:       consumers,
 		Satisfies:       satisfies,
 		QuerySummary: output.SymbolSummary{
 			Callers:         queryCallers,
@@ -699,6 +703,114 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 	}
 
 	return result
+}
+
+// findConsumers finds functions and methods that accept the interface as a parameter.
+// This helps distinguish consumers (who depend on the contract) from implementers (who fulfill it).
+func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbol) []PackageFunctions {
+	// Get the interface type
+	node := target.Node()
+	typeSpec, ok := node.(*ast.TypeSpec)
+	if !ok {
+		return nil
+	}
+
+	_, ok = typeSpec.Type.(*ast.InterfaceType)
+	if !ok {
+		return nil
+	}
+
+	// Get the types.Interface
+	obj := target.Package.Package.TypesInfo.Defs[typeSpec.Name]
+	if obj == nil {
+		return nil
+	}
+
+	// Group consumers by package
+	byPkg := make(map[string]*PackageFunctions)
+
+	// Search all packages for functions that accept this interface
+	for _, pkg := range wc.Project.Packages {
+		for _, file := range pkg.Package.Syntax {
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Type == nil || fn.Type.Params == nil {
+					continue
+				}
+
+				// Check if any parameter is the target interface
+				if !c.hasInterfaceParam(pkg, fn, obj) {
+					continue
+				}
+
+				// Build function info
+				sig, _ := golang.FormatFuncDecl(fn)
+				pos := pkg.Package.Fset.Position(fn.Pos())
+				endPos := pkg.Package.Fset.Position(fn.End())
+
+				// Build qualified symbol
+				symbol := pkg.Identifier.Name + "."
+				if fn.Recv != nil && len(fn.Recv.List) > 0 {
+					symbol += golang.ReceiverTypeName(fn.Recv.List[0].Type) + "."
+				}
+				symbol += fn.Name.Name
+
+				pkgPath := pkg.Identifier.PkgPath
+				if byPkg[pkgPath] == nil {
+					byPkg[pkgPath] = &PackageFunctions{
+						Package: pkgPath,
+						Dir:     pkg.Identifier.PkgDir,
+					}
+				}
+				byPkg[pkgPath].Functions = append(byPkg[pkgPath].Functions, FunctionInfo{
+					Symbol:     symbol,
+					Signature:  sig,
+					Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
+					Refs:       getSymbolRefs(wc, symbol),
+				})
+			}
+		}
+	}
+
+	// Convert map to sorted slice
+	var result []PackageFunctions
+	var pkgPaths []string
+	for pkgPath := range byPkg {
+		pkgPaths = append(pkgPaths, pkgPath)
+	}
+	sort.Strings(pkgPaths)
+	for _, pkgPath := range pkgPaths {
+		result = append(result, *byPkg[pkgPath])
+	}
+
+	return result
+}
+
+// hasInterfaceParam checks if a function has a parameter of the target interface type.
+func (c *SymbolCommand) hasInterfaceParam(pkg *golang.Package, fn *ast.FuncDecl, targetObj types.Object) bool {
+	for _, field := range fn.Type.Params.List {
+		// Resolve the type of the parameter
+		paramType := pkg.Package.TypesInfo.TypeOf(field.Type)
+		if paramType == nil {
+			continue
+		}
+
+		// Check if it's the target interface (or a pointer to it)
+		if named, ok := paramType.(*types.Named); ok {
+			if named.Obj() == targetObj {
+				return true
+			}
+		}
+		// Check pointer to interface
+		if ptr, ok := paramType.(*types.Pointer); ok {
+			if named, ok := ptr.Elem().(*types.Named); ok {
+				if named.Obj() == targetObj {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // findDescendants finds types that would be orphaned if the target type is removed.

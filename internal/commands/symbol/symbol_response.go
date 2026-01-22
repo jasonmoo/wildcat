@@ -58,6 +58,13 @@ type PackageTypes struct {
 	Types   []TypeInfo `json:"types"`
 }
 
+// PackageFunctions groups functions by package for consumers section.
+type PackageFunctions struct {
+	Package   string         `json:"package"` // import path
+	Dir       string         `json:"dir"`     // directory path
+	Functions []FunctionInfo `json:"functions"`
+}
+
 // SuggestionInfo describes a fuzzy match suggestion.
 type SuggestionInfo struct {
 	Symbol string `json:"symbol"` // qualified: pkg.Name or pkg.Type.Method
@@ -74,6 +81,7 @@ type SymbolCommandResponse struct {
 	ImportedBy        []output.DepResult    `json:"imported_by"`
 	References        []output.PackageUsage `json:"references"`
 	Implementations   []PackageTypes        `json:"implementations,omitempty"`
+	Consumers         []PackageFunctions    `json:"consumers,omitempty"` // funcs that accept the interface as param
 	Satisfies         []PackageTypes        `json:"satisfies,omitempty"`
 	QuerySummary      output.SymbolSummary  `json:"query_summary"`
 	PackageSummary    output.SymbolSummary  `json:"package_summary"`
@@ -100,6 +108,7 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		ImportedBy        []output.DepResult    `json:"imported_by"`
 		References        []output.PackageUsage `json:"references"`
 		Implementations   []PackageTypes        `json:"implementations,omitempty"`
+		Consumers         []PackageFunctions    `json:"consumers,omitempty"`
 		Satisfies         []PackageTypes        `json:"satisfies,omitempty"`
 		OtherFuzzyMatches []SuggestionInfo      `json:"other_fuzzy_matches"`
 	}{
@@ -115,6 +124,7 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		ImportedBy:        r.ImportedBy,
 		References:        r.References,
 		Implementations:   r.Implementations,
+		Consumers:         r.Consumers,
 		Satisfies:         r.Satisfies,
 		OtherFuzzyMatches: r.OtherFuzzyMatches,
 	})
@@ -266,6 +276,27 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 				fmt.Fprintf(&sb, "%s // %s", impl.Signature, impl.Definition)
 				if impl.Refs != nil {
 					fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", impl.Refs.Internal, impl.Refs.External, impl.Refs.Packages)
+				}
+				sb.WriteString("\n")
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// Consumers (show for interfaces, even if empty)
+	if isInterface || len(r.Consumers) > 0 {
+		// Count total consumers across all packages
+		totalConsumers := 0
+		for _, pkg := range r.Consumers {
+			totalConsumers += len(pkg.Functions)
+		}
+		fmt.Fprintf(&sb, "## Consumers (%d)\n\n", totalConsumers)
+		for _, pkg := range r.Consumers {
+			fmt.Fprintf(&sb, "### %s // %s\n\n", pkg.Package, pkg.Dir)
+			for _, fn := range pkg.Functions {
+				fmt.Fprintf(&sb, "%s // %s", fn.Signature, fn.Definition)
+				if fn.Refs != nil {
+					fmt.Fprintf(&sb, ", callers(%d pkg, %d proj, imported %d)", fn.Refs.Internal, fn.Refs.External, fn.Refs.Packages)
 				}
 				sb.WriteString("\n")
 			}
