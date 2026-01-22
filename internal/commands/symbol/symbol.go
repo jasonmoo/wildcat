@@ -453,7 +453,7 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 	defLine, _, _ := strings.Cut(target.Location(), ":")
 	targetFile := target.Filename()
 
-	golang.WalkReferences(wc.Project, target, func(ref golang.Reference) bool {
+	golang.WalkReferences(wc.Project.Packages, target, func(ref golang.Reference) bool {
 		// Scope filter
 		if !filter.InScope(ref.Package.Identifier.PkgPath) {
 			return true

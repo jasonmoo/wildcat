@@ -254,23 +254,17 @@ func (c *TreeCommand) buildCalleesTree(
 
 	var nodes []*output.CallNode
 
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
+	golang.WalkCallsInFunc(pkg, fn, func(call golang.Call) bool {
+		if call.Called == nil || call.Called.Pkg() == nil {
 			return true
 		}
 
-		calledFn := golang.ResolveCallExpr(pkg.Package.TypesInfo, call)
-		if calledFn == nil || calledFn.Pkg() == nil {
-			return true
-		}
-
-		if !c.inScope(calledFn.Pkg().Path(), wc) {
+		if !c.inScope(call.Called.Pkg().Path(), wc) {
 			return true
 		}
 
 		// Find the callee's AST
-		calleeInfo := golang.FindFuncInfo(wc.Project.Packages, calledFn)
+		calleeInfo := golang.FindFuncInfo(wc.Project.Packages, call.Called)
 
 		*totalCalls++
 
@@ -279,18 +273,10 @@ func (c *TreeCommand) buildCalleesTree(
 			collectFromFuncInfo(calleeInfo, collected)
 		}
 
-		callPos := pkg.Package.Fset.Position(call.Pos())
-		callsite := fmt.Sprintf("%s:%d", callPos.Filename, callPos.Line)
-
-		// Build qualified name
-		qualName := pkg.Identifier.Name + "."
-		if recv := golang.ReceiverFromFunc(calledFn); recv != "" {
-			qualName += recv + "."
-		}
-		qualName += calledFn.Name()
+		callsite := fmt.Sprintf("%s:%d", call.CallerFile, call.Line)
 
 		node := &output.CallNode{
-			Symbol:   qualName,
+			Symbol:   call.CalledName(),
 			Callsite: callsite,
 		}
 
@@ -338,67 +324,42 @@ func (c *TreeCommand) buildCallersTree(
 
 	var callers []*output.CallNode
 
-	// Search all packages for calls to target
-	for _, pkg := range wc.Project.Packages {
-		if !c.inScope(pkg.Identifier.PkgPath, wc) {
-			continue
+	golang.WalkCalls(wc.Project.Packages, func(call golang.Call) bool {
+		// Scope filter
+		if !c.inScope(call.Package.Identifier.PkgPath, wc) {
+			return true
 		}
 
-		for _, file := range pkg.Package.Syntax {
-			filename := pkg.Package.Fset.Position(file.Pos()).Filename
-
-			for _, decl := range file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Body == nil {
-					continue
-				}
-
-				ast.Inspect(fn.Body, func(n ast.Node) bool {
-					call, ok := n.(*ast.CallExpr)
-					if !ok {
-						return true
-					}
-
-					calledFn := golang.ResolveCallExpr(pkg.Package.TypesInfo, call)
-					if calledFn == nil || calledFn != targetObj {
-						return true
-					}
-
-					*totalCalls++
-
-					// Build caller info
-					callerInfo := &golang.FuncInfo{
-						Decl:     fn,
-						Pkg:      pkg,
-						Filename: filename,
-					}
-					if fn.Recv != nil && len(fn.Recv.List) > 0 {
-						callerInfo.Receiver = golang.ReceiverTypeName(fn.Recv.List[0].Type)
-					}
-
-					collectFromFuncInfo(callerInfo, collected)
-
-					callPos := pkg.Package.Fset.Position(call.Pos())
-					callsite := fmt.Sprintf("%s:%d", callPos.Filename, callPos.Line)
-
-					qualName := pkg.Identifier.Name + "."
-					if callerInfo.Receiver != "" {
-						qualName += callerInfo.Receiver + "."
-					}
-					qualName += fn.Name.Name
-
-					callerNode := &output.CallNode{
-						Symbol:   qualName,
-						Callsite: callsite,
-						Calls:    c.buildCallersTree(wc, pkg, fn, depth+1, visited, collected, maxDepth, totalCalls),
-					}
-
-					callers = append(callers, callerNode)
-					return true
-				})
-			}
+		// Check if this call targets our function
+		if call.Called == nil || call.Called != targetObj {
+			return true
 		}
-	}
+
+		*totalCalls++
+
+		// Build caller info
+		callerInfo := &golang.FuncInfo{
+			Decl:     call.Caller,
+			Pkg:      call.Package,
+			Filename: call.CallerFile,
+		}
+		if call.Caller.Recv != nil && len(call.Caller.Recv.List) > 0 {
+			callerInfo.Receiver = golang.ReceiverTypeName(call.Caller.Recv.List[0].Type)
+		}
+
+		collectFromFuncInfo(callerInfo, collected)
+
+		callsite := fmt.Sprintf("%s:%d", call.CallerFile, call.Line)
+
+		callerNode := &output.CallNode{
+			Symbol:   call.CallerName(),
+			Callsite: callsite,
+			Calls:    c.buildCallersTree(wc, call.Package, call.Caller, depth+1, visited, collected, maxDepth, totalCalls),
+		}
+
+		callers = append(callers, callerNode)
+		return true
+	})
 
 	return callers
 }

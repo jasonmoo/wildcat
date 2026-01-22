@@ -22,14 +22,15 @@ func (r *Reference) IsInternal(targetPkgPath string) bool {
 // RefVisitor is called for each reference found. Return false to stop walking.
 type RefVisitor func(ref Reference) bool
 
-// WalkReferences walks all references to a symbol across the project.
-func WalkReferences(project *Project, sym *Symbol, visitor RefVisitor) {
+// WalkReferences walks all references to a symbol in the given packages.
+// Pass project.Packages for all packages, or a subset for filtering.
+func WalkReferences(pkgs []*Package, sym *Symbol, visitor RefVisitor) {
 	targetObj := GetTypesObject(sym)
 	if targetObj == nil {
 		return
 	}
 
-	for _, pkg := range project.Packages {
+	for _, pkg := range pkgs {
 		if !walkPackageRefs(pkg, targetObj, visitor) {
 			return
 		}
@@ -145,13 +146,14 @@ func (r *RefCounts) PackageCount() int {
 	return len(r.Packages)
 }
 
-// CountReferences counts all references to a symbol across the project.
-func CountReferences(project *Project, sym *Symbol) *RefCounts {
+// CountReferences counts all references to a symbol in the given packages.
+// Pass project.Packages for all packages, or a subset for filtering.
+func CountReferences(pkgs []*Package, sym *Symbol) *RefCounts {
 	counts := &RefCounts{}
 	pkgSet := make(map[string]bool)
 	targetPkgPath := sym.Package.Identifier.PkgPath
 
-	WalkReferences(project, sym, func(ref Reference) bool {
+	WalkReferences(pkgs, sym, func(ref Reference) bool {
 		if ref.IsInternal(targetPkgPath) {
 			counts.Internal++
 		} else {

@@ -3,9 +3,6 @@ package channels_cmd
 import (
 	"context"
 	"fmt"
-	"go/ast"
-	"go/token"
-	"go/types"
 	"os"
 	"path/filepath"
 	"sort"
@@ -123,131 +120,35 @@ func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 	// Collect channel operations: package -> list of ops
 	ops := make(map[string][]opInfo)
-	seenFiles := make(map[string]bool)
 
-	// Helper to add an operation
-	addOp := func(fset *token.FileSet, pkgPath, filename string, kind string, node ast.Node, elemType string) {
-		pos := fset.Position(node.Pos())
-		operation, err := golang.FormatNode(node)
+	// Ensure all target packages appear in output even if no channel ops found
+	for _, pkg := range targetPkgs {
+		if !strings.HasSuffix(pkg.Identifier.PkgPath, ".test") {
+			ops[pkg.Identifier.PkgPath] = nil
+		}
+	}
+
+	// Walk channel operations using the visitor API
+	golang.WalkChannelOps(targetPkgs, func(op golang.ChannelOp) bool {
+		if strings.HasSuffix(op.Package.Identifier.PkgPath, ".test") {
+			return true
+		}
+
+		operation, err := golang.FormatNode(op.Node)
 		if err != nil {
 			operation = "<format error>"
 		}
-		base := filepath.Base(filename)
-		location := fmt.Sprintf("%s:%d", base, pos.Line)
-		ops[pkgPath] = append(ops[pkgPath], opInfo{
-			kind:      kind,
-			elemType:  elemType,
+		base := filepath.Base(op.File)
+		location := fmt.Sprintf("%s:%d", base, op.Line)
+
+		ops[op.Package.Identifier.PkgPath] = append(ops[op.Package.Identifier.PkgPath], opInfo{
+			kind:      string(op.Kind),
+			elemType:  op.ElemType,
 			operation: operation,
 			location:  location,
 		})
-	}
-
-	for _, pkg := range targetPkgs {
-		if strings.HasSuffix(pkg.Identifier.PkgPath, ".test") {
-			continue
-		}
-		if pkg.Package.TypesInfo == nil {
-			continue
-		}
-
-		for _, f := range pkg.Package.Syntax {
-			filename := pkg.Package.Fset.Position(f.Pos()).Filename
-			if seenFiles[filename] {
-				continue
-			}
-			seenFiles[filename] = true
-
-			// Ensure package appears in output even if no channel ops found
-			if _, ok := ops[pkg.Identifier.PkgPath]; !ok {
-				ops[pkg.Identifier.PkgPath] = nil
-			}
-
-			// Track nodes that are part of select cases so we don't double-count
-			selectNodes := make(map[ast.Node]bool)
-
-			// First pass: identify all select statement channel operations
-			ast.Inspect(f, func(n ast.Node) bool {
-				if sel, ok := n.(*ast.SelectStmt); ok {
-					for _, stmt := range sel.Body.List {
-						if comm, ok := stmt.(*ast.CommClause); ok && comm.Comm != nil {
-							switch node := comm.Comm.(type) {
-							case *ast.SendStmt:
-								selectNodes[node] = true
-								if elemType := golang.ChannelElemType(pkg.Package.TypesInfo, node.Chan); elemType != "" {
-									addOp(pkg.Package.Fset, pkg.Identifier.PkgPath, filename, "select_send", node, elemType)
-								}
-							case *ast.ExprStmt:
-								if recv, ok := node.X.(*ast.UnaryExpr); ok && recv.Op == token.ARROW {
-									selectNodes[recv] = true
-									if elemType := golang.ChannelElemType(pkg.Package.TypesInfo, recv.X); elemType != "" {
-										addOp(pkg.Package.Fset, pkg.Identifier.PkgPath, filename, "select_receive", recv, elemType)
-									}
-								}
-							case *ast.AssignStmt:
-								if len(node.Rhs) == 1 {
-									if recv, ok := node.Rhs[0].(*ast.UnaryExpr); ok && recv.Op == token.ARROW {
-										selectNodes[recv] = true
-										if elemType := golang.ChannelElemType(pkg.Package.TypesInfo, recv.X); elemType != "" {
-											addOp(pkg.Package.Fset, pkg.Identifier.PkgPath, filename, "select_receive", recv, elemType)
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-				return true
-			})
-
-			// Second pass: collect non-select channel operations
-			ast.Inspect(f, func(n ast.Node) bool {
-				switch node := n.(type) {
-				case *ast.SendStmt:
-					if selectNodes[node] {
-						return true
-					}
-					if elemType := golang.ChannelElemType(pkg.Package.TypesInfo, node.Chan); elemType != "" {
-						addOp(pkg.Package.Fset, pkg.Identifier.PkgPath, filename, "send", node, elemType)
-					}
-
-				case *ast.UnaryExpr:
-					if selectNodes[node] {
-						return true
-					}
-					if node.Op == token.ARROW {
-						if elemType := golang.ChannelElemType(pkg.Package.TypesInfo, node.X); elemType != "" {
-							addOp(pkg.Package.Fset, pkg.Identifier.PkgPath, filename, "receive", node, elemType)
-						}
-					}
-
-				case *ast.CallExpr:
-					if ident, ok := node.Fun.(*ast.Ident); ok {
-						switch ident.Name {
-						case "close":
-							if len(node.Args) > 0 {
-								if elemType := golang.ChannelElemType(pkg.Package.TypesInfo, node.Args[0]); elemType != "" {
-									addOp(pkg.Package.Fset, pkg.Identifier.PkgPath, filename, "close", node, elemType)
-								}
-							}
-						case "make":
-							if t := pkg.Package.TypesInfo.TypeOf(node); t != nil {
-								if ch, ok := t.Underlying().(*types.Chan); ok {
-									elemType := ch.Elem().String()
-									addOp(pkg.Package.Fset, pkg.Identifier.PkgPath, filename, "make", node, elemType)
-								}
-							}
-						}
-					}
-
-				case *ast.RangeStmt:
-					if elemType := golang.ChannelElemType(pkg.Package.TypesInfo, node.X); elemType != "" {
-						addOp(pkg.Package.Fset, pkg.Identifier.PkgPath, filename, "range", node, elemType)
-					}
-				}
-				return true
-			})
-		}
-	}
+		return true
+	})
 
 	// Build response: sort packages
 	var pkgPaths []string
