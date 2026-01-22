@@ -102,14 +102,17 @@ Returns:
 Scope:
   project       - All project packages (default)
   package       - Target package only
-  pkg1,pkg2     - Specific packages
-  -pkg          - Exclude package
+  pkg1,pkg2     - Specific packages (resolved to full import paths)
+  -pkg          - Exclude package (must be a valid package path)
+
+Note: Package names are resolved to full import paths. Use directory-style
+paths like "internal/lsp" not just "lsp". Exclusions require existing packages.
 
 Examples:
   wildcat symbol Config                         # analyze Config type
   wildcat symbol Config Handler Logger          # analyze multiple symbols
   wildcat symbol --scope package Server.Start   # callers in target package only
-  wildcat symbol --scope cmd,lsp Handler        # callers in specific packages
+  wildcat symbol --scope internal/lsp Handler   # callers in specific package
   wildcat symbol --scope -internal/lsp Config   # exclude a package`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
