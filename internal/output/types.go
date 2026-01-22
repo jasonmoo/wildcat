@@ -90,9 +90,10 @@ type Snippet struct {
 
 // Location represents a reference location within a package.
 type Location struct {
-	Location string  `json:"location"` // "file.go:line"
+	Location string  `json:"location"` // "file.go:line" or "file.go:line1,line2" when merged
 	Symbol   string  `json:"symbol"`
 	Snippet  Snippet `json:"snippet"`
+	RefCount int     `json:"ref_count,omitempty"` // number of refs merged into this location (0 or 1 = single ref)
 }
 
 // PackageUsage contains callers and references within a single package.

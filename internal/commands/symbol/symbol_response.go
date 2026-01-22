@@ -184,12 +184,26 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		}
 
 		if len(pkg.References) > 0 {
-			sb.WriteString("#### References\n\n")
+			// Count total refs (RefCount of 0 or 1 means single ref)
+			totalRefs := 0
 			for _, ref := range pkg.References {
-				if ref.Symbol != "" {
-					fmt.Fprintf(&sb, "##### %s // %s\n", ref.Symbol, ref.Snippet.Location)
+				if ref.RefCount > 1 {
+					totalRefs += ref.RefCount
 				} else {
-					fmt.Fprintf(&sb, "##### %s\n", ref.Snippet.Location)
+					totalRefs++
+				}
+			}
+			fmt.Fprintf(&sb, "#### References (%d)\n\n", totalRefs)
+			for _, ref := range pkg.References {
+				// Build annotation with ref count if merged
+				refAnnotation := ""
+				if ref.RefCount > 1 {
+					refAnnotation = fmt.Sprintf(", %d refs", ref.RefCount)
+				}
+				if ref.Symbol != "" {
+					fmt.Fprintf(&sb, "##### %s // %s%s\n", ref.Symbol, ref.Snippet.Location, refAnnotation)
+				} else {
+					fmt.Fprintf(&sb, "##### %s%s\n", ref.Snippet.Location, refAnnotation)
 				}
 				if ref.Snippet.Source != "" {
 					sb.WriteString("```")

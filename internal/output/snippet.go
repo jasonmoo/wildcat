@@ -478,6 +478,7 @@ func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, loca
 			Location: fmt.Sprintf("%s:%d:%d", fileName, snippetStart, snippetEnd),
 			Source:   snippet,
 		},
+		RefCount: len(locations),
 	}
 }
 

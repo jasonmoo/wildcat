@@ -287,11 +287,14 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 			})
 		}
 
+		// Merge references within same AST scope to reduce duplication
+		mergedRefs := extractor.MergeLocations(usage.pkg.Identifier.PkgDir, refLocs)
+
 		packageUsages = append(packageUsages, output.PackageUsage{
 			Package:    pkgPath,
 			Dir:        usage.pkg.Identifier.PkgDir,
 			Callers:    callerLocs,
-			References: refLocs,
+			References: mergedRefs,
 		})
 
 		// Track imported_by (packages other than target that have usages)
