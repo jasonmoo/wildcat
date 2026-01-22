@@ -209,8 +209,10 @@ type PackageResponse struct {
 
 // FileInfo describes a source file in a package.
 type FileInfo struct {
-	Name      string `json:"name"`       // base filename
-	LineCount int    `json:"line_count"` // total lines in file
+	Name        string      `json:"name"`                   // base filename
+	LineCount   int         `json:"line_count"`             // total lines in file
+	SymbolCount int         `json:"symbol_count,omitempty"` // symbols defined in file
+	Refs        *TargetRefs `json:"refs,omitempty"`         // aggregate refs to all symbols in file
 }
 
 // PackageInfo describes the package.

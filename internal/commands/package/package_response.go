@@ -62,14 +62,20 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 	sb.WriteString(r.Package.Dir)
 	sb.WriteString("\n")
 
-	// Files - calculate total lines first
+	// Files - calculate totals
 	totalLines := 0
+	totalSymbols := 0
 	for _, f := range r.Files {
 		totalLines += f.LineCount
+		totalSymbols += f.SymbolCount
 	}
-	fmt.Fprintf(&sb, "\n# Files (%d lines)\n", totalLines)
+	fmt.Fprintf(&sb, "\n# Files (%d files, %d lines, %d symbols)\n", len(r.Files), totalLines, totalSymbols)
 	for _, f := range r.Files {
-		fmt.Fprintf(&sb, "%s // %d lines\n", f.Name, f.LineCount)
+		fmt.Fprintf(&sb, "%s // %d lines, %d symbols", f.Name, f.LineCount, f.SymbolCount)
+		if f.Refs != nil {
+			fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, import %d)", f.Refs.Internal, f.Refs.External, f.Refs.Packages)
+		}
+		sb.WriteString("\n")
 	}
 
 	// Constants

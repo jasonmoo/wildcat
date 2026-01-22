@@ -148,14 +148,33 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		return tb
 	}
 
+	// Track per-file stats
+	type fileStats struct {
+		lineCount   int
+		symbolCount int
+		refs        output.TargetRefs // aggregate refs
+	}
+	fileStatsMap := make(map[string]*fileStats)
+	var fileOrder []string
+
+	addFileRefs := func(fileName string, refs *output.TargetRefs) {
+		if refs == nil {
+			return
+		}
+		fs := fileStatsMap[fileName]
+		fs.refs.Internal += refs.Internal
+		fs.refs.External += refs.External
+		fs.refs.Packages += refs.Packages
+	}
+
 	for _, f := range pkg.Package.Syntax {
 
 		fsetFile := pkg.Package.Fset.File(f.Pos())
 		fileName := filepath.Base(fsetFile.Name())
-		pkgret.Files = append(pkgret.Files, output.FileInfo{
-			Name:      fileName,
-			LineCount: fsetFile.LineCount(),
-		})
+		fileStatsMap[fileName] = &fileStats{
+			lineCount: fsetFile.LineCount(),
+		}
+		fileOrder = append(fileOrder, fileName)
 
 		for _, imp := range f.Imports {
 			pkgret.Imports = append(pkgret.Imports, output.DepResult{
@@ -177,24 +196,28 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 					Signature: sig,
 					Location:  makeLocation(pkg.Package.Fset, fileName, v.Pos()),
 				}
+				fileStatsMap[fileName].symbolCount++
 				if v.Recv != nil && len(v.Recv.List) > 0 {
 					// Method - attach to receiver type
 					typeName := golang.ReceiverTypeName(v.Recv.List[0].Type)
 					// Symbol key: pkg.Type.Method
 					symbolKey := pkgShortName + "." + typeName + "." + v.Name.Name
 					sym.Refs = getSymbolRefs(wc, symbolKey)
+					addFileRefs(fileName, sym.Refs)
 					ensureType(typeName).methods = append(ensureType(typeName).methods, sym)
 				} else if typeName := golang.ConstructorTypeName(v.Type); typeName != "" && pkg.Package.Types.Scope().Lookup(typeName) != nil {
 					// Constructor - attach to returned type (only if type is defined in this package)
 					// Symbol key: pkg.FuncName
 					symbolKey := pkgShortName + "." + v.Name.Name
 					sym.Refs = getSymbolRefs(wc, symbolKey)
+					addFileRefs(fileName, sym.Refs)
 					ensureType(typeName).functions = append(ensureType(typeName).functions, sym)
 				} else {
 					// Regular function
 					// Symbol key: pkg.FuncName
 					symbolKey := pkgShortName + "." + v.Name.Name
 					sym.Refs = getSymbolRefs(wc, symbolKey)
+					addFileRefs(fileName, sym.Refs)
 					pkgret.Functions = append(pkgret.Functions, sym)
 				}
 
@@ -206,6 +229,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 						if err != nil {
 							return nil, fmt.Errorf("internal_error: %w", err)
 						}
+						fileStatsMap[fileName].symbolCount++
 						tb := ensureType(vv.Name.Name)
 						tb.signature = sig
 						tb.location = makeLocation(pkg.Package.Fset, fileName, vv.Pos())
@@ -213,6 +237,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 						// Symbol key: pkg.TypeName
 						symbolKey := pkgShortName + "." + vv.Name.Name
 						tb.refs = getSymbolRefs(wc, symbolKey)
+						addFileRefs(fileName, tb.refs)
 					case *ast.ValueSpec:
 						sig, err := golang.FormatValueSpec(v.Tok, vv)
 						if err != nil {
@@ -220,10 +245,12 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 						}
 						// ValueSpec can have multiple names (e.g., var a, b, c int)
 						// but signature covers all, so use first name for refs lookup
+						fileStatsMap[fileName].symbolCount += len(vv.Names)
 						var refs *output.TargetRefs
 						if len(vv.Names) > 0 {
 							symbolKey := pkgShortName + "." + vv.Names[0].Name
 							refs = getSymbolRefs(wc, symbolKey)
+							addFileRefs(fileName, refs)
 						}
 						sym := output.PackageSymbol{
 							Signature: sig,
@@ -326,6 +353,24 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 				}
 			}
 		}
+	}
+
+	// Build Files from tracked stats
+	for _, fileName := range fileOrder {
+		fs := fileStatsMap[fileName]
+		fi := output.FileInfo{
+			Name:        fileName,
+			LineCount:   fs.lineCount,
+			SymbolCount: fs.symbolCount,
+		}
+		if fs.refs.Internal > 0 || fs.refs.External > 0 || fs.refs.Packages > 0 {
+			fi.Refs = &output.TargetRefs{
+				Internal: fs.refs.Internal,
+				External: fs.refs.External,
+				Packages: fs.refs.Packages,
+			}
+		}
+		pkgret.Files = append(pkgret.Files, fi)
 	}
 
 	// Count methods for summary
