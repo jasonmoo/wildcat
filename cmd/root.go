@@ -27,7 +27,7 @@ and actionable error messages.`,
 
 	// Configure root command
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
-	rootCmd.PersistentFlags().StringVarP(&globalOutput, "output", "o", "json", "Output format (json, yaml, markdown, template:<path>, plugin:<name>)")
+	rootCmd.PersistentFlags().StringVarP(&globalOutput, "output", "o", "markdown", "Output format (json, yaml, markdown, template:<path>, plugin:<name>)")
 
 	// Custom usage template with ordered commands
 	commandOrder := []string{
