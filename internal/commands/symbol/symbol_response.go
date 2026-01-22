@@ -39,8 +39,15 @@ type DescendantInfo struct {
 type TypeInfo struct {
 	Symbol     string     `json:"symbol"` // qualified: pkg.Type
 	Signature  string     `json:"signature"`
-	Definition string     `json:"definition"` // file:line
+	Definition string     `json:"definition"` // file:line (short form when in PackageTypes context)
 	Refs       SymbolRefs `json:"refs"`
+}
+
+// PackageTypes groups types by package for implementations/satisfies sections.
+type PackageTypes struct {
+	Package string     `json:"package"` // import path
+	Dir     string     `json:"dir"`     // directory path
+	Types   []TypeInfo `json:"types"`
 }
 
 // SuggestionInfo describes a fuzzy match suggestion.
@@ -58,8 +65,8 @@ type SymbolCommandResponse struct {
 	Descendants       []DescendantInfo      `json:"descendants,omitempty"` // types orphaned if target removed
 	ImportedBy        []output.DepResult    `json:"imported_by"`
 	References        []output.PackageUsage `json:"references"`
-	Implementations   []TypeInfo            `json:"implementations,omitempty"`
-	Satisfies         []TypeInfo            `json:"satisfies,omitempty"`
+	Implementations   []PackageTypes        `json:"implementations,omitempty"`
+	Satisfies         []PackageTypes        `json:"satisfies,omitempty"`
 	QuerySummary      output.SymbolSummary  `json:"query_summary"`
 	PackageSummary    output.SymbolSummary  `json:"package_summary"`
 	ProjectSummary    output.SymbolSummary  `json:"project_summary"`
@@ -79,8 +86,8 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		Descendants       []DescendantInfo      `json:"descendants,omitempty"`
 		ImportedBy        []output.DepResult    `json:"imported_by"`
 		References        []output.PackageUsage `json:"references"`
-		Implementations   []TypeInfo            `json:"implementations,omitempty"`
-		Satisfies         []TypeInfo            `json:"satisfies,omitempty"`
+		Implementations   []PackageTypes        `json:"implementations,omitempty"`
+		Satisfies         []PackageTypes        `json:"satisfies,omitempty"`
 		OtherFuzzyMatches []SuggestionInfo      `json:"other_fuzzy_matches"`
 	}{
 		Query:             r.Query,
@@ -216,22 +223,34 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 
 	// Implementations (show for interfaces, even if empty)
 	if isInterface || len(r.Implementations) > 0 {
-		fmt.Fprintf(&sb, "## Implementations (%d)\n\n", len(r.Implementations))
-		for _, impl := range r.Implementations {
-			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", impl.Signature, impl.Definition, impl.Refs.Internal, impl.Refs.External, impl.Refs.Packages)
+		// Count total implementations across all packages
+		totalImpls := 0
+		for _, pkg := range r.Implementations {
+			totalImpls += len(pkg.Types)
 		}
-		if len(r.Implementations) > 0 {
+		fmt.Fprintf(&sb, "## Implementations (%d)\n\n", totalImpls)
+		for _, pkg := range r.Implementations {
+			fmt.Fprintf(&sb, "### %s // %s\n\n", pkg.Package, pkg.Dir)
+			for _, impl := range pkg.Types {
+				fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", impl.Signature, impl.Definition, impl.Refs.Internal, impl.Refs.External, impl.Refs.Packages)
+			}
 			sb.WriteString("\n")
 		}
 	}
 
 	// Satisfies (show for types, even if empty)
 	if isType || len(r.Satisfies) > 0 {
-		fmt.Fprintf(&sb, "## Satisfies (%d)\n\n", len(r.Satisfies))
-		for _, sat := range r.Satisfies {
-			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", sat.Signature, sat.Definition, sat.Refs.Internal, sat.Refs.External, sat.Refs.Packages)
+		// Count total satisfies across all packages
+		totalSats := 0
+		for _, pkg := range r.Satisfies {
+			totalSats += len(pkg.Types)
 		}
-		if len(r.Satisfies) > 0 {
+		fmt.Fprintf(&sb, "## Satisfies (%d)\n\n", totalSats)
+		for _, pkg := range r.Satisfies {
+			fmt.Fprintf(&sb, "### %s // %s\n\n", pkg.Package, pkg.Dir)
+			for _, sat := range pkg.Types {
+				fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", sat.Signature, sat.Definition, sat.Refs.Internal, sat.Refs.External, sat.Refs.Packages)
+			}
 			sb.WriteString("\n")
 		}
 	}

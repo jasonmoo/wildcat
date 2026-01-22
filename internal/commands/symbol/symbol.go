@@ -220,8 +220,8 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	c.findReferences(wc, target, scopeFilter, usageByPkg)
 
 	// Find interface relationships
-	var implementations []TypeInfo
-	var satisfies []TypeInfo
+	var implementations []PackageTypes
+	var satisfies []PackageTypes
 
 	if target.Kind == golang.SymbolKindInterface {
 		implementations = c.findImplementations(wc, target)
@@ -344,14 +344,28 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	for _, c := range constructors {
 		excludeSymbols = append(excludeSymbols, c.Symbol)
 	}
-	for _, impl := range implementations {
-		excludeSymbols = append(excludeSymbols, impl.Symbol)
+	for _, pkg := range implementations {
+		for _, impl := range pkg.Types {
+			excludeSymbols = append(excludeSymbols, impl.Symbol)
+		}
 	}
-	for _, sat := range satisfies {
-		excludeSymbols = append(excludeSymbols, sat.Symbol)
+	for _, pkg := range satisfies {
+		for _, sat := range pkg.Types {
+			excludeSymbols = append(excludeSymbols, sat.Symbol)
+		}
 	}
 	for _, desc := range descendants {
 		excludeSymbols = append(excludeSymbols, desc.Symbol)
+	}
+
+	// Count total implementations and satisfies across all packages
+	totalImplementations := 0
+	for _, pkg := range implementations {
+		totalImplementations += len(pkg.Types)
+	}
+	totalSatisfies := 0
+	for _, pkg := range satisfies {
+		totalSatisfies += len(pkg.Types)
 	}
 
 	// Get fuzzy matches for suggestions
@@ -394,20 +408,20 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		QuerySummary: output.SymbolSummary{
 			Callers:         queryCallers,
 			References:      queryRefs,
-			Implementations: len(implementations),
-			Satisfies:       len(satisfies),
+			Implementations: totalImplementations,
+			Satisfies:       totalSatisfies,
 		},
 		PackageSummary: output.SymbolSummary{
 			Callers:         pkgCallers,
 			References:      pkgRefs,
-			Implementations: len(implementations),
-			Satisfies:       len(satisfies),
+			Implementations: totalImplementations,
+			Satisfies:       totalSatisfies,
 		},
 		ProjectSummary: output.SymbolSummary{
 			Callers:         projectCallers,
 			References:      projectRefs,
-			Implementations: len(implementations),
-			Satisfies:       len(satisfies),
+			Implementations: totalImplementations,
+			Satisfies:       totalSatisfies,
 		},
 		OtherFuzzyMatches: fuzzyMatches,
 	}, nil
@@ -542,7 +556,7 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 	})
 }
 
-func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang.Symbol) []TypeInfo {
+func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang.Symbol) []PackageTypes {
 	// Get the interface type
 	node := target.Node()
 	typeSpec, ok := node.(*ast.TypeSpec)
@@ -571,7 +585,8 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 
 	_ = ifaceType // used for validation
 
-	var implementations []TypeInfo
+	// Group implementations by package
+	byPkg := make(map[string]*PackageTypes)
 
 	// Search all packages for types that implement this interface
 	for _, pkg := range wc.Project.Packages {
@@ -606,10 +621,18 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 						pos := pkg.Package.Fset.Position(ts.Pos())
 						sig, _ := golang.FormatTypeSpec(genDecl.Tok, ts)
 						symbolKey := pkg.Identifier.Name + "." + ts.Name.Name
-						implementations = append(implementations, TypeInfo{
+
+						pkgPath := pkg.Identifier.PkgPath
+						if byPkg[pkgPath] == nil {
+							byPkg[pkgPath] = &PackageTypes{
+								Package: pkgPath,
+								Dir:     pkg.Identifier.PkgDir,
+							}
+						}
+						byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
 							Symbol:     symbolKey,
 							Signature:  sig,
-							Definition: fmt.Sprintf("%s:%d", pos.Filename, pos.Line),
+							Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
 							Refs:       getSymbolRefs(wc, symbolKey),
 						})
 					}
@@ -618,7 +641,18 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 		}
 	}
 
-	return implementations
+	// Convert map to sorted slice
+	var result []PackageTypes
+	var pkgPaths []string
+	for pkgPath := range byPkg {
+		pkgPaths = append(pkgPaths, pkgPath)
+	}
+	sort.Strings(pkgPaths)
+	for _, pkgPath := range pkgPaths {
+		result = append(result, *byPkg[pkgPath])
+	}
+
+	return result
 }
 
 // findDescendants finds types that would be orphaned if the target type is removed.
@@ -835,7 +869,7 @@ func (c *SymbolCommand) nodeReferencesType(pkg *golang.Package, node ast.Node, r
 	return found
 }
 
-func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbol) []TypeInfo {
+func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbol) []PackageTypes {
 	// Get the type
 	node := target.Node()
 	typeSpec, ok := node.(*ast.TypeSpec)
@@ -851,7 +885,8 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 	typ := typeObj.Type()
 	ptrTyp := types.NewPointer(typ)
 
-	var satisfies []TypeInfo
+	// Group satisfies by package
+	byPkg := make(map[string]*PackageTypes)
 
 	// Search all packages for interfaces this type implements
 	for _, pkg := range wc.Project.Packages {
@@ -895,10 +930,18 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 						pos := pkg.Package.Fset.Position(ts.Pos())
 						sig, _ := golang.FormatTypeSpec(genDecl.Tok, ts)
 						symbolKey := pkg.Identifier.Name + "." + ts.Name.Name
-						satisfies = append(satisfies, TypeInfo{
+
+						pkgPath := pkg.Identifier.PkgPath
+						if byPkg[pkgPath] == nil {
+							byPkg[pkgPath] = &PackageTypes{
+								Package: pkgPath,
+								Dir:     pkg.Identifier.PkgDir,
+							}
+						}
+						byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
 							Symbol:     symbolKey,
 							Signature:  sig,
-							Definition: fmt.Sprintf("%s:%d", pos.Filename, pos.Line),
+							Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
 							Refs:       getSymbolRefs(wc, symbolKey),
 						})
 					}
@@ -907,5 +950,16 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 		}
 	}
 
-	return satisfies
+	// Convert map to sorted slice
+	var result []PackageTypes
+	var pkgPaths []string
+	for pkgPath := range byPkg {
+		pkgPaths = append(pkgPaths, pkgPath)
+	}
+	sort.Strings(pkgPaths)
+	for _, pkgPath := range pkgPaths {
+		result = append(result, *byPkg[pkgPath])
+	}
+
+	return result
 }
