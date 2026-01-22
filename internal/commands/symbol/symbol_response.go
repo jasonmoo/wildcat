@@ -186,7 +186,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		fmt.Fprintf(&sb, "### %s // %s\n\n", pkg.Package, pkg.Dir)
 
 		if len(pkg.Callers) > 0 {
-			sb.WriteString("#### Callers\n\n")
+			fmt.Fprintf(&sb, "#### Callers (%d)\n\n", len(pkg.Callers))
 			for _, caller := range pkg.Callers {
 				fmt.Fprintf(&sb, "##### %s\n", caller.Symbol)
 				if caller.Snippet.Source != "" {
