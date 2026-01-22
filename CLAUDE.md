@@ -271,6 +271,18 @@ cd into the target dir.  This will enable the command to be used without approva
 NEVER use `go run -` or `cat <<'EOF' | go run -` patterns. They don't work.
 To test Go code, write a proper test file and use `go test`.
 
+**Testing Go code**: Prefer writing a temporary `*_test.go` file in the appropriate
+package directory, then run `go test` and delete the file. Avoid `cat > /tmp/test.go`
+patterns because:
+- They require approval every time
+- Package imports often fail due to path issues
+- Proper test files integrate with existing package context
+
+**When tests aren't suitable** (e.g., need real project context, testing harness is
+overkill): Add temporary print statements to the code, build with `go build`, and
+run `./wildcat` locally. This gives real answers quickly without test fixtures.
+Remove the prints when done.
+
 ## File Operations
 
 ALWAYS use built-in tools (Edit, Write, Read) instead of shell patterns like:
