@@ -75,19 +75,19 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 	// Constants
 	fmt.Fprintf(&sb, "\n# Constants (%d)\n", len(r.Constants))
 	for _, c := range r.Constants {
-		writeSymbolMd(&sb, c.Signature, c.Location)
+		writeSymbolMd(&sb, c.Signature, c.Location, c.Refs, false)
 	}
 
 	// Variables
 	fmt.Fprintf(&sb, "\n# Variables (%d)\n", len(r.Variables))
 	for _, v := range r.Variables {
-		writeSymbolMd(&sb, v.Signature, v.Location)
+		writeSymbolMd(&sb, v.Signature, v.Location, v.Refs, false)
 	}
 
 	// Functions (standalone, not constructors)
 	fmt.Fprintf(&sb, "\n# Functions (%d)\n", len(r.Functions))
 	for _, f := range r.Functions {
-		writeSymbolMd(&sb, f.Signature, f.Location)
+		writeSymbolMd(&sb, f.Signature, f.Location, f.Refs, true)
 	}
 
 	// Types
@@ -97,7 +97,7 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 		// Build location with method count and interface info
 		loc := t.Location
 		if len(t.Methods) > 0 {
-			loc += fmt.Sprintf(" // %d methods", len(t.Methods))
+			loc += fmt.Sprintf(", %d methods", len(t.Methods))
 		}
 		if len(t.Satisfies) > 0 {
 			loc += ", satisfies: " + strings.Join(t.Satisfies, ", ")
@@ -105,16 +105,16 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 		if len(t.ImplementedBy) > 0 {
 			loc += ", implemented by: " + strings.Join(t.ImplementedBy, ", ")
 		}
-		writeSymbolMd(&sb, t.Signature, loc)
+		writeSymbolMd(&sb, t.Signature, loc, t.Refs, false)
 
 		// Constructor functions
 		for _, f := range t.Functions {
-			writeSymbolMd(&sb, f.Signature, f.Location)
+			writeSymbolMd(&sb, f.Signature, f.Location, f.Refs, true)
 		}
 
 		// Methods
 		for _, m := range t.Methods {
-			writeSymbolMd(&sb, m.Signature, m.Location)
+			writeSymbolMd(&sb, m.Signature, m.Location, m.Refs, true)
 		}
 	}
 
@@ -148,9 +148,16 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 }
 
 // writeSymbolMd writes a symbol with its location as a trailing comment.
-func writeSymbolMd(sb *strings.Builder, signature, location string) {
+func writeSymbolMd(sb *strings.Builder, signature, location string, refs *output.TargetRefs, useCallers bool) {
 	sb.WriteString(signature)
 	sb.WriteString(" // ")
 	sb.WriteString(location)
+	if refs != nil {
+		if useCallers {
+			fmt.Fprintf(sb, ", callers(%d pkg, %d proj, imported %d)", refs.Internal, refs.External, refs.Packages)
+		} else {
+			fmt.Fprintf(sb, ", refs(%d pkg, %d proj, imported %d)", refs.Internal, refs.External, refs.Packages)
+		}
+	}
 	sb.WriteString("\n")
 }

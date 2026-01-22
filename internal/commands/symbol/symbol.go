@@ -58,6 +58,20 @@ func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *SymbolRefs {
 	}
 }
 
+// getSymbolRefsOutput looks up a symbol and returns its reference counts as output.TargetRefs.
+func getSymbolRefsOutput(wc *commands.Wildcat, symbolKey string) *output.TargetRefs {
+	sym := wc.Index.Lookup(symbolKey)
+	if sym == nil {
+		return nil
+	}
+	counts := golang.CountReferences(wc.Project.Packages, sym)
+	return &output.TargetRefs{
+		Internal: counts.Internal,
+		External: counts.External,
+		Packages: counts.PackageCount(),
+	}
+}
+
 func NewSymbolCommand() *SymbolCommand {
 	return &SymbolCommand{
 		scope: "project",
@@ -267,6 +281,7 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 					Location: fmt.Sprintf("%s:%d:%d", filepath.Base(caller.file), start, end),
 					Source:   snippet,
 				},
+				Refs: getSymbolRefsOutput(wc, caller.symbol),
 			})
 		}
 
@@ -284,6 +299,7 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 					Location: fmt.Sprintf("%s:%d:%d", filepath.Base(ref.file), start, end),
 					Source:   snippet,
 				},
+				Refs: getSymbolRefsOutput(wc, ref.symbol),
 			})
 		}
 
@@ -708,7 +724,12 @@ func (c *SymbolCommand) findDescendants(wc *commands.Wildcat, target *golang.Sym
 
 		// If all referrers are within target's scope, it's a descendant
 		if allInTarget && len(referrers) > 0 {
-			symbolKey := refType.pkg.Identifier.Name + "." + refType.name
+			// Use last segment of import path for symbol key (matches how Lookup parses short names)
+			pkgShortName := refType.pkg.Identifier.PkgPath
+			if lastSlash := strings.LastIndex(pkgShortName, "/"); lastSlash >= 0 {
+				pkgShortName = pkgShortName[lastSlash+1:]
+			}
+			symbolKey := pkgShortName + "." + refType.name
 			descendants = append(descendants, DescendantInfo{
 				Symbol:     symbolKey,
 				Signature:  refType.signature,
@@ -778,11 +799,19 @@ func (c *SymbolCommand) findReferencedTypes(wc *commands.Wildcat, pkg *golang.Pa
 		}
 
 		// Get signature and definition
-		var sig, def string
-		if sym := wc.Index.Lookup(refPkg.Identifier.Name + "." + obj.Name()); sym != nil {
-			sig, _ = sym.Signature()
-			def = fmt.Sprintf("%s:%s", sym.Filename(), sym.Location())
+		// Use last segment of import path for lookup (matches how Lookup parses short names)
+		pkgShortName := refPkg.Identifier.PkgPath
+		if lastSlash := strings.LastIndex(pkgShortName, "/"); lastSlash >= 0 {
+			pkgShortName = pkgShortName[lastSlash+1:]
 		}
+		symbolKey := pkgShortName + "." + obj.Name()
+		sym := wc.Index.Lookup(symbolKey)
+		if sym == nil {
+			// Can't resolve this type (e.g., type parameter like T in generics) - skip it
+			return true
+		}
+		sig, _ := sym.Signature()
+		def := fmt.Sprintf("%s:%s", sym.Filename(), sym.Location())
 
 		refs = append(refs, referencedType{
 			name:       obj.Name(),

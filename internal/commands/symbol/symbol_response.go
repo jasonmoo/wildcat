@@ -134,7 +134,11 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isType || len(r.Methods) > 0 {
 		fmt.Fprintf(&sb, "## Methods (%d)\n\n", len(r.Methods))
 		for _, m := range r.Methods {
-			fmt.Fprintf(&sb, "%s // %s, callers(%d pkg, %d proj, imported %d)\n", m.Signature, m.Definition, m.Refs.Internal, m.Refs.External, m.Refs.Packages)
+			fmt.Fprintf(&sb, "%s // %s", m.Signature, m.Definition)
+			if m.Refs != nil {
+				fmt.Fprintf(&sb, ", callers(%d pkg, %d proj, imported %d)", m.Refs.Internal, m.Refs.External, m.Refs.Packages)
+			}
+			sb.WriteString("\n")
 		}
 		if len(r.Methods) > 0 {
 			sb.WriteString("\n")
@@ -145,7 +149,11 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isType || len(r.Constructors) > 0 {
 		fmt.Fprintf(&sb, "## Constructors (%d)\n\n", len(r.Constructors))
 		for _, c := range r.Constructors {
-			fmt.Fprintf(&sb, "%s // %s, callers(%d pkg, %d proj, imported %d)\n", c.Signature, c.Definition, c.Refs.Internal, c.Refs.External, c.Refs.Packages)
+			fmt.Fprintf(&sb, "%s // %s", c.Signature, c.Definition)
+			if c.Refs != nil {
+				fmt.Fprintf(&sb, ", callers(%d pkg, %d proj, imported %d)", c.Refs.Internal, c.Refs.External, c.Refs.Packages)
+			}
+			sb.WriteString("\n")
 		}
 		if len(r.Constructors) > 0 {
 			sb.WriteString("\n")
@@ -156,7 +164,11 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isType || len(r.Descendants) > 0 {
 		fmt.Fprintf(&sb, "## Descendants (%d)\n\n", len(r.Descendants))
 		for _, d := range r.Descendants {
-			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", d.Signature, d.Definition, d.Refs.Internal, d.Refs.External, d.Refs.Packages)
+			fmt.Fprintf(&sb, "%s // %s", d.Signature, d.Definition)
+			if d.Refs != nil {
+				fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", d.Refs.Internal, d.Refs.External, d.Refs.Packages)
+			}
+			sb.WriteString("\n")
 			if d.Reason != "" {
 				fmt.Fprintf(&sb, "  %s\n", d.Reason)
 			}
@@ -192,7 +204,11 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 				if caller.Snippet.Source != "" {
 					sb.WriteString("```")
 					sb.WriteString(caller.Snippet.Source)
-					fmt.Fprintf(&sb, "``` // %s\n\n", caller.Snippet.Location)
+					fmt.Fprintf(&sb, "``` // %s", caller.Snippet.Location)
+					if caller.Refs != nil {
+						fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", caller.Refs.Internal, caller.Refs.External, caller.Refs.Packages)
+					}
+					sb.WriteString("\n\n")
 				}
 			}
 		}
@@ -220,7 +236,11 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 				if ref.Snippet.Source != "" {
 					sb.WriteString("```")
 					sb.WriteString(ref.Snippet.Source)
-					fmt.Fprintf(&sb, "``` // %s%s\n\n", ref.Snippet.Location, refAnnotation)
+					fmt.Fprintf(&sb, "``` // %s%s", ref.Snippet.Location, refAnnotation)
+					if ref.Refs != nil {
+						fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", ref.Refs.Internal, ref.Refs.External, ref.Refs.Packages)
+					}
+					sb.WriteString("\n\n")
 				}
 			}
 		}
@@ -237,7 +257,11 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		for _, pkg := range r.Implementations {
 			fmt.Fprintf(&sb, "### %s // %s\n\n", pkg.Package, pkg.Dir)
 			for _, impl := range pkg.Types {
-				fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", impl.Signature, impl.Definition, impl.Refs.Internal, impl.Refs.External, impl.Refs.Packages)
+				fmt.Fprintf(&sb, "%s // %s", impl.Signature, impl.Definition)
+				if impl.Refs != nil {
+					fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", impl.Refs.Internal, impl.Refs.External, impl.Refs.Packages)
+				}
+				sb.WriteString("\n")
 			}
 			sb.WriteString("\n")
 		}
@@ -254,7 +278,11 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		for _, pkg := range r.Satisfies {
 			fmt.Fprintf(&sb, "### %s // %s\n\n", pkg.Package, pkg.Dir)
 			for _, sat := range pkg.Types {
-				fmt.Fprintf(&sb, "%s // %s, impls(%d pkg, %d proj)\n", sat.Signature, sat.Definition, sat.Impls.Package, sat.Impls.Project)
+				fmt.Fprintf(&sb, "%s // %s", sat.Signature, sat.Definition)
+				if sat.Impls != nil {
+					fmt.Fprintf(&sb, ", impls(%d pkg, %d proj)", sat.Impls.Package, sat.Impls.Project)
+				}
+				sb.WriteString("\n")
 			}
 			sb.WriteString("\n")
 		}

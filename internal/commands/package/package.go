@@ -108,6 +108,12 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 
 	pkg := wc.Package(pi)
 
+	// Short package name for symbol lookups (last segment of import path)
+	pkgShortName := pi.PkgPath
+	if lastSlash := strings.LastIndex(pkgShortName, "/"); lastSlash >= 0 {
+		pkgShortName = pkgShortName[lastSlash+1:]
+	}
+
 	var pkgret struct {
 		Files      []output.FileInfo      // √
 		Constants  []output.PackageSymbol // √
@@ -122,6 +128,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	type typeBuilder struct {
 		signature     string
 		location      string
+		refs          *output.TargetRefs
 		methods       []output.PackageSymbol
 		functions     []output.PackageSymbol // constructors
 		isInterface   bool
@@ -173,11 +180,21 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 				if v.Recv != nil && len(v.Recv.List) > 0 {
 					// Method - attach to receiver type
 					typeName := golang.ReceiverTypeName(v.Recv.List[0].Type)
+					// Symbol key: pkg.Type.Method
+					symbolKey := pkgShortName + "." + typeName + "." + v.Name.Name
+					sym.Refs = getSymbolRefs(wc, symbolKey)
 					ensureType(typeName).methods = append(ensureType(typeName).methods, sym)
 				} else if typeName := golang.ConstructorTypeName(v.Type); typeName != "" && pkg.Package.Types.Scope().Lookup(typeName) != nil {
 					// Constructor - attach to returned type (only if type is defined in this package)
+					// Symbol key: pkg.FuncName
+					symbolKey := pkgShortName + "." + v.Name.Name
+					sym.Refs = getSymbolRefs(wc, symbolKey)
 					ensureType(typeName).functions = append(ensureType(typeName).functions, sym)
 				} else {
+					// Regular function
+					// Symbol key: pkg.FuncName
+					symbolKey := pkgShortName + "." + v.Name.Name
+					sym.Refs = getSymbolRefs(wc, symbolKey)
 					pkgret.Functions = append(pkgret.Functions, sym)
 				}
 
@@ -193,14 +210,25 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 						tb.signature = sig
 						tb.location = makeLocation(pkg.Package.Fset, fileName, vv.Pos())
 						_, tb.isInterface = vv.Type.(*ast.InterfaceType)
+						// Symbol key: pkg.TypeName
+						symbolKey := pkgShortName + "." + vv.Name.Name
+						tb.refs = getSymbolRefs(wc, symbolKey)
 					case *ast.ValueSpec:
 						sig, err := golang.FormatValueSpec(v.Tok, vv)
 						if err != nil {
 							return nil, fmt.Errorf("internal_error: %w", err)
 						}
+						// ValueSpec can have multiple names (e.g., var a, b, c int)
+						// but signature covers all, so use first name for refs lookup
+						var refs *output.TargetRefs
+						if len(vv.Names) > 0 {
+							symbolKey := pkgShortName + "." + vv.Names[0].Name
+							refs = getSymbolRefs(wc, symbolKey)
+						}
 						sym := output.PackageSymbol{
 							Signature: sig,
 							Location:  makeLocation(pkg.Package.Fset, fileName, vv.Pos()),
+							Refs:      refs,
 						}
 						switch v.Tok {
 						case token.CONST:
@@ -278,6 +306,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		pkgret.Types = append(pkgret.Types, output.PackageType{
 			Signature:     tb.signature,
 			Location:      tb.location,
+			Refs:          tb.refs,
 			Methods:       tb.methods,
 			Functions:     tb.functions,
 			Satisfies:     tb.satisfies,
@@ -353,4 +382,19 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 
 func makeLocation(fset *token.FileSet, fileName string, pos token.Pos) string {
 	return fmt.Sprintf("%s:%d", fileName, fset.Position(pos).Line)
+}
+
+// getSymbolRefs looks up a symbol and returns its reference counts.
+// symbolKey should be in format: pkg.Name or pkg.Type.Method
+func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *output.TargetRefs {
+	sym := wc.Index.Lookup(symbolKey)
+	if sym == nil {
+		return nil
+	}
+	counts := golang.CountReferences(wc.Project.Packages, sym)
+	return &output.TargetRefs{
+		Internal: counts.Internal,
+		External: counts.External,
+		Packages: counts.PackageCount(),
+	}
 }
