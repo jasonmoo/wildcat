@@ -130,6 +130,14 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		return commands.NewErrorResultf("invalid_symbol", "symbol is required"), nil
 	}
 
+	if i := strings.IndexByte(c.symbol, '.'); i > -1 {
+		path, name := c.symbol[:i], c.symbol[i+1:]
+		pi, err := wc.Project.ResolvePackageName(ctx, path)
+		if err == nil {
+			c.symbol = pi.PkgPath + "." + name
+		}
+	}
+
 	// Find target symbol
 	target := wc.Index.Lookup(c.symbol)
 	if target == nil {
@@ -944,5 +952,3 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 
 	return satisfies
 }
-
-
