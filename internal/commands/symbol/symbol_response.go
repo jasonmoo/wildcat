@@ -181,11 +181,11 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		if len(pkg.Callers) > 0 {
 			sb.WriteString("#### Callers\n\n")
 			for _, caller := range pkg.Callers {
-				fmt.Fprintf(&sb, "##### %s // %s\n", caller.Symbol, caller.Snippet.Location)
+				fmt.Fprintf(&sb, "##### %s\n", caller.Symbol)
 				if caller.Snippet.Source != "" {
 					sb.WriteString("```")
 					sb.WriteString(caller.Snippet.Source)
-					sb.WriteString("```\n\n")
+					fmt.Fprintf(&sb, "``` // %s\n\n", caller.Snippet.Location)
 				}
 			}
 		}
@@ -208,14 +208,12 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 					refAnnotation = fmt.Sprintf(", %d refs", ref.RefCount)
 				}
 				if ref.Symbol != "" {
-					fmt.Fprintf(&sb, "##### %s // %s%s\n", ref.Symbol, ref.Snippet.Location, refAnnotation)
-				} else {
-					fmt.Fprintf(&sb, "##### %s%s\n", ref.Snippet.Location, refAnnotation)
+					fmt.Fprintf(&sb, "##### %s\n", ref.Symbol)
 				}
 				if ref.Snippet.Source != "" {
 					sb.WriteString("```")
 					sb.WriteString(ref.Snippet.Source)
-					sb.WriteString("```\n\n")
+					fmt.Fprintf(&sb, "``` // %s%s\n\n", ref.Snippet.Location, refAnnotation)
 				}
 			}
 		}
