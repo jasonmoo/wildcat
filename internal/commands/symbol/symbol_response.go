@@ -134,7 +134,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isType || len(r.Methods) > 0 {
 		fmt.Fprintf(&sb, "## Methods (%d)\n\n", len(r.Methods))
 		for _, m := range r.Methods {
-			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", m.Signature, m.Definition, m.Refs.Internal, m.Refs.External, m.Refs.Packages)
+			fmt.Fprintf(&sb, "%s // %s, callers(%d pkg, %d proj, imported %d)\n", m.Signature, m.Definition, m.Refs.Internal, m.Refs.External, m.Refs.Packages)
 		}
 		if len(r.Methods) > 0 {
 			sb.WriteString("\n")
@@ -145,7 +145,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isType || len(r.Constructors) > 0 {
 		fmt.Fprintf(&sb, "## Constructors (%d)\n\n", len(r.Constructors))
 		for _, c := range r.Constructors {
-			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", c.Signature, c.Definition, c.Refs.Internal, c.Refs.External, c.Refs.Packages)
+			fmt.Fprintf(&sb, "%s // %s, callers(%d pkg, %d proj, imported %d)\n", c.Signature, c.Definition, c.Refs.Internal, c.Refs.External, c.Refs.Packages)
 		}
 		if len(r.Constructors) > 0 {
 			sb.WriteString("\n")
