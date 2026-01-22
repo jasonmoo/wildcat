@@ -307,8 +307,9 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		queryRefs += refCount
 	}
 
-	// Get fuzzy matches for suggestions
-	fuzzyMatches := wc.Suggestions(c.symbol, &golang.SearchOptions{Limit: 5})
+	// Get fuzzy matches for suggestions (exclude the resolved target)
+	excludeSymbol := target.Package.Identifier.Name + "." + target.Name
+	fuzzyMatches := wc.Suggestions(c.symbol, &golang.SearchOptions{Limit: 5, Exclude: excludeSymbol})
 
 	return &SymbolCommandResponse{
 		Query: output.QueryInfo{
