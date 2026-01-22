@@ -47,13 +47,12 @@ func TestResolvePackagePath(t *testing.T) {
 			wantPath: "encoding/json",
 		},
 
-		// Stdlib precedence - these names exist locally but stdlib should win
-		// Project has internal/errors, but "errors" should resolve to stdlib
+		// Stdlib precedence - stdlib names should resolve to stdlib
 		{
-			name:     "stdlib precedence - errors over internal/errors",
+			name:     "stdlib precedence - errors",
 			path:     "errors",
 			srcDir:   root,
-			wantPath: "errors", // NOT github.com/jasonmoo/wildcat/internal/errors
+			wantPath: "errors",
 		},
 		// "config" is not in stdlib, should error rather than silently resolve to local
 		{
@@ -73,18 +72,18 @@ func TestResolvePackagePath(t *testing.T) {
 
 		// Relative paths within project
 		{
-			name:   "relative path - internal/lsp",
-			path:   "internal/lsp",
+			name:   "relative path - internal/output",
+			path:   "internal/output",
 			srcDir: root,
 		},
 		{
-			name:   "relative path - internal/errors",
-			path:   "internal/errors",
+			name:   "relative path - internal/commands",
+			path:   "internal/commands",
 			srcDir: root,
 		},
 		{
-			name:   "relative path with dot - ./internal/lsp",
-			path:   "./internal/lsp",
+			name:   "relative path with dot - ./internal/output",
+			path:   "./internal/output",
 			srcDir: root,
 		},
 

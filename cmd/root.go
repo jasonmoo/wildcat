@@ -10,9 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// globalOutput is used by GetWriter in server.go
-var globalOutput string
-
 func Execute() error {
 
 	rootCmd := &cobra.Command{
@@ -27,7 +24,7 @@ and actionable error messages.`,
 
 	// Configure root command
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
-	rootCmd.PersistentFlags().StringVarP(&globalOutput, "output", "o", "markdown", "Output format (json, yaml, markdown, template:<path>, plugin:<name>)")
+	rootCmd.PersistentFlags().StringP("output", "o", "markdown", "Output format (json, yaml, markdown, template:<path>, plugin:<name>)")
 
 	// Custom usage template with ordered commands
 	commandOrder := []string{

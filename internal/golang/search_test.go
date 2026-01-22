@@ -27,7 +27,7 @@ func TestSymbolSearch(t *testing.T) {
 	}{
 		{"Symbol", 1, "Symbol"},
 		{"Format", 1, ""},
-		{"Client", 1, "Client"},
+		{"Package", 1, "Package"},
 		{"Resolve", 1, ""},
 		{"Cmd", 1, ""},
 	}
@@ -76,7 +76,7 @@ func TestSymbolSearch(t *testing.T) {
 	t.Logf("Search(\"Format\", funcs only): %d results", len(funcsOnly))
 
 	// Test options: combined
-	combined := idx.Search("Client", &SearchOptions{Limit: 5, Kinds: []SymbolKind{SymbolKindMethod}})
+	combined := idx.Search("Package", &SearchOptions{Limit: 5, Kinds: []SymbolKind{SymbolKindMethod}})
 	if len(combined) > 5 {
 		t.Errorf("Search with Limit=5: got %d results", len(combined))
 	}
@@ -85,5 +85,5 @@ func TestSymbolSearch(t *testing.T) {
 			t.Errorf("Search with Kinds=[method]: got kind %s", r.Symbol.Kind)
 		}
 	}
-	t.Logf("Search(\"Client\", methods, limit 5): %d results", len(combined))
+	t.Logf("Search(\"Package\", methods, limit 5): %d results", len(combined))
 }
