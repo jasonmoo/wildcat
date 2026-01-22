@@ -172,6 +172,88 @@ func FindImplementors(iface *types.Interface, ifacePkgPath, ifaceName string, pa
 	return implementors
 }
 
+// IsInterfaceMethod checks if a method is required by an interface that its
+// receiver type implements. This is used for dead code analysis: methods that
+// implement interfaces should not be reported as dead if the type is used.
+func IsInterfaceMethod(sym *Symbol, project *Project, stdlib []*packages.Package) bool {
+	if sym.Kind != SymbolKindMethod {
+		return false
+	}
+
+	// Get the method's function object
+	methodObj := GetTypesObject(sym)
+	if methodObj == nil {
+		return false
+	}
+	methodFunc, ok := methodObj.(*types.Func)
+	if !ok {
+		return false
+	}
+
+	// Get the receiver type
+	sig := methodFunc.Signature()
+	if sig.Recv() == nil {
+		return false
+	}
+
+	recvType := sig.Recv().Type()
+	// Get the base type (strip pointer if present)
+	if ptr, ok := recvType.(*types.Pointer); ok {
+		recvType = ptr.Elem()
+	}
+
+	// Extract just the method name (sym.Name includes "ReceiverType.MethodName")
+	methodName := methodFunc.Name()
+
+	// Collect all interfaces
+	ifaces := CollectInterfaces(project, stdlib)
+
+	// Check if receiver type implements any interface with this method
+	ptrRecvType := types.NewPointer(recvType)
+
+	for _, ifaceInfo := range ifaces {
+		iface := ifaceInfo.Interface()
+		if iface.NumMethods() == 0 {
+			continue
+		}
+
+		var implements bool
+
+		// Handle generic interfaces
+		if ifaceInfo.Named.TypeParams().Len() > 0 {
+			// Try instantiating with T and *T
+			if inst, err := types.Instantiate(nil, ifaceInfo.Named, []types.Type{recvType}, false); err == nil {
+				if instIface, ok := inst.Underlying().(*types.Interface); ok {
+					implements = types.Implements(recvType, instIface) || types.Implements(ptrRecvType, instIface)
+				}
+			}
+			if !implements {
+				if inst, err := types.Instantiate(nil, ifaceInfo.Named, []types.Type{ptrRecvType}, false); err == nil {
+					if instIface, ok := inst.Underlying().(*types.Interface); ok {
+						implements = types.Implements(recvType, instIface) || types.Implements(ptrRecvType, instIface)
+					}
+				}
+			}
+		} else {
+			// Non-generic interface
+			implements = types.Implements(recvType, iface) || types.Implements(ptrRecvType, iface)
+		}
+
+		if !implements {
+			continue
+		}
+
+		// Check if the interface has a method with this name
+		for i := 0; i < iface.NumMethods(); i++ {
+			if iface.Method(i).Name() == methodName {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // FindSatisfiedInterfaces finds all interfaces that a type satisfies.
 // It handles:
 // - Builtin error interface

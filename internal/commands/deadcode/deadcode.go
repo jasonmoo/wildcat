@@ -235,6 +235,16 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			continue
 		}
 
+		// Check if method implements an interface.
+		// Interface methods are required if the type is used, even if never called directly.
+		if sym.Kind == golang.SymbolKindMethod && golang.IsInterfaceMethod(&sym, wc.Project, wc.Stdlib) {
+			// Check if the receiver type is used (has any references)
+			typeSym := findReceiverTypeSymbol(wc.Index, &sym)
+			if typeSym != nil && golang.CountReferences(wc.Project.Packages, typeSym).Total() > 0 {
+				continue
+			}
+		}
+
 		// Update dead count
 		stats[pkgPath].files[filename].dead++
 		totalDeadSymbols++
@@ -426,4 +436,20 @@ func isEntryPoint(sym golang.Symbol) bool {
 // positionKey creates a unique key for a token.Position
 func positionKey(pos token.Position) string {
 	return fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
+}
+
+// findReceiverTypeSymbol finds the type symbol for a method's receiver.
+func findReceiverTypeSymbol(idx *golang.SymbolIndex, methodSym *golang.Symbol) *golang.Symbol {
+	node, ok := methodSym.Node().(*ast.FuncDecl)
+	if !ok || node.Recv == nil || len(node.Recv.List) == 0 {
+		return nil
+	}
+
+	typeName := golang.ReceiverTypeName(node.Recv.List[0].Type)
+	if typeName == "" {
+		return nil
+	}
+
+	// Look up the type symbol - Lookup handles just the type name
+	return idx.Lookup(typeName)
 }
