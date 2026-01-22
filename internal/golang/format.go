@@ -142,9 +142,25 @@ func ReceiverTypeName(expr ast.Expr) string {
 	case *ast.Ident:
 		return t.Name
 	case *ast.StarExpr:
+		// *T or *T[U] - recurse to handle generic pointer receivers
+		return ReceiverTypeName(t.X)
+	case *ast.ParenExpr:
+		// (T) - parenthesized, recurse
+		return ReceiverTypeName(t.X)
+	case *ast.IndexExpr:
+		// T[U] - generic type with single type param
 		if ident, ok := t.X.(*ast.Ident); ok {
 			return ident.Name
 		}
+		// Could be (*T)[U] or other nested expression
+		return ReceiverTypeName(t.X)
+	case *ast.IndexListExpr:
+		// T[U, V] - generic type with multiple type params
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+		// Could be nested
+		return ReceiverTypeName(t.X)
 	}
 	return ""
 }
