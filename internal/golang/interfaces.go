@@ -29,26 +29,10 @@ func (i *InterfaceInfo) PkgPath() string {
 	return i.pkgPath
 }
 
-// PkgName returns the short package name.
-func (i *InterfaceInfo) PkgName() string {
-	if i.Package != nil {
-		return i.Package.Identifier.Name
-	}
-	return i.pkgName
-}
-
 // QualifiedName returns the fully qualified name (pkgPath.Name).
 func (i *InterfaceInfo) QualifiedName() string {
 	if path := i.PkgPath(); path != "" {
 		return path + "." + i.Name
-	}
-	return i.Name
-}
-
-// DisplayName returns the display name (pkgName.Name).
-func (i *InterfaceInfo) DisplayName() string {
-	if name := i.PkgName(); name != "" {
-		return name + "." + i.Name
 	}
 	return i.Name
 }
@@ -123,19 +107,9 @@ func (i *ImplementorInfo) PkgPath() string {
 	return i.Package.Identifier.PkgPath
 }
 
-// PkgName returns the short package name.
-func (i *ImplementorInfo) PkgName() string {
-	return i.Package.Identifier.Name
-}
-
 // QualifiedName returns the fully qualified name (pkgPath.Name).
 func (i *ImplementorInfo) QualifiedName() string {
 	return i.PkgPath() + "." + i.Name
-}
-
-// DisplayName returns the display name (pkgName.Name).
-func (i *ImplementorInfo) DisplayName() string {
-	return i.PkgName() + "." + i.Name
 }
 
 // FindImplementors finds all types in packages that implement the given interface.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
-	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
@@ -431,11 +430,6 @@ func isEntryPoint(sym golang.Symbol) bool {
 	}
 
 	return false
-}
-
-// positionKey creates a unique key for a token.Position
-func positionKey(pos token.Position) string {
-	return fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
 }
 
 // findReceiverTypeSymbol finds the type symbol for a method's receiver.

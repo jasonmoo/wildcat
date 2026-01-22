@@ -96,8 +96,3 @@ func (f *ScopeFilter) InScope(pkgPath string) bool {
 	}
 	return f.includes[pkgPath]
 }
-
-// IsTarget returns true if the package path is the target package.
-func (f *ScopeFilter) IsTarget(pkgPath string) bool {
-	return f.target.PkgPath == pkgPath
-}

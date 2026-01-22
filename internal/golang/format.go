@@ -8,47 +8,7 @@ import (
 	"go/types"
 	"io"
 	"strings"
-
-	"github.com/kr/pretty"
 )
-
-// func ObjKind()
-
-func FormatDecl(v ast.Decl) ([]string, error) {
-	// pretty.Println(v)
-	// return "", nil
-	switch val := v.(type) {
-	case *ast.FuncDecl:
-		sig, err := FormatFuncDecl(val)
-		if err != nil {
-			return nil, err
-		}
-		return []string{sig}, nil
-	case *ast.GenDecl:
-		var sigs []string
-		for _, spec := range val.Specs {
-			switch sp := spec.(type) {
-			case *ast.TypeSpec:
-				sig, err := FormatTypeSpec(val.Tok, sp)
-				if err != nil {
-					return nil, err
-				}
-				sigs = append(sigs, sig)
-			case *ast.ValueSpec:
-				sig, err := FormatValueSpec(val.Tok, sp)
-				if err != nil {
-					return nil, err
-				}
-				sigs = append(sigs, sig)
-			}
-
-		}
-		return sigs, nil
-	default:
-		pretty.Println(v)
-	}
-	return []string{"UNKNOWN"}, nil
-}
 
 func FormatFuncDecl(v *ast.FuncDecl) (string, error) {
 	var sb strings.Builder

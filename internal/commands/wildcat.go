@@ -15,10 +15,6 @@ type Wildcat struct {
 	Index   *golang.SymbolIndex
 }
 
-type WildcatConfig struct {
-	IncludeTests bool
-}
-
 func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	p, err := golang.LoadModulePackages(ctx, srcDir, nil)
 	if err != nil {

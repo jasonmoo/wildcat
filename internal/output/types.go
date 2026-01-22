@@ -72,16 +72,6 @@ type TreeTargetInfo struct {
 	Definition string `json:"definition"` // path:start:end
 }
 
-// TreeResponse is the output for the tree command.
-type TreeResponse struct {
-	Query       TreeQuery      `json:"query"`
-	Target      TreeTargetInfo `json:"target"`
-	Summary     TreeSummary    `json:"summary"`
-	Callers     []*CallNode    `json:"callers"`
-	Calls       []*CallNode    `json:"calls"`
-	Definitions []TreePackage  `json:"definitions"`
-}
-
 // Snippet represents a code snippet with its location.
 type Snippet struct {
 	Location string `json:"location"` // "file.go:start:end"
@@ -105,14 +95,6 @@ type PackageUsage struct {
 	References []Location `json:"references"`
 }
 
-// SymbolLocation represents a location for cross-package type relationships.
-// Used for implementations and satisfies which need full paths.
-type SymbolLocation struct {
-	Location  string `json:"location"`  // full path: "/home/.../file.go:line"
-	Symbol    string `json:"symbol"`    // qualified name: pkg.TypeName
-	Signature string `json:"signature"` // type signature
-}
-
 // SymbolSummary provides aggregate information about symbol usage.
 type SymbolSummary struct {
 	Callers         int `json:"callers"`
@@ -122,38 +104,10 @@ type SymbolSummary struct {
 	InTests         int `json:"in_tests"`
 }
 
-// SymbolResponse is the output for the symbol command.
-type SymbolResponse struct {
-	Query             QueryInfo        `json:"query"`
-	Target            TargetInfo       `json:"target"`
-	ImportedBy        []DepResult      `json:"imported_by"`
-	References        []PackageUsage   `json:"references"`
-	Implementations   []SymbolLocation `json:"implementations,omitempty"`
-	Satisfies         []SymbolLocation `json:"satisfies,omitempty"`
-	QuerySummary      SymbolSummary    `json:"query_summary"`
-	PackageSummary    SymbolSummary    `json:"package_summary"`
-	ProjectSummary    SymbolSummary    `json:"project_summary"`
-	OtherFuzzyMatches []string         `json:"other_fuzzy_matches"`
-	Error             string           `json:"error,omitempty"`
-}
-
 // DepResult represents a package dependency.
 type DepResult struct {
 	Package  string `json:"package"`
 	Location string `json:"location,omitempty"` // file:line where import occurs
-}
-
-// ErrorResponse is the output when an error occurs.
-type ErrorResponse struct {
-	Error ErrorDetail `json:"error"`
-}
-
-// ErrorDetail contains error information.
-type ErrorDetail struct {
-	Code        string         `json:"code"`
-	Message     string         `json:"message"`
-	Suggestions []string       `json:"suggestions,omitempty"`
-	Context     map[string]any `json:"context,omitempty"`
 }
 
 // SearchQuery describes a search query.
@@ -165,46 +119,11 @@ type SearchQuery struct {
 	Kind    string `json:"kind,omitempty"`
 }
 
-// SearchMatch represents a single symbol match within a package.
-type SearchMatch struct {
-	Symbol     string `json:"symbol"`              // short name: "Type.Method"
-	Signature  string `json:"signature,omitempty"` // full signature
-	Definition string `json:"definition"`          // full path:start:end
-}
-
-// SearchPackage groups search matches by package.
-type SearchPackage struct {
-	Package string        `json:"package"`
-	Dir     string        `json:"dir"`
-	Matches []SearchMatch `json:"matches"`
-}
-
 // SearchSummary provides aggregate information about search results.
 type SearchSummary struct {
 	Count     int            `json:"count"`
 	ByKind    map[string]int `json:"by_kind,omitempty"`
 	Truncated bool           `json:"truncated"`
-}
-
-// SearchResponse is the output for the search command.
-type SearchResponse struct {
-	Query    SearchQuery     `json:"query"`
-	Packages []SearchPackage `json:"packages"`
-	Summary  SearchSummary   `json:"summary"`
-}
-
-// PackageResponse is the output for the package command.
-type PackageResponse struct {
-	Query      QueryInfo       `json:"query"`
-	Package    PackageInfo     `json:"package"`
-	Summary    PackageSummary  `json:"summary"`
-	Files      []FileInfo      `json:"files"`
-	Constants  []PackageSymbol `json:"constants"`
-	Variables  []PackageSymbol `json:"variables"`
-	Functions  []PackageSymbol `json:"functions"`
-	Types      []PackageType   `json:"types"`
-	Imports    []DepResult     `json:"imports"`
-	ImportedBy []DepResult     `json:"imported_by"`
 }
 
 // FileInfo describes a source file in a package.

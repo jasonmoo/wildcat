@@ -40,15 +40,6 @@ type FuncInfo struct {
 	Receiver string // empty for functions, type name for methods
 }
 
-// QualifiedName returns the qualified name like "pkg.Func" or "pkg.Type.Method"
-func (fi *FuncInfo) QualifiedName() string {
-	name := fi.Func.Name()
-	if fi.Receiver != "" {
-		name = fi.Receiver + "." + name
-	}
-	return fi.Pkg.Identifier.Name + "." + name
-}
-
 // FindFuncInfo locates the AST and package for a types.Func within the given packages.
 // Returns nil if the function is not found (e.g., external dependency not loaded).
 func FindFuncInfo(pkgs []*Package, fn *types.Func) *FuncInfo {
