@@ -21,6 +21,12 @@ type (
 		MarshalJSON() ([]byte, error)
 	}
 
+	// Suggestion represents a fuzzy match suggestion with type info.
+	Suggestion struct {
+		Symbol string `json:"symbol"` // qualified: pkg.Name or pkg.Type.Method
+		Kind   string `json:"kind"`   // func, method, type, interface, const, var
+	}
+
 	ErrorResult struct {
 		Code        string                 `json:"code"`
 		Error       error                  `json:"error"`

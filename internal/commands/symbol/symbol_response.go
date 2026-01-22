@@ -13,17 +13,23 @@ var _ commands.Result = (*SymbolCommandResponse)(nil)
 
 // FunctionInfo describes a method or constructor.
 type FunctionInfo struct {
-	Symbol     string `json:"symbol"`     // qualified: pkg.Type.Method or pkg.Func
+	Symbol     string `json:"symbol"` // qualified: pkg.Type.Method or pkg.Func
 	Signature  string `json:"signature"`
 	Definition string `json:"definition"` // file:start:end
 }
 
 // DescendantInfo describes a type that would be orphaned if the target is removed.
 type DescendantInfo struct {
-	Symbol     string `json:"symbol"`     // qualified: pkg.Type
+	Symbol     string `json:"symbol"` // qualified: pkg.Type
 	Signature  string `json:"signature"`
 	Definition string `json:"definition"` // file:line
 	Reason     string `json:"reason"`     // why it's a descendant
+}
+
+// SuggestionInfo describes a fuzzy match suggestion.
+type SuggestionInfo struct {
+	Symbol string `json:"symbol"` // qualified: pkg.Name or pkg.Type.Method
+	Kind   string `json:"kind"`   // func, method, type, interface, const, var
 }
 
 type SymbolCommandResponse struct {
@@ -39,7 +45,7 @@ type SymbolCommandResponse struct {
 	QuerySummary      output.SymbolSummary    `json:"query_summary"`
 	PackageSummary    output.SymbolSummary    `json:"package_summary"`
 	ProjectSummary    output.SymbolSummary    `json:"project_summary"`
-	OtherFuzzyMatches []string                `json:"other_fuzzy_matches"`
+	OtherFuzzyMatches []SuggestionInfo        `json:"other_fuzzy_matches"`
 }
 
 func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
@@ -56,7 +62,7 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		References        []output.PackageUsage   `json:"references"`
 		Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
 		Satisfies         []output.SymbolLocation `json:"satisfies,omitempty"`
-		OtherFuzzyMatches []string                `json:"other_fuzzy_matches"`
+		OtherFuzzyMatches []SuggestionInfo        `json:"other_fuzzy_matches"`
 	}{
 		Query:             r.Query,
 		Target:            r.Target,
@@ -77,141 +83,129 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	var sb strings.Builder
 
-	// Header
-	fmt.Fprintf(&sb, "# Symbol: %s\n\n", r.Query.Target)
+	isType := r.Target.Kind == "type"
+	isInterface := r.Target.Kind == "interface"
 
-	// Target section
-	sb.WriteString("## Target\n\n")
-	fmt.Fprintf(&sb, "- **Symbol:** %s\n", r.Target.Symbol)
-	fmt.Fprintf(&sb, "- **Signature:** `%s`\n", r.Target.Signature)
-	fmt.Fprintf(&sb, "- **Definition:** %s\n\n", r.Target.Definition)
+	// Header with target symbol
+	fmt.Fprintf(&sb, "# %s\n\n", r.Target.Symbol)
+	fmt.Fprintf(&sb, "%s // %s\n\n", r.Target.Signature, r.Target.Definition)
 
 	// Summary section
 	sb.WriteString("## Summary\n\n")
-	fmt.Fprintf(&sb, "| Scope | Callers | References |\n")
-	fmt.Fprintf(&sb, "|-------|---------|------------|\n")
-	fmt.Fprintf(&sb, "| Query | %d | %d |\n", r.QuerySummary.Callers, r.QuerySummary.References)
-	fmt.Fprintf(&sb, "| Package | %d | %d |\n", r.PackageSummary.Callers, r.PackageSummary.References)
-	fmt.Fprintf(&sb, "| Project | %d | %d |\n\n", r.ProjectSummary.Callers, r.ProjectSummary.References)
+	fmt.Fprintf(&sb, "Package // %d callers, %d references\n", r.PackageSummary.Callers, r.PackageSummary.References)
+	fmt.Fprintf(&sb, "Project // %d callers, %d references\n\n", r.ProjectSummary.Callers, r.ProjectSummary.References)
 
-	// Methods
-	if len(r.Methods) > 0 {
-		sb.WriteString("## Methods\n\n")
+	// Methods (show for types, even if empty)
+	if isType || len(r.Methods) > 0 {
+		fmt.Fprintf(&sb, "## Methods (%d)\n\n", len(r.Methods))
 		for _, m := range r.Methods {
-			fmt.Fprintf(&sb, "- **%s** `%s` %s\n", m.Symbol, m.Signature, m.Definition)
+			fmt.Fprintf(&sb, "%s // %s\n", m.Signature, m.Definition)
 		}
-		sb.WriteString("\n")
+		if len(r.Methods) > 0 {
+			sb.WriteString("\n")
+		}
 	}
 
-	// Constructors
-	if len(r.Constructors) > 0 {
-		sb.WriteString("## Constructors\n\n")
+	// Constructors (show for types, even if empty)
+	if isType || len(r.Constructors) > 0 {
+		fmt.Fprintf(&sb, "## Constructors (%d)\n\n", len(r.Constructors))
 		for _, c := range r.Constructors {
-			fmt.Fprintf(&sb, "- **%s** `%s` %s\n", c.Symbol, c.Signature, c.Definition)
+			fmt.Fprintf(&sb, "%s // %s\n", c.Signature, c.Definition)
 		}
-		sb.WriteString("\n")
+		if len(r.Constructors) > 0 {
+			sb.WriteString("\n")
+		}
 	}
 
-	// Descendants (types orphaned if target removed)
-	if len(r.Descendants) > 0 {
-		sb.WriteString("## Descendants (orphaned if removed)\n\n")
+	// Descendants (show for types, even if empty)
+	if isType || len(r.Descendants) > 0 {
+		fmt.Fprintf(&sb, "## Descendants (%d)\n\n", len(r.Descendants))
 		for _, d := range r.Descendants {
-			fmt.Fprintf(&sb, "- **%s** `%s` %s\n", d.Symbol, d.Signature, d.Definition)
+			fmt.Fprintf(&sb, "%s // %s\n", d.Signature, d.Definition)
 			if d.Reason != "" {
-				fmt.Fprintf(&sb, "  - %s\n", d.Reason)
+				fmt.Fprintf(&sb, "  %s\n", d.Reason)
 			}
+		}
+		if len(r.Descendants) > 0 {
+			sb.WriteString("\n")
+		}
+	}
+
+	// Imported by (always show)
+	fmt.Fprintf(&sb, "## Imported By (%d)\n\n", len(r.ImportedBy))
+	for _, dep := range r.ImportedBy {
+		sb.WriteString(dep.Package)
+		if dep.Location != "" {
+			sb.WriteString(" // ")
+			sb.WriteString(dep.Location)
 		}
 		sb.WriteString("\n")
 	}
-
-	// Imported by
 	if len(r.ImportedBy) > 0 {
-		sb.WriteString("## Imported By\n\n")
-		for _, dep := range r.ImportedBy {
-			fmt.Fprintf(&sb, "- %s\n", dep.Package)
-			if dep.Location != "" {
-				fmt.Fprintf(&sb, "  %s\n", dep.Location)
-			}
-		}
 		sb.WriteString("\n")
 	}
 
-	// References by package
-	if len(r.References) > 0 {
-		sb.WriteString("## References\n\n")
-		for _, pkg := range r.References {
-			fmt.Fprintf(&sb, "### %s\n\n", pkg.Package)
-			fmt.Fprintf(&sb, "**Dir:** `%s`\n\n", pkg.Dir)
+	// References by package (always show)
+	fmt.Fprintf(&sb, "## References By Package (%d)\n\n", len(r.References))
+	for _, pkg := range r.References {
+		fmt.Fprintf(&sb, "### %s // %s\n\n", pkg.Package, pkg.Dir)
 
-			if len(pkg.Callers) > 0 {
-				sb.WriteString("#### Callers\n\n")
-				for _, caller := range pkg.Callers {
-					fmt.Fprintf(&sb, "- %s `%s`\n", caller.Location, caller.Symbol)
-					if caller.Snippet.Source != "" {
-						sb.WriteString("  ```go\n")
-						for _, line := range strings.Split(caller.Snippet.Source, "\n") {
-							sb.WriteString("  ")
-							sb.WriteString(line)
-							sb.WriteString("\n")
-						}
-						sb.WriteString("  ```\n")
-					}
+		if len(pkg.Callers) > 0 {
+			sb.WriteString("#### Callers\n\n")
+			for _, caller := range pkg.Callers {
+				fmt.Fprintf(&sb, "##### %s // %s\n", caller.Symbol, caller.Snippet.Location)
+				if caller.Snippet.Source != "" {
+					sb.WriteString("```")
+					sb.WriteString(caller.Snippet.Source)
+					sb.WriteString("```\n\n")
 				}
-				sb.WriteString("\n")
 			}
+		}
 
-			if len(pkg.References) > 0 {
-				sb.WriteString("#### References\n\n")
-				for _, ref := range pkg.References {
-					if ref.Symbol != "" {
-						fmt.Fprintf(&sb, "- %s `%s`\n", ref.Location, ref.Symbol)
-					} else {
-						fmt.Fprintf(&sb, "- %s\n", ref.Location)
-					}
-					if ref.Snippet.Source != "" {
-						sb.WriteString("  ```go\n")
-						for _, line := range strings.Split(ref.Snippet.Source, "\n") {
-							sb.WriteString("  ")
-							sb.WriteString(line)
-							sb.WriteString("\n")
-						}
-						sb.WriteString("  ```\n")
-					}
+		if len(pkg.References) > 0 {
+			sb.WriteString("#### References\n\n")
+			for _, ref := range pkg.References {
+				if ref.Symbol != "" {
+					fmt.Fprintf(&sb, "##### %s // %s\n", ref.Symbol, ref.Snippet.Location)
+				} else {
+					fmt.Fprintf(&sb, "##### %s\n", ref.Snippet.Location)
 				}
-				sb.WriteString("\n")
+				if ref.Snippet.Source != "" {
+					sb.WriteString("```")
+					sb.WriteString(ref.Snippet.Source)
+					sb.WriteString("```\n\n")
+				}
 			}
 		}
 	}
 
-	// Implementations
-	if len(r.Implementations) > 0 {
-		sb.WriteString("## Implementations\n\n")
-		sb.WriteString("| Type | Signature | Location |\n")
-		sb.WriteString("|------|-----------|----------|\n")
+	// Implementations (show for interfaces, even if empty)
+	if isInterface || len(r.Implementations) > 0 {
+		fmt.Fprintf(&sb, "## Implementations (%d)\n\n", len(r.Implementations))
 		for _, impl := range r.Implementations {
-			sig := strings.ReplaceAll(impl.Signature, "|", "\\|")
-			fmt.Fprintf(&sb, "| %s | `%s` | %s |\n", impl.Symbol, sig, impl.Location)
+			fmt.Fprintf(&sb, "%s // %s\n", impl.Signature, impl.Location)
 		}
-		sb.WriteString("\n")
+		if len(r.Implementations) > 0 {
+			sb.WriteString("\n")
+		}
 	}
 
-	// Satisfies
-	if len(r.Satisfies) > 0 {
-		sb.WriteString("## Satisfies\n\n")
-		sb.WriteString("| Interface | Signature | Location |\n")
-		sb.WriteString("|-----------|-----------|----------|\n")
+	// Satisfies (show for types, even if empty)
+	if isType || len(r.Satisfies) > 0 {
+		fmt.Fprintf(&sb, "## Satisfies (%d)\n\n", len(r.Satisfies))
 		for _, sat := range r.Satisfies {
-			sig := strings.ReplaceAll(sat.Signature, "|", "\\|")
-			fmt.Fprintf(&sb, "| %s | `%s` | %s |\n", sat.Symbol, sig, sat.Location)
+			fmt.Fprintf(&sb, "%s // %s\n", sat.Signature, sat.Location)
 		}
-		sb.WriteString("\n")
+		if len(r.Satisfies) > 0 {
+			sb.WriteString("\n")
+		}
 	}
 
-	// Fuzzy matches
+	// Fuzzy matches (only show if > 0)
 	if len(r.OtherFuzzyMatches) > 0 {
-		sb.WriteString("## Similar Symbols\n\n")
+		fmt.Fprintf(&sb, "## Similar Symbols (%d)\n\n", len(r.OtherFuzzyMatches))
 		for _, match := range r.OtherFuzzyMatches {
-			fmt.Fprintf(&sb, "- %s\n", match)
+			fmt.Fprintf(&sb, "- %s [%s]\n", match.Symbol, match.Kind)
 		}
 		sb.WriteString("\n")
 	}

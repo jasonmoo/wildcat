@@ -121,13 +121,6 @@ func (c *ChannelsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 	// Collect channel operations: package -> list of ops
 	ops := make(map[string][]opInfo)
 
-	// Ensure all target packages appear in output even if no channel ops found
-	for _, pkg := range targetPkgs {
-		if !strings.HasSuffix(pkg.Identifier.PkgPath, ".test") {
-			ops[pkg.Identifier.PkgPath] = nil
-		}
-	}
-
 	// Walk channel operations using the visitor API
 	golang.WalkChannelOps(targetPkgs, func(op golang.ChannelOp) bool {
 		if strings.HasSuffix(op.Package.Identifier.PkgPath, ".test") {

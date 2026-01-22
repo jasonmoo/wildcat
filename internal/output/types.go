@@ -12,6 +12,7 @@ type QueryInfo struct {
 // TargetInfo describes the target symbol.
 type TargetInfo struct {
 	Symbol     string `json:"symbol"`
+	Kind       string `json:"-"` // func, method, type, interface, const, var (for markdown logic)
 	Signature  string `json:"signature,omitempty"`
 	Definition string `json:"definition"` // path:start:end
 }

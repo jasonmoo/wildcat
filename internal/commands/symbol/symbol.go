@@ -315,9 +315,32 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		queryRefs += refCount
 	}
 
-	// Get fuzzy matches for suggestions (exclude the resolved target)
-	excludeSymbol := target.Package.Identifier.Name + "." + target.Name
-	fuzzyMatches := wc.Suggestions(c.symbol, &golang.SearchOptions{Limit: 5, Exclude: excludeSymbol})
+	// Build exclusion list from all symbols in the report
+	excludeSymbols := []string{
+		target.Package.Identifier.Name + "." + target.Name, // target itself
+	}
+	for _, m := range methods {
+		excludeSymbols = append(excludeSymbols, m.Symbol)
+	}
+	for _, c := range constructors {
+		excludeSymbols = append(excludeSymbols, c.Symbol)
+	}
+	for _, impl := range implementations {
+		excludeSymbols = append(excludeSymbols, impl.Symbol)
+	}
+	for _, sat := range satisfies {
+		excludeSymbols = append(excludeSymbols, sat.Symbol)
+	}
+	for _, desc := range descendants {
+		excludeSymbols = append(excludeSymbols, desc.Symbol)
+	}
+
+	// Get fuzzy matches for suggestions
+	suggestions := wc.Suggestions(c.symbol, &golang.SearchOptions{Limit: 5, Exclude: excludeSymbols})
+	fuzzyMatches := make([]SuggestionInfo, len(suggestions))
+	for i, s := range suggestions {
+		fuzzyMatches[i] = SuggestionInfo{Symbol: s.Symbol, Kind: s.Kind}
+	}
 
 	return &SymbolCommandResponse{
 		Query: output.QueryInfo{
@@ -328,6 +351,7 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		},
 		Target: output.TargetInfo{
 			Symbol:     qualifiedSymbol,
+			Kind:       string(target.Kind),
 			Signature:  sig,
 			Definition: definition,
 		},
