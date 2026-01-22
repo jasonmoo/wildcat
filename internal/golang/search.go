@@ -139,13 +139,16 @@ func (idx *SymbolIndex) Len() int {
 func (idx *SymbolIndex) Lookup(query string) *Symbol {
 	// Check if query contains a full import path (has multiple slashes)
 	if strings.Count(query, "/") > 0 {
-		// Full import path: github.com/user/repo/pkg.Symbol
-		lastDot := strings.LastIndex(query, ".")
-		if lastDot == -1 {
+		// Full import path: github.com/user/repo/pkg.Symbol or pkg.Type.Method
+		// Find first dot after last slash to separate package from symbol
+		lastSlash := strings.LastIndex(query, "/")
+		dotAfterSlash := strings.Index(query[lastSlash+1:], ".")
+		if dotAfterSlash == -1 {
 			return nil
 		}
-		pkgPath := query[:lastDot]
-		symbolName := query[lastDot+1:]
+		splitPos := lastSlash + 1 + dotAfterSlash
+		pkgPath := query[:splitPos]
+		symbolName := query[splitPos+1:]
 
 		for i := range idx.symbols {
 			if idx.symbols[i].Package.Identifier.PkgPath == pkgPath && idx.symbols[i].Name == symbolName {
