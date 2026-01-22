@@ -2,6 +2,7 @@ package golang
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 )
 
@@ -206,4 +207,183 @@ func SameObject(obj, target types.Object) bool {
 	return obj.Pkg().Path() == target.Pkg().Path() &&
 		obj.Name() == target.Name() &&
 		obj.Pos() == target.Pos()
+}
+
+// WalkNonCallReferences walks references to a symbol that are NOT direct calls.
+// These are "escaping" references where the function value is passed, assigned,
+// or stored - indicating it could be called from external code.
+//
+// Examples of non-call references:
+//   - Passed as argument: http.HandleFunc("/", handler)
+//   - Assigned to variable: fn := myFunc
+//   - Struct field: &Command{Run: handler}
+//   - Stored in map/slice: handlers["x"] = myFunc
+//   - Returned: return myFunc
+//
+// Examples of call references (excluded):
+//   - Direct call: foo()
+//   - Method call: x.Method()
+//   - Qualified call: pkg.Func()
+func WalkNonCallReferences(pkgs []*Package, sym *Symbol, visitor RefVisitor) {
+	targetObj := GetTypesObject(sym)
+	if targetObj == nil {
+		return
+	}
+
+	for _, pkg := range pkgs {
+		if !walkPackageNonCallRefs(pkg, targetObj, visitor) {
+			return
+		}
+	}
+}
+
+// walkPackageNonCallRefs walks non-call references in a single package.
+func walkPackageNonCallRefs(pkg *Package, targetObj types.Object, visitor RefVisitor) bool {
+	fset := pkg.Package.Fset
+
+	for _, file := range pkg.Package.Syntax {
+		filename := fset.Position(file.Pos()).Filename
+
+		for _, decl := range file.Decls {
+			containing := ""
+
+			switch d := decl.(type) {
+			case *ast.FuncDecl:
+				containing = pkg.Identifier.Name + "."
+				if d.Recv != nil && len(d.Recv.List) > 0 {
+					containing += ReceiverTypeName(d.Recv.List[0].Type) + "."
+				}
+				containing += d.Name.Name
+
+				if !walkNodeNonCallRefs(d, pkg, filename, containing, targetObj, visitor) {
+					return false
+				}
+
+			case *ast.GenDecl:
+				for _, spec := range d.Specs {
+					switch s := spec.(type) {
+					case *ast.TypeSpec:
+						containing = pkg.Identifier.Name + "." + s.Name.Name
+						if !walkNodeNonCallRefs(s.Type, pkg, filename, containing, targetObj, visitor) {
+							return false
+						}
+					case *ast.ValueSpec:
+						if s.Type != nil && len(s.Names) > 0 {
+							containing = pkg.Identifier.Name + "." + s.Names[0].Name
+							if !walkNodeNonCallRefs(s.Type, pkg, filename, containing, targetObj, visitor) {
+								return false
+							}
+						}
+						for i, name := range s.Names {
+							if i < len(s.Values) {
+								containing = pkg.Identifier.Name + "." + name.Name
+								if !walkNodeNonCallRefs(s.Values[i], pkg, filename, containing, targetObj, visitor) {
+									return false
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return true
+}
+
+// walkNodeNonCallRefs walks an AST node looking for non-call references.
+// It first collects all positions where identifiers are used as the function
+// in a call expression, then walks and skips those positions.
+func walkNodeNonCallRefs(node ast.Node, pkg *Package, filename, containing string, targetObj types.Object, visitor RefVisitor) bool {
+	// First pass: collect positions of identifiers in call position
+	callPositions := collectCallPositions(node)
+
+	// Second pass: find references that are not in call position
+	continueWalk := true
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		if !continueWalk {
+			return false
+		}
+
+		ident, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		// Skip if this identifier is in call position
+		if callPositions[ident.Pos()] {
+			return true
+		}
+
+		obj := pkg.Package.TypesInfo.Uses[ident]
+		if obj == nil {
+			return true
+		}
+
+		if SameObject(obj, targetObj) {
+			pos := pkg.Package.Fset.Position(ident.Pos())
+			ref := Reference{
+				Package:    pkg,
+				File:       filename,
+				Line:       pos.Line,
+				Ident:      ident,
+				Containing: containing,
+			}
+			if !visitor(ref) {
+				continueWalk = false
+				return false
+			}
+		}
+		return true
+	})
+
+	return continueWalk
+}
+
+// collectCallPositions returns the positions of all identifiers that are
+// used as the function being called in a CallExpr.
+func collectCallPositions(node ast.Node) map[token.Pos]bool {
+	positions := make(map[token.Pos]bool)
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		// Get the position of the identifier being called
+		switch fn := call.Fun.(type) {
+		case *ast.Ident:
+			// Direct call: foo()
+			positions[fn.Pos()] = true
+		case *ast.SelectorExpr:
+			// Method/qualified call: x.Method() or pkg.Func()
+			positions[fn.Sel.Pos()] = true
+		case *ast.IndexExpr:
+			// Generic call: foo[T]()
+			if ident, ok := fn.X.(*ast.Ident); ok {
+				positions[ident.Pos()] = true
+			}
+		case *ast.IndexListExpr:
+			// Generic call with multiple params: foo[T, U]()
+			if ident, ok := fn.X.(*ast.Ident); ok {
+				positions[ident.Pos()] = true
+			}
+		}
+		return true
+	})
+
+	return positions
+}
+
+// CountNonCallReferences counts references to a symbol that are not direct calls.
+// This is useful for dead code analysis: a function with non-call references
+// may be called from external code (e.g., passed to cobra, http handlers).
+func CountNonCallReferences(pkgs []*Package, sym *Symbol) int {
+	count := 0
+	WalkNonCallReferences(pkgs, sym, func(ref Reference) bool {
+		count++
+		return true
+	})
+	return count
 }

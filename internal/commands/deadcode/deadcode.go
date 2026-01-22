@@ -223,8 +223,15 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			}
 		}
 
-		// Check if reachable
+		// Check if reachable via SSA
 		if analysis.IsReachable(&sym) {
+			continue
+		}
+
+		// Check if has non-call references (escaping function value).
+		// Functions passed to external code (e.g., cobra handlers) may not be
+		// traceable via SSA but are still used.
+		if golang.CountNonCallReferences(wc.Project.Packages, &sym) > 0 {
 			continue
 		}
 
