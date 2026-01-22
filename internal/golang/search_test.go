@@ -29,7 +29,7 @@ func TestSymbolSearch(t *testing.T) {
 		{"Format", 1, ""},
 		{"Package", 1, "Package"},
 		{"Resolve", 1, ""},
-		{"Cmd", 1, ""},
+		{"Collect", 1, ""},
 	}
 
 	for _, tc := range tests {

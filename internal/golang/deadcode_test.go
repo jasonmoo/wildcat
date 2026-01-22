@@ -33,14 +33,14 @@ func TestAnalyzeDeadCode(t *testing.T) {
 		t.Error("main function should be reachable")
 	}
 
-	// Test IsReachable with Execute function (called from main)
+	// Test IsReachable with NewSymbolCommand function (called from main)
 	idx := CollectSymbols(project.Packages)
-	sym := idx.Lookup("Execute")
+	sym := idx.Lookup("NewSymbolCommand")
 	if sym == nil {
-		t.Fatal("Execute symbol not found")
+		t.Fatal("NewSymbolCommand symbol not found")
 	}
 	if !result.IsReachable(sym) {
-		t.Error("Execute should be reachable from main")
+		t.Error("NewSymbolCommand should be reachable from main")
 	}
 }
 

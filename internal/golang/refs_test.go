@@ -21,24 +21,17 @@ func TestCountNonCallReferences(t *testing.T) {
 		wantNonCallGT int // or at least this many non-call refs (-1 to skip)
 	}{
 		{
-			// runReadme is passed as struct field value: Run: runReadme
-			// It's not called directly in our code - cobra calls it
-			name:        "runReadme - passed to cobra",
-			symbol:      "runReadme",
-			wantNonCall: 1,
-		},
-		{
-			// Execute is called from main: cmd.Execute()
+			// NewSymbolCommand is called to construct the command
 			// It should have calls but no non-call refs
-			name:        "Execute - called from main",
-			symbol:      "Execute",
+			name:        "NewSymbolCommand - only called",
+			symbol:      "NewSymbolCommand",
 			wantNonCall: 0,
 		},
 		{
-			// printFullReadme is called from runReadme
+			// NewPackageCommand is called to construct the command
 			// It should have calls but no non-call refs
-			name:        "printFullReadme - only called",
-			symbol:      "printFullReadme",
+			name:        "NewPackageCommand - only called",
+			symbol:      "NewPackageCommand",
 			wantNonCall: 0,
 		},
 	}
