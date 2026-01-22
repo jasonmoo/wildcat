@@ -10,11 +10,19 @@ type QueryInfo struct {
 }
 
 // TargetInfo describes the target symbol.
+// TargetRefs contains reference counts for a target symbol.
+type TargetRefs struct {
+	Internal int `json:"internal"` // references from same package
+	External int `json:"external"` // references from other packages
+	Packages int `json:"packages"` // number of external packages
+}
+
 type TargetInfo struct {
-	Symbol     string `json:"symbol"`
-	Kind       string `json:"-"` // func, method, type, interface, const, var (for markdown logic)
-	Signature  string `json:"signature,omitempty"`
-	Definition string `json:"definition"` // path:start:end
+	Symbol     string     `json:"symbol"`
+	Kind       string     `json:"-"` // func, method, type, interface, const, var (for markdown logic)
+	Signature  string     `json:"signature,omitempty"`
+	Definition string     `json:"definition"` // path:start:end
+	Refs       TargetRefs `json:"refs"`
 }
 
 // TreeSummary provides aggregate information about the tree.

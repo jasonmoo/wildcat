@@ -11,19 +11,36 @@ import (
 
 var _ commands.Result = (*SymbolCommandResponse)(nil)
 
+// SymbolRefs contains reference counts for a symbol.
+type SymbolRefs struct {
+	Internal int `json:"internal"` // references from same package
+	External int `json:"external"` // references from other packages
+	Packages int `json:"packages"` // number of external packages
+}
+
 // FunctionInfo describes a method or constructor.
 type FunctionInfo struct {
-	Symbol     string `json:"symbol"` // qualified: pkg.Type.Method or pkg.Func
-	Signature  string `json:"signature"`
-	Definition string `json:"definition"` // file:start:end
+	Symbol     string     `json:"symbol"` // qualified: pkg.Type.Method or pkg.Func
+	Signature  string     `json:"signature"`
+	Definition string     `json:"definition"` // file:start:end
+	Refs       SymbolRefs `json:"refs"`
 }
 
 // DescendantInfo describes a type that would be orphaned if the target is removed.
 type DescendantInfo struct {
-	Symbol     string `json:"symbol"` // qualified: pkg.Type
-	Signature  string `json:"signature"`
-	Definition string `json:"definition"` // file:line
-	Reason     string `json:"reason"`     // why it's a descendant
+	Symbol     string     `json:"symbol"` // qualified: pkg.Type
+	Signature  string     `json:"signature"`
+	Definition string     `json:"definition"` // file:line
+	Reason     string     `json:"reason"`     // why it's a descendant
+	Refs       SymbolRefs `json:"refs"`
+}
+
+// TypeInfo describes a type (for implementations/satisfies).
+type TypeInfo struct {
+	Symbol     string     `json:"symbol"` // qualified: pkg.Type
+	Signature  string     `json:"signature"`
+	Definition string     `json:"definition"` // file:line
+	Refs       SymbolRefs `json:"refs"`
 }
 
 // SuggestionInfo describes a fuzzy match suggestion.
@@ -33,38 +50,41 @@ type SuggestionInfo struct {
 }
 
 type SymbolCommandResponse struct {
-	Query             output.QueryInfo        `json:"query"`
-	Target            output.TargetInfo       `json:"target"`
-	Methods           []FunctionInfo          `json:"methods,omitempty"`
-	Constructors      []FunctionInfo          `json:"constructors,omitempty"`
-	Descendants       []DescendantInfo        `json:"descendants,omitempty"` // types orphaned if target removed
-	ImportedBy        []output.DepResult      `json:"imported_by"`
-	References        []output.PackageUsage   `json:"references"`
-	Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
-	Satisfies         []output.SymbolLocation `json:"satisfies,omitempty"`
-	QuerySummary      output.SymbolSummary    `json:"query_summary"`
-	PackageSummary    output.SymbolSummary    `json:"package_summary"`
-	ProjectSummary    output.SymbolSummary    `json:"project_summary"`
-	OtherFuzzyMatches []SuggestionInfo        `json:"other_fuzzy_matches"`
+	Query             output.QueryInfo      `json:"query"`
+	Package           output.PackageInfo    `json:"package"`
+	Target            output.TargetInfo     `json:"target"`
+	Methods           []FunctionInfo        `json:"methods,omitempty"`
+	Constructors      []FunctionInfo        `json:"constructors,omitempty"`
+	Descendants       []DescendantInfo      `json:"descendants,omitempty"` // types orphaned if target removed
+	ImportedBy        []output.DepResult    `json:"imported_by"`
+	References        []output.PackageUsage `json:"references"`
+	Implementations   []TypeInfo            `json:"implementations,omitempty"`
+	Satisfies         []TypeInfo            `json:"satisfies,omitempty"`
+	QuerySummary      output.SymbolSummary  `json:"query_summary"`
+	PackageSummary    output.SymbolSummary  `json:"package_summary"`
+	ProjectSummary    output.SymbolSummary  `json:"project_summary"`
+	OtherFuzzyMatches []SuggestionInfo      `json:"other_fuzzy_matches"`
 }
 
 func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Query             output.QueryInfo        `json:"query"`
-		Target            output.TargetInfo       `json:"target"`
-		QuerySummary      output.SymbolSummary    `json:"query_summary"`
-		PackageSummary    output.SymbolSummary    `json:"package_summary"`
-		ProjectSummary    output.SymbolSummary    `json:"project_summary"`
-		Methods           []FunctionInfo          `json:"methods,omitempty"`
-		Constructors      []FunctionInfo          `json:"constructors,omitempty"`
-		Descendants       []DescendantInfo        `json:"descendants,omitempty"`
-		ImportedBy        []output.DepResult      `json:"imported_by"`
-		References        []output.PackageUsage   `json:"references"`
-		Implementations   []output.SymbolLocation `json:"implementations,omitempty"`
-		Satisfies         []output.SymbolLocation `json:"satisfies,omitempty"`
-		OtherFuzzyMatches []SuggestionInfo        `json:"other_fuzzy_matches"`
+		Query             output.QueryInfo      `json:"query"`
+		Package           output.PackageInfo    `json:"package"`
+		Target            output.TargetInfo     `json:"target"`
+		QuerySummary      output.SymbolSummary  `json:"query_summary"`
+		PackageSummary    output.SymbolSummary  `json:"package_summary"`
+		ProjectSummary    output.SymbolSummary  `json:"project_summary"`
+		Methods           []FunctionInfo        `json:"methods,omitempty"`
+		Constructors      []FunctionInfo        `json:"constructors,omitempty"`
+		Descendants       []DescendantInfo      `json:"descendants,omitempty"`
+		ImportedBy        []output.DepResult    `json:"imported_by"`
+		References        []output.PackageUsage `json:"references"`
+		Implementations   []TypeInfo            `json:"implementations,omitempty"`
+		Satisfies         []TypeInfo            `json:"satisfies,omitempty"`
+		OtherFuzzyMatches []SuggestionInfo      `json:"other_fuzzy_matches"`
 	}{
 		Query:             r.Query,
+		Package:           r.Package,
 		Target:            r.Target,
 		QuerySummary:      r.QuerySummary,
 		PackageSummary:    r.PackageSummary,
@@ -86,9 +106,10 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	isType := r.Target.Kind == "type"
 	isInterface := r.Target.Kind == "interface"
 
-	// Header with target symbol
+	// Header with target symbol and package context
 	fmt.Fprintf(&sb, "# %s\n\n", r.Target.Symbol)
-	fmt.Fprintf(&sb, "%s // %s\n\n", r.Target.Signature, r.Target.Definition)
+	fmt.Fprintf(&sb, "%s // %s\n\n", r.Package.ImportPath, r.Package.Dir)
+	fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n\n", r.Target.Signature, r.Target.Definition, r.Target.Refs.Internal, r.Target.Refs.External, r.Target.Refs.Packages)
 
 	// Summary section
 	sb.WriteString("## Summary\n\n")
@@ -99,7 +120,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isType || len(r.Methods) > 0 {
 		fmt.Fprintf(&sb, "## Methods (%d)\n\n", len(r.Methods))
 		for _, m := range r.Methods {
-			fmt.Fprintf(&sb, "%s // %s\n", m.Signature, m.Definition)
+			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", m.Signature, m.Definition, m.Refs.Internal, m.Refs.External, m.Refs.Packages)
 		}
 		if len(r.Methods) > 0 {
 			sb.WriteString("\n")
@@ -110,7 +131,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isType || len(r.Constructors) > 0 {
 		fmt.Fprintf(&sb, "## Constructors (%d)\n\n", len(r.Constructors))
 		for _, c := range r.Constructors {
-			fmt.Fprintf(&sb, "%s // %s\n", c.Signature, c.Definition)
+			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", c.Signature, c.Definition, c.Refs.Internal, c.Refs.External, c.Refs.Packages)
 		}
 		if len(r.Constructors) > 0 {
 			sb.WriteString("\n")
@@ -121,7 +142,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isType || len(r.Descendants) > 0 {
 		fmt.Fprintf(&sb, "## Descendants (%d)\n\n", len(r.Descendants))
 		for _, d := range r.Descendants {
-			fmt.Fprintf(&sb, "%s // %s\n", d.Signature, d.Definition)
+			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", d.Signature, d.Definition, d.Refs.Internal, d.Refs.External, d.Refs.Packages)
 			if d.Reason != "" {
 				fmt.Fprintf(&sb, "  %s\n", d.Reason)
 			}
@@ -183,7 +204,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isInterface || len(r.Implementations) > 0 {
 		fmt.Fprintf(&sb, "## Implementations (%d)\n\n", len(r.Implementations))
 		for _, impl := range r.Implementations {
-			fmt.Fprintf(&sb, "%s // %s\n", impl.Signature, impl.Location)
+			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", impl.Signature, impl.Definition, impl.Refs.Internal, impl.Refs.External, impl.Refs.Packages)
 		}
 		if len(r.Implementations) > 0 {
 			sb.WriteString("\n")
@@ -194,7 +215,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	if isType || len(r.Satisfies) > 0 {
 		fmt.Fprintf(&sb, "## Satisfies (%d)\n\n", len(r.Satisfies))
 		for _, sat := range r.Satisfies {
-			fmt.Fprintf(&sb, "%s // %s\n", sat.Signature, sat.Location)
+			fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n", sat.Signature, sat.Definition, sat.Refs.Internal, sat.Refs.External, sat.Refs.Packages)
 		}
 		if len(r.Satisfies) > 0 {
 			sb.WriteString("\n")

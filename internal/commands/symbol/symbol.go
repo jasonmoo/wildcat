@@ -44,6 +44,20 @@ type pkgUsage struct {
 	references []referenceInfo
 }
 
+// getSymbolRefs looks up a symbol and returns its reference counts.
+func getSymbolRefs(wc *commands.Wildcat, symbolKey string) SymbolRefs {
+	sym := wc.Index.Lookup(symbolKey)
+	if sym == nil {
+		return SymbolRefs{}
+	}
+	counts := golang.CountReferences(wc.Project.Packages, sym)
+	return SymbolRefs{
+		Internal: counts.Internal,
+		External: counts.External,
+		Packages: counts.PackageCount(),
+	}
+}
+
 func NewSymbolCommand() *SymbolCommand {
 	return &SymbolCommand{
 		scope: "project",
@@ -146,7 +160,7 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 
 	// Build target info
 	sig, _ := target.Signature()
-	definition := fmt.Sprintf("%s:%s", target.Filename(), target.Location())
+	definition := fmt.Sprintf("%s:%s", filepath.Base(target.Filename()), target.Location())
 	qualifiedSymbol := target.Package.Identifier.PkgPath + "." + target.Name
 
 	// Parse scope
@@ -181,7 +195,8 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 			methods = append(methods, FunctionInfo{
 				Symbol:     methodSymbol,
 				Signature:  sig,
-				Definition: fmt.Sprintf("%s:%d:%d", pos.Filename, pos.Line, endPos.Line),
+				Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
+				Refs:       getSymbolRefs(wc, methodSymbol),
 			})
 			excludeFromRefs[fmt.Sprintf("%s:%d", pos.Filename, pos.Line)] = true
 		}
@@ -194,7 +209,8 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 			constructors = append(constructors, FunctionInfo{
 				Symbol:     constructorSymbol,
 				Signature:  sig,
-				Definition: fmt.Sprintf("%s:%d:%d", pos.Filename, pos.Line, endPos.Line),
+				Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
+				Refs:       getSymbolRefs(wc, constructorSymbol),
 			})
 			excludeFromRefs[fmt.Sprintf("%s:%d", pos.Filename, pos.Line)] = true
 		}
@@ -204,8 +220,8 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	c.findReferences(wc, target, scopeFilter, usageByPkg)
 
 	// Find interface relationships
-	var implementations []output.SymbolLocation
-	var satisfies []output.SymbolLocation
+	var implementations []TypeInfo
+	var satisfies []TypeInfo
 
 	if target.Kind == golang.SymbolKindInterface {
 		implementations = c.findImplementations(wc, target)
@@ -349,11 +365,21 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 			Resolved: qualifiedSymbol,
 			Scope:    c.scope,
 		},
+		Package: output.PackageInfo{
+			ImportPath: target.Package.Identifier.PkgPath,
+			Name:       target.Package.Identifier.Name,
+			Dir:        target.Package.Identifier.PkgDir,
+		},
 		Target: output.TargetInfo{
 			Symbol:     qualifiedSymbol,
 			Kind:       string(target.Kind),
 			Signature:  sig,
 			Definition: definition,
+			Refs: output.TargetRefs{
+				Internal: pkgRefs,
+				External: projectRefs - pkgRefs,
+				Packages: len(importedBy),
+			},
 		},
 		Methods:         methods,
 		Constructors:    constructors,
@@ -513,7 +539,7 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 	})
 }
 
-func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang.Symbol) []output.SymbolLocation {
+func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang.Symbol) []TypeInfo {
 	// Get the interface type
 	node := target.Node()
 	typeSpec, ok := node.(*ast.TypeSpec)
@@ -542,7 +568,7 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 
 	_ = ifaceType // used for validation
 
-	var implementations []output.SymbolLocation
+	var implementations []TypeInfo
 
 	// Search all packages for types that implement this interface
 	for _, pkg := range wc.Project.Packages {
@@ -576,10 +602,12 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 
 						pos := pkg.Package.Fset.Position(ts.Pos())
 						sig, _ := golang.FormatTypeSpec(genDecl.Tok, ts)
-						implementations = append(implementations, output.SymbolLocation{
-							Location:  fmt.Sprintf("%s:%d", pos.Filename, pos.Line),
-							Symbol:    pkg.Identifier.Name + "." + ts.Name.Name,
-							Signature: sig,
+						symbolKey := pkg.Identifier.Name + "." + ts.Name.Name
+						implementations = append(implementations, TypeInfo{
+							Symbol:     symbolKey,
+							Signature:  sig,
+							Definition: fmt.Sprintf("%s:%d", pos.Filename, pos.Line),
+							Refs:       getSymbolRefs(wc, symbolKey),
 						})
 					}
 				}
@@ -643,11 +671,13 @@ func (c *SymbolCommand) findDescendants(wc *commands.Wildcat, target *golang.Sym
 
 		// If all referrers are within target's scope, it's a descendant
 		if allInTarget && len(referrers) > 0 {
+			symbolKey := refType.pkg.Identifier.Name + "." + refType.name
 			descendants = append(descendants, DescendantInfo{
-				Symbol:     refType.pkg.Identifier.Name + "." + refType.name,
+				Symbol:     symbolKey,
 				Signature:  refType.signature,
 				Definition: refType.definition,
 				Reason:     fmt.Sprintf("only referenced by %s", target.Name),
+				Refs:       getSymbolRefs(wc, symbolKey),
 			})
 		}
 	}
@@ -802,7 +832,7 @@ func (c *SymbolCommand) nodeReferencesType(pkg *golang.Package, node ast.Node, r
 	return found
 }
 
-func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbol) []output.SymbolLocation {
+func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbol) []TypeInfo {
 	// Get the type
 	node := target.Node()
 	typeSpec, ok := node.(*ast.TypeSpec)
@@ -818,7 +848,7 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 	typ := typeObj.Type()
 	ptrTyp := types.NewPointer(typ)
 
-	var satisfies []output.SymbolLocation
+	var satisfies []TypeInfo
 
 	// Search all packages for interfaces this type implements
 	for _, pkg := range wc.Project.Packages {
@@ -861,10 +891,12 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 					if types.Implements(typ, iface) || types.Implements(ptrTyp, iface) {
 						pos := pkg.Package.Fset.Position(ts.Pos())
 						sig, _ := golang.FormatTypeSpec(genDecl.Tok, ts)
-						satisfies = append(satisfies, output.SymbolLocation{
-							Location:  fmt.Sprintf("%s:%d", pos.Filename, pos.Line),
-							Symbol:    pkg.Identifier.Name + "." + ts.Name.Name,
-							Signature: sig,
+						symbolKey := pkg.Identifier.Name + "." + ts.Name.Name
+						satisfies = append(satisfies, TypeInfo{
+							Symbol:     symbolKey,
+							Signature:  sig,
+							Definition: fmt.Sprintf("%s:%d", pos.Filename, pos.Line),
+							Refs:       getSymbolRefs(wc, symbolKey),
 						})
 					}
 				}
