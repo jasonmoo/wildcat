@@ -45,13 +45,13 @@ type pkgUsage struct {
 }
 
 // getSymbolRefs looks up a symbol and returns its reference counts.
-func getSymbolRefs(wc *commands.Wildcat, symbolKey string) SymbolRefs {
+func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *SymbolRefs {
 	sym := wc.Index.Lookup(symbolKey)
 	if sym == nil {
-		return SymbolRefs{}
+		return nil
 	}
 	counts := golang.CountReferences(wc.Project.Packages, sym)
-	return SymbolRefs{
+	return &SymbolRefs{
 		Internal: counts.Internal,
 		External: counts.External,
 		Packages: counts.PackageCount(),
@@ -952,7 +952,7 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 							Symbol:     symbolKey,
 							Signature:  sig,
 							Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
-							Impls: ImplCounts{
+							Impls: &ImplCounts{
 								Package: packageCount,
 								Project: projectCount,
 							},

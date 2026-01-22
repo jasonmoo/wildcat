@@ -20,28 +20,28 @@ type SymbolRefs struct {
 
 // FunctionInfo describes a method or constructor.
 type FunctionInfo struct {
-	Symbol     string     `json:"symbol"` // qualified: pkg.Type.Method or pkg.Func
-	Signature  string     `json:"signature"`
-	Definition string     `json:"definition"` // file:start:end
-	Refs       SymbolRefs `json:"refs"`
+	Symbol     string      `json:"symbol"` // qualified: pkg.Type.Method or pkg.Func
+	Signature  string      `json:"signature"`
+	Definition string      `json:"definition"` // file:start:end
+	Refs       *SymbolRefs `json:"refs,omitempty"`
 }
 
 // DescendantInfo describes a type that would be orphaned if the target is removed.
 type DescendantInfo struct {
-	Symbol     string     `json:"symbol"` // qualified: pkg.Type
-	Signature  string     `json:"signature"`
-	Definition string     `json:"definition"` // file:line
-	Reason     string     `json:"reason"`     // why it's a descendant
-	Refs       SymbolRefs `json:"refs"`
+	Symbol     string      `json:"symbol"` // qualified: pkg.Type
+	Signature  string      `json:"signature"`
+	Definition string      `json:"definition"` // file:line
+	Reason     string      `json:"reason"`     // why it's a descendant
+	Refs       *SymbolRefs `json:"refs,omitempty"`
 }
 
 // TypeInfo describes a type (for implementations/satisfies).
 type TypeInfo struct {
-	Symbol     string     `json:"symbol"` // qualified: pkg.Type
-	Signature  string     `json:"signature"`
-	Definition string     `json:"definition"` // file:line (short form when in PackageTypes context)
-	Refs       SymbolRefs `json:"refs,omitempty"`
-	Impls      ImplCounts `json:"impls,omitempty"` // for interfaces: how many types implement it
+	Symbol     string      `json:"symbol"` // qualified: pkg.Type
+	Signature  string      `json:"signature"`
+	Definition string      `json:"definition"` // file:line (short form when in PackageTypes context)
+	Refs       *SymbolRefs `json:"refs,omitempty"`       // for implementations: reference counts
+	Impls      *ImplCounts `json:"impls,omitempty"` // for satisfies: how many types implement the interface
 }
 
 // ImplCounts tracks how many types implement an interface.
