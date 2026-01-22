@@ -440,12 +440,6 @@ func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol,
 }
 
 func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symbol, filter *commands.ScopeFilter, usageByPkg map[string]*pkgUsage) {
-	// Get the target's types.Object
-	targetObj := c.getTargetObject(target)
-	if targetObj == nil {
-		return
-	}
-
 	// Track caller locations to avoid duplicates
 	callerLocs := make(map[string]bool)
 	for _, usage := range usageByPkg {
@@ -455,72 +449,17 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 		}
 	}
 
-	// Search all packages for references
-	for _, pkg := range wc.Project.Packages {
-		if !filter.InScope(pkg.Identifier.PkgPath) {
-			continue
-		}
+	// Get target definition location for exclusion
+	defLine, _, _ := strings.Cut(target.Location(), ":")
+	targetFile := target.Filename()
 
-		for _, file := range pkg.Package.Syntax {
-			// Iterate over declarations to track containing symbol
-			for _, decl := range file.Decls {
-				switch d := decl.(type) {
-				case *ast.FuncDecl:
-					// Function: symbol is pkg.Func or pkg.Type.Method
-					containingSymbol := pkg.Identifier.Name + "."
-					if d.Recv != nil && len(d.Recv.List) > 0 {
-						containingSymbol += golang.ReceiverTypeName(d.Recv.List[0].Type) + "."
-					}
-					containingSymbol += d.Name.Name
-					c.findRefsInNode(d, containingSymbol, pkg, target, targetObj, callerLocs, usageByPkg)
-
-				case *ast.GenDecl:
-					// For type/var/const, iterate each spec separately
-					for _, spec := range d.Specs {
-						switch s := spec.(type) {
-						case *ast.TypeSpec:
-							containingSymbol := pkg.Identifier.Name + "." + s.Name.Name
-							c.findRefsInNode(s.Type, containingSymbol, pkg, target, targetObj, callerLocs, usageByPkg)
-						case *ast.ValueSpec:
-							// Type is shared across all names, attribute to first name
-							if s.Type != nil && len(s.Names) > 0 {
-								containingSymbol := pkg.Identifier.Name + "." + s.Names[0].Name
-								c.findRefsInNode(s.Type, containingSymbol, pkg, target, targetObj, callerLocs, usageByPkg)
-							}
-							// Each value corresponds to its name by index
-							for i, name := range s.Names {
-								if i < len(s.Values) {
-									containingSymbol := pkg.Identifier.Name + "." + name.Name
-									c.findRefsInNode(s.Values[i], containingSymbol, pkg, target, targetObj, callerLocs, usageByPkg)
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-func (c *SymbolCommand) findRefsInNode(node ast.Node, containingSymbol string, pkg *golang.Package, target *golang.Symbol, targetObj types.Object, callerLocs map[string]bool, usageByPkg map[string]*pkgUsage) {
-	ast.Inspect(node, func(n ast.Node) bool {
-		ident, ok := n.(*ast.Ident)
-		if !ok {
+	golang.WalkReferences(wc.Project, target, func(ref golang.Reference) bool {
+		// Scope filter
+		if !filter.InScope(ref.Package.Identifier.PkgPath) {
 			return true
 		}
 
-		obj := pkg.Package.TypesInfo.Uses[ident]
-		if obj == nil {
-			return true
-		}
-
-		// Check if this references our target
-		if !c.sameObject(obj, targetObj) {
-			return true
-		}
-
-		pos := pkg.Package.Fset.Position(ident.Pos())
-		key := fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
+		key := fmt.Sprintf("%s:%d", ref.File, ref.Line)
 
 		// Skip if already counted as caller
 		if callerLocs[key] {
@@ -528,67 +467,26 @@ func (c *SymbolCommand) findRefsInNode(node ast.Node, containingSymbol string, p
 		}
 
 		// Skip the definition itself
-		if pos.Filename == target.Filename() {
-			defLine, _, _ := strings.Cut(target.Location(), ":")
-			if fmt.Sprintf("%d", pos.Line) == defLine {
-				return true
-			}
+		if ref.File == targetFile && fmt.Sprintf("%d", ref.Line) == defLine {
+			return true
 		}
 
 		// Get or create package usage
-		if usageByPkg[pkg.Identifier.PkgPath] == nil {
-			usageByPkg[pkg.Identifier.PkgPath] = &pkgUsage{pkg: pkg}
+		pkgPath := ref.Package.Identifier.PkgPath
+		if usageByPkg[pkgPath] == nil {
+			usageByPkg[pkgPath] = &pkgUsage{pkg: ref.Package}
 		}
-		usageByPkg[pkg.Identifier.PkgPath].references = append(
-			usageByPkg[pkg.Identifier.PkgPath].references,
+		usageByPkg[pkgPath].references = append(
+			usageByPkg[pkgPath].references,
 			referenceInfo{
-				file:   pos.Filename,
-				line:   pos.Line,
-				symbol: containingSymbol,
+				file:   ref.File,
+				line:   ref.Line,
+				symbol: ref.Containing,
 			},
 		)
 
 		return true
 	})
-}
-
-func (c *SymbolCommand) getTargetObject(target *golang.Symbol) types.Object {
-	node := target.Node()
-
-	switch n := node.(type) {
-	case *ast.FuncDecl:
-		return target.Package.Package.TypesInfo.Defs[n.Name]
-	case *ast.TypeSpec:
-		return target.Package.Package.TypesInfo.Defs[n.Name]
-	case *ast.ValueSpec:
-		// Find the specific name
-		for _, name := range n.Names {
-			if name.Name == target.Name {
-				return target.Package.Package.TypesInfo.Defs[name]
-			}
-		}
-	case *ast.Field:
-		// For struct fields
-		for _, name := range n.Names {
-			if name.Name == target.Name {
-				return target.Package.Package.TypesInfo.Defs[name]
-			}
-		}
-	}
-	return nil
-}
-
-func (c *SymbolCommand) sameObject(obj, target types.Object) bool {
-	if obj == target {
-		return true
-	}
-	// Handle case where objects are from different packages but same symbol
-	if obj.Pkg() == nil || target.Pkg() == nil {
-		return false
-	}
-	return obj.Pkg().Path() == target.Pkg().Path() &&
-		obj.Name() == target.Name() &&
-		obj.Pos() == target.Pos()
 }
 
 func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang.Symbol) []output.SymbolLocation {
@@ -871,7 +769,7 @@ func (c *SymbolCommand) nodeReferencesType(pkg *golang.Package, node ast.Node, r
 			return true
 		}
 
-		if obj == refType.obj || c.sameObject(obj, refType.obj) {
+		if obj == refType.obj || golang.SameObject(obj, refType.obj) {
 			found = true
 			return false
 		}
