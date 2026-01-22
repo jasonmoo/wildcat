@@ -209,10 +209,11 @@ type PackageResponse struct {
 
 // FileInfo describes a source file in a package.
 type FileInfo struct {
-	Name        string      `json:"name"`                   // base filename
-	LineCount   int         `json:"line_count"`             // total lines in file
-	SymbolCount int         `json:"symbol_count,omitempty"` // symbols defined in file
-	Refs        *TargetRefs `json:"refs,omitempty"`         // aggregate refs to all symbols in file
+	Name       string      `json:"name"`                 // base filename
+	LineCount  int         `json:"line_count"`           // total lines in file
+	Exported   int         `json:"exported,omitempty"`   // exported symbols defined in file
+	Unexported int         `json:"unexported,omitempty"` // unexported symbols defined in file
+	Refs       *TargetRefs `json:"refs,omitempty"`       // aggregate refs to all symbols in file
 }
 
 // PackageInfo describes the package.

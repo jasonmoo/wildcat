@@ -150,12 +150,22 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 
 	// Track per-file stats
 	type fileStats struct {
-		lineCount   int
-		symbolCount int
-		refs        output.TargetRefs // aggregate refs
+		lineCount  int
+		exported   int
+		unexported int
+		refs       output.TargetRefs // aggregate refs
 	}
 	fileStatsMap := make(map[string]*fileStats)
 	var fileOrder []string
+
+	addFileSymbol := func(fileName string, name string) {
+		fs := fileStatsMap[fileName]
+		if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
+			fs.exported++
+		} else {
+			fs.unexported++
+		}
+	}
 
 	addFileRefs := func(fileName string, refs *output.TargetRefs) {
 		if refs == nil {
@@ -196,7 +206,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 					Signature: sig,
 					Location:  makeLocation(pkg.Package.Fset, fileName, v.Pos()),
 				}
-				fileStatsMap[fileName].symbolCount++
+				addFileSymbol(fileName, v.Name.Name)
 				if v.Recv != nil && len(v.Recv.List) > 0 {
 					// Method - attach to receiver type
 					typeName := golang.ReceiverTypeName(v.Recv.List[0].Type)
@@ -229,7 +239,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 						if err != nil {
 							return nil, fmt.Errorf("internal_error: %w", err)
 						}
-						fileStatsMap[fileName].symbolCount++
+						addFileSymbol(fileName, vv.Name.Name)
 						tb := ensureType(vv.Name.Name)
 						tb.signature = sig
 						tb.location = makeLocation(pkg.Package.Fset, fileName, vv.Pos())
@@ -245,7 +255,9 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 						}
 						// ValueSpec can have multiple names (e.g., var a, b, c int)
 						// but signature covers all, so use first name for refs lookup
-						fileStatsMap[fileName].symbolCount += len(vv.Names)
+						for _, ident := range vv.Names {
+							addFileSymbol(fileName, ident.Name)
+						}
 						var refs *output.TargetRefs
 						if len(vv.Names) > 0 {
 							symbolKey := pkgShortName + "." + vv.Names[0].Name
@@ -359,9 +371,10 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	for _, fileName := range fileOrder {
 		fs := fileStatsMap[fileName]
 		fi := output.FileInfo{
-			Name:        fileName,
-			LineCount:   fs.lineCount,
-			SymbolCount: fs.symbolCount,
+			Name:       fileName,
+			LineCount:  fs.lineCount,
+			Exported:   fs.exported,
+			Unexported: fs.unexported,
 		}
 		if fs.refs.Internal > 0 || fs.refs.External > 0 || fs.refs.Packages > 0 {
 			fi.Refs = &output.TargetRefs{
