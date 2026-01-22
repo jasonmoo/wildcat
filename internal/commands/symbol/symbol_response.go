@@ -10,6 +10,7 @@ import (
 )
 
 var _ commands.Result = (*SymbolCommandResponse)(nil)
+var _ commands.Result = (*MultiSymbolCommandResponse)(nil)
 
 // SymbolRefs contains reference counts for a symbol.
 type SymbolRefs struct {
@@ -78,6 +79,11 @@ type SymbolCommandResponse struct {
 	PackageSummary    output.SymbolSummary  `json:"package_summary"`
 	ProjectSummary    output.SymbolSummary  `json:"project_summary"`
 	OtherFuzzyMatches []SuggestionInfo      `json:"other_fuzzy_matches"`
+}
+
+// MultiSymbolCommandResponse wraps multiple symbol results.
+type MultiSymbolCommandResponse struct {
+	Symbols []SymbolCommandResponse `json:"symbols"`
 }
 
 func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
@@ -297,5 +303,24 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		sb.WriteString("\n")
 	}
 
+	return []byte(sb.String()), nil
+}
+
+func (r *MultiSymbolCommandResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.Symbols)
+}
+
+func (r *MultiSymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
+	var sb strings.Builder
+	for i, sym := range r.Symbols {
+		if i > 0 {
+			sb.WriteString("\n---\n\n")
+		}
+		md, err := sym.MarshalMarkdown()
+		if err != nil {
+			return nil, err
+		}
+		sb.Write(md)
+	}
 	return []byte(sb.String()), nil
 }

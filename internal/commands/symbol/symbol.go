@@ -17,15 +17,22 @@ import (
 )
 
 type SymbolCommand struct {
-	symbol string
-	scope  string
+	symbols []string
+	scope   string
 }
 
 var _ commands.Command[*SymbolCommand] = (*SymbolCommand)(nil)
 
 func WithSymbol(s string) func(*SymbolCommand) error {
 	return func(c *SymbolCommand) error {
-		c.symbol = s
+		c.symbols = append(c.symbols, s)
+		return nil
+	}
+}
+
+func WithSymbols(symbols []string) func(*SymbolCommand) error {
+	return func(c *SymbolCommand) error {
+		c.symbols = append(c.symbols, symbols...)
 		return nil
 	}
 }
@@ -82,7 +89,7 @@ func (c *SymbolCommand) Cmd() *cobra.Command {
 	var scope string
 
 	cmd := &cobra.Command{
-		Use:   "symbol <symbol>",
+		Use:   "symbol <symbol> [symbol...]",
 		Short: "Complete symbol analysis: definition, callers, refs, interfaces",
 		Long: `Full profile of a symbol: everything you need to understand and modify it.
 
@@ -100,10 +107,11 @@ Scope:
 
 Examples:
   wildcat symbol Config                         # analyze Config type
+  wildcat symbol Config Handler Logger          # analyze multiple symbols
   wildcat symbol --scope package Server.Start   # callers in target package only
   wildcat symbol --scope cmd,lsp Handler        # callers in specific packages
   wildcat symbol --scope -internal/lsp Config   # exclude a package`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wc, err := commands.LoadWildcat(cmd.Context(), ".")
 			if err != nil {
@@ -111,7 +119,7 @@ Examples:
 			}
 
 			result, err := c.Execute(cmd.Context(), wc,
-				WithSymbol(args[0]),
+				WithSymbols(args),
 				WithScope(scope),
 			)
 			if err != nil {
@@ -154,22 +162,44 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		}
 	}
 
-	if c.symbol == "" {
-		return commands.NewErrorResultf("invalid_symbol", "symbol is required"), nil
+	if len(c.symbols) == 0 {
+		return commands.NewErrorResultf("invalid_symbol", "at least one symbol is required"), nil
 	}
 
-	if i := strings.IndexByte(c.symbol, '.'); i > -1 {
-		path, name := c.symbol[:i], c.symbol[i+1:]
+	// Single symbol - return SymbolCommandResponse directly for backwards compatibility
+	if len(c.symbols) == 1 {
+		return c.executeOne(ctx, wc, c.symbols[0])
+	}
+
+	// Multiple symbols - return MultiSymbolCommandResponse
+	var results []SymbolCommandResponse
+	for _, sym := range c.symbols {
+		result, err := c.executeOne(ctx, wc, sym)
+		if err != nil {
+			return nil, err
+		}
+		// Type assert - executeOne returns *SymbolCommandResponse
+		if resp, ok := result.(*SymbolCommandResponse); ok {
+			results = append(results, *resp)
+		}
+	}
+
+	return &MultiSymbolCommandResponse{Symbols: results}, nil
+}
+
+func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, symbol string) (commands.Result, error) {
+	if i := strings.IndexByte(symbol, '.'); i > -1 {
+		path, name := symbol[:i], symbol[i+1:]
 		pi, err := wc.Project.ResolvePackageName(ctx, path)
 		if err == nil {
-			c.symbol = pi.PkgPath + "." + name
+			symbol = pi.PkgPath + "." + name
 		}
 	}
 
 	// Find target symbol
-	target := wc.Index.Lookup(c.symbol)
+	target := wc.Index.Lookup(symbol)
 	if target == nil {
-		return wc.NewSymbolNotFoundErrorResponse(c.symbol), nil
+		return wc.NewSymbolNotFoundErrorResponse(symbol), nil
 	}
 
 	// Build target info
@@ -385,7 +415,7 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	}
 
 	// Get fuzzy matches for suggestions
-	suggestions := wc.Suggestions(c.symbol, &golang.SearchOptions{Limit: 5, Exclude: excludeSymbols})
+	suggestions := wc.Suggestions(symbol, &golang.SearchOptions{Limit: 5, Exclude: excludeSymbols})
 	fuzzyMatches := make([]SuggestionInfo, len(suggestions))
 	for i, s := range suggestions {
 		fuzzyMatches[i] = SuggestionInfo{Symbol: s.Symbol, Kind: s.Kind}
@@ -394,7 +424,7 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	return &SymbolCommandResponse{
 		Query: output.QueryInfo{
 			Command:  "symbol",
-			Target:   c.symbol,
+			Target:   symbol,
 			Resolved: qualifiedSymbol,
 			Scope:    c.scope,
 		},
