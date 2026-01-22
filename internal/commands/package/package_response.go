@@ -73,7 +73,7 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 	for _, f := range r.Files {
 		fmt.Fprintf(&sb, "%s // %d lines, %d symbols", f.Name, f.LineCount, f.SymbolCount)
 		if f.Refs != nil {
-			fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, import %d)", f.Refs.Internal, f.Refs.External, f.Refs.Packages)
+			fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", f.Refs.Internal, f.Refs.External, f.Refs.Packages)
 		}
 		sb.WriteString("\n")
 	}
