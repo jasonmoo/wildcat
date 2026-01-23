@@ -139,6 +139,16 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	// Header with target symbol and package context
 	fmt.Fprintf(&sb, "# %s\n\n", r.Target.Symbol)
 	fmt.Fprintf(&sb, "%s // %s\n\n", r.Package.ImportPath, r.Package.Dir)
+
+	// Show resolved scope if patterns were used
+	if r.Query.ScopeResolved != nil {
+		fmt.Fprintf(&sb, "scope: %s\n", r.Query.Scope)
+		if len(r.Query.ScopeResolved.Excludes) > 0 {
+			fmt.Fprintf(&sb, "excluded: %s\n", strings.Join(r.Query.ScopeResolved.Excludes, ", "))
+		}
+		sb.WriteString("\n")
+	}
+
 	fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n\n", r.Target.Signature, r.Target.Definition, r.Target.Refs.Internal, r.Target.Refs.External, r.Target.Refs.Packages)
 
 	// Summary section

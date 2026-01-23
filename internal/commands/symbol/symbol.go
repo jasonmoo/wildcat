@@ -427,12 +427,22 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 		fuzzyMatches[i] = SuggestionInfo{Symbol: s.Symbol, Kind: s.Kind}
 	}
 
+	// Build scope resolved info if patterns were used
+	var scopeResolved *output.ScopeResolved
+	if len(scopeFilter.ExcludePatterns()) > 0 || len(scopeFilter.IncludePatterns()) > 0 {
+		scopeResolved = &output.ScopeResolved{
+			Includes: scopeFilter.ResolvedIncludes(),
+			Excludes: scopeFilter.ResolvedExcludes(),
+		}
+	}
+
 	return &SymbolCommandResponse{
 		Query: output.QueryInfo{
-			Command:  "symbol",
-			Target:   symbol,
-			Resolved: qualifiedSymbol,
-			Scope:    c.scope,
+			Command:       "symbol",
+			Target:        symbol,
+			Resolved:      qualifiedSymbol,
+			Scope:         c.scope,
+			ScopeResolved: scopeResolved,
 		},
 		Package: output.PackageInfo{
 			ImportPath: target.Package.Identifier.PkgPath,

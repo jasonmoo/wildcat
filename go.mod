@@ -10,6 +10,7 @@ require (
 )
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.9.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect

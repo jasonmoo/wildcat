@@ -3,10 +3,19 @@ package output
 
 // QueryInfo describes the query that was executed.
 type QueryInfo struct {
-	Command  string `json:"command"`
-	Target   string `json:"target"`
-	Resolved string `json:"resolved,omitempty"`
-	Scope    string `json:"scope,omitempty"`
+	Command       string         `json:"command"`
+	Target        string         `json:"target"`
+	Resolved      string         `json:"resolved,omitempty"`
+	Scope         string         `json:"scope,omitempty"`
+	ScopeResolved *ScopeResolved `json:"scope_resolved,omitempty"`
+}
+
+// ScopeResolved contains the packages that were actually examined after
+// resolving scope patterns. This provides transparency about what was
+// included/excluded, so there's no ambiguity about what was searched.
+type ScopeResolved struct {
+	Includes []string `json:"includes,omitempty"` // packages included in scope
+	Excludes []string `json:"excludes,omitempty"` // packages explicitly excluded
 }
 
 // TargetInfo describes the target symbol.
