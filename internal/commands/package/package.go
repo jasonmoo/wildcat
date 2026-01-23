@@ -19,14 +19,14 @@ import (
 )
 
 type PackageCommand struct {
-	pkgPath string
+	pkgPaths []string
 }
 
 var _ commands.Command[*PackageCommand] = (*PackageCommand)(nil)
 
-func WithPackage(path string) func(*PackageCommand) error {
+func WithPackages(paths []string) func(*PackageCommand) error {
 	return func(c *PackageCommand) error {
-		c.pkgPath = path
+		c.pkgPaths = paths
 		return nil
 	}
 }
@@ -37,22 +37,23 @@ func NewPackageCommand() *PackageCommand {
 
 func (c *PackageCommand) Cmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "package [path]",
+		Use:   "package [path...]",
 		Short: "Show package profile with symbols in godoc order",
 		Long: `Show a dense package map for AI orientation.
 
 Provides a complete package profile with all symbols organized in godoc order:
 constants, variables, functions, then types (each with constructors and methods).
 
-Examples:
-  wildcat package                    # Current package
-  wildcat package ./internal/lsp     # Specific package`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+Multiple packages can be specified to show profiles for each.
 
-			pkgPath := "."
-			if len(args) > 0 {
-				pkgPath = args[0]
+Examples:
+  wildcat package                              # Current package
+  wildcat package ./internal/lsp               # Specific package
+  wildcat package internal/golang internal/lsp # Multiple packages`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pkgPaths := args
+			if len(pkgPaths) == 0 {
+				pkgPaths = []string{"."}
 			}
 
 			wc, err := commands.LoadWildcat(cmd.Context(), ".")
@@ -60,7 +61,7 @@ Examples:
 				return err
 			}
 
-			result, err := c.Execute(cmd.Context(), wc, WithPackage(pkgPath))
+			result, err := c.Execute(cmd.Context(), wc, WithPackages(pkgPaths))
 			if err != nil {
 				return err
 			}
@@ -101,10 +102,39 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		}
 	}
 
-	pi, err := wc.Project.ResolvePackageName(ctx, c.pkgPath)
+	// Default to current package if none specified
+	if len(c.pkgPaths) == 0 {
+		c.pkgPaths = []string{"."}
+	}
+
+	// Single package - return simple response
+	if len(c.pkgPaths) == 1 {
+		return c.executeOne(ctx, wc, c.pkgPaths[0])
+	}
+
+	// Multiple packages - collect all responses
+	var responses []*PackageCommandResponse
+	for _, pkgPath := range c.pkgPaths {
+		resp, err := c.executeOne(ctx, wc, pkgPath)
+		if err != nil {
+			return nil, err
+		}
+		responses = append(responses, resp)
+	}
+
+	return &MultiPackageResponse{
+		Query: output.QueryInfo{
+			Command: "package",
+			Target:  strings.Join(c.pkgPaths, ", "),
+		},
+		Packages: responses,
+	}, nil
+}
+
+func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, pkgPath string) (*PackageCommandResponse, error) {
+	pi, err := wc.Project.ResolvePackageName(ctx, pkgPath)
 	if err != nil {
-		// Suggestions: []string, TODO
-		return commands.NewErrorResultf("package_not_found", "failed to resolve package: %w", err), nil
+		return nil, fmt.Errorf("package_not_found: failed to resolve %q: %w", pkgPath, err)
 	}
 
 	pkg := wc.Package(pi)
@@ -428,7 +458,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	return &PackageCommandResponse{
 		Query: output.QueryInfo{
 			Command: "package",
-			Target:  c.pkgPath,
+			Target:  pkgPath,
 		},
 		Package: output.PackageInfo{
 			ImportPath: pi.PkgPath,

@@ -56,6 +56,33 @@ type PackageCommandResponse struct {
 	ImportedBy []output.DepResult     `json:"imported_by"`
 }
 
+// MultiPackageResponse wraps multiple package responses for multi-package queries.
+type MultiPackageResponse struct {
+	Query    output.QueryInfo          `json:"query"`
+	Packages []*PackageCommandResponse `json:"packages"`
+}
+
+func (resp *MultiPackageResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Query    output.QueryInfo          `json:"query"`
+		Packages []*PackageCommandResponse `json:"packages"`
+	}{
+		Query:    resp.Query,
+		Packages: resp.Packages,
+	})
+}
+
+func (resp *MultiPackageResponse) MarshalMarkdown() ([]byte, error) {
+	var sb strings.Builder
+	for i, pkg := range resp.Packages {
+		if i > 0 {
+			sb.WriteString("\n---\n\n")
+		}
+		sb.WriteString(renderPackageMarkdown(pkg))
+	}
+	return []byte(sb.String()), nil
+}
+
 func (resp *PackageCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Query      output.QueryInfo       `json:"query"`
