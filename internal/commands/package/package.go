@@ -108,7 +108,10 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 		return nil, fmt.Errorf("package_not_found: failed to resolve %q: %w", pkgPath, err)
 	}
 
-	pkg := wc.Package(pi)
+	pkg, err := wc.Package(pi)
+	if err != nil {
+		return nil, fmt.Errorf("package_not_found: %w", err)
+	}
 
 	// Short package name for symbol lookups (last segment of import path)
 	pkgShortName := pi.PkgPath

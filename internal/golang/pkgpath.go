@@ -75,7 +75,7 @@ func (p *Project) ResolvePackageName(ctx context.Context, name string) (*Package
 			Dir:     p.Module.Dir,
 		}, name)
 		if err != nil {
-			panic(err)
+			return nil, fmt.Errorf("failed to load package %q: %w", name, err)
 		}
 		if len(pkgs) == 1 && len(pkgs[0].Errors) == 0 {
 			return newPackageIdentifier(pkgs[0]), nil

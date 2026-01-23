@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -65,13 +66,13 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	}, nil
 }
 
-func (wc *Wildcat) Package(pi *golang.PackageIdentifier) *golang.Package {
+func (wc *Wildcat) Package(pi *golang.PackageIdentifier) (*golang.Package, error) {
 	for _, p := range wc.Project.Packages {
 		if pi.PkgPath == p.Identifier.PkgPath {
-			return p
+			return p, nil
 		}
 	}
-	panic("this should never happen")
+	return nil, fmt.Errorf("package %q not found in project", pi.PkgPath)
 }
 
 func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Suggestion {
