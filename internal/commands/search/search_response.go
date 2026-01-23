@@ -46,6 +46,9 @@ func (r *SearchCommandResponse) MarshalMarkdown() ([]byte, error) {
 	// Summary
 	fmt.Fprintf(&sb, "\n## Summary (%d results)\n", r.Summary.Count)
 	fmt.Fprintf(&sb, "mode: %s, scope: %s\n", r.Query.Mode, r.Query.Scope)
+	if r.Query.ScopeResolved != nil && len(r.Query.ScopeResolved.Excludes) > 0 {
+		fmt.Fprintf(&sb, "excluded: %s\n", strings.Join(r.Query.ScopeResolved.Excludes, ", "))
+	}
 	if r.Query.Kind != "" {
 		fmt.Fprintf(&sb, "kind: %s\n", r.Query.Kind)
 	}

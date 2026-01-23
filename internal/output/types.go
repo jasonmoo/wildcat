@@ -121,11 +121,12 @@ type DepResult struct {
 
 // SearchQuery describes a search query.
 type SearchQuery struct {
-	Command string `json:"command"`
-	Pattern string `json:"pattern"`
-	Mode    string `json:"mode,omitempty"` // "fuzzy" or "regex"
-	Scope   string `json:"scope,omitempty"`
-	Kind    string `json:"kind,omitempty"`
+	Command       string         `json:"command"`
+	Pattern       string         `json:"pattern"`
+	Mode          string         `json:"mode,omitempty"` // "fuzzy" or "regex"
+	Scope         string         `json:"scope,omitempty"`
+	ScopeResolved *ScopeResolved `json:"scope_resolved,omitempty"`
+	Kind          string         `json:"kind,omitempty"`
 }
 
 // SearchSummary provides aggregate information about search results.

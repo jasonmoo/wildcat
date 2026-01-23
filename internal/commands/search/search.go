@@ -82,18 +82,27 @@ Sorting:
   Fuzzy: Ranked by match quality, length similarity, case-sensitive bonus.
   Regex: Sorted by symbol name length (shorter first), then alphabetically.
 
+Scope:
+  project       - All project packages (default)
+  all           - All packages including dependencies
+  pkg1,pkg2     - Specific packages (comma-separated)
+  -pkg          - Exclude package (prefix with -)
+
+Pattern syntax:
+  internal/lsp       - Exact package match
+  internal/...       - Package and all subpackages (Go-style)
+  internal/*         - Direct children only
+  internal/**        - All descendants
+  **/util            - Match anywhere in path
+
 Examples:
-  wildcat search Client                       # fuzzy match "Client"
-  wildcat search lsp.Client                   # fuzzy match in lsp package
-  wildcat search "^New"                       # regex: names starting with New
-  wildcat search "Client$"                    # regex: names ending with Client
-  wildcat search "Get[A-Z]+"                  # regex: Get followed by caps
-  wildcat search --kind func Format           # functions only
-  wildcat search --kind type,interface Node   # types and interfaces
-  wildcat search --scope all Config           # include dependencies
-  wildcat search --scope lsp Client           # only lsp package
-  wildcat search --scope commands,-test Cmd   # commands, exclude test
-  wildcat search --limit 10 Config            # top 10 matches`,
+  wildcat search Client                            # fuzzy match "Client"
+  wildcat search lsp.Client                        # fuzzy match in lsp package
+  wildcat search "^New"                            # regex: names starting with New
+  wildcat search --kind func Format                # functions only
+  wildcat search --scope all Config                # include dependencies
+  wildcat search --scope "project,-internal/..."   # exclude internal subtree
+  wildcat search --limit 10 Config                 # top 10 matches`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wc, err := commands.LoadWildcat(cmd.Context(), ".")
@@ -183,14 +192,19 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		searchMode = "fuzzy"
 	}
 
-	// Apply scope filtering
-	if c.scope != "all" {
-		modulePath := ""
-		if wc.Project.Module != nil {
-			modulePath = wc.Project.Module.Path
-		}
-		results = filterByScope(results, c.scope, modulePath)
+	// Apply scope filtering using ParseScope for consistent behavior
+	scopeFilter, err := wc.ParseScope(ctx, c.scope, ".")
+	if err != nil {
+		return commands.NewErrorResultf("invalid_scope", "invalid scope: %s", err), nil
 	}
+
+	filtered := make([]golang.SearchResult, 0, len(results))
+	for _, r := range results {
+		if scopeFilter.InScope(r.Symbol.Package.Identifier.PkgPath) {
+			filtered = append(filtered, r)
+		}
+	}
+	results = filtered
 
 	// Build flat results list (already sorted by score from Search)
 	matches := make([]SearchMatch, 0, len(results))
@@ -222,13 +236,23 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 		ksb.WriteString(string(k))
 	}
 
+	// Build scope resolved info if patterns were used
+	var scopeResolved *output.ScopeResolved
+	if len(scopeFilter.ExcludePatterns()) > 0 || len(scopeFilter.IncludePatterns()) > 0 {
+		scopeResolved = &output.ScopeResolved{
+			Includes: scopeFilter.ResolvedIncludes(),
+			Excludes: scopeFilter.ResolvedExcludes(),
+		}
+	}
+
 	return &SearchCommandResponse{
 		Query: output.SearchQuery{
-			Command: "search",
-			Pattern: c.query,
-			Mode:    searchMode,
-			Scope:   c.scope,
-			Kind:    ksb.String(),
+			Command:       "search",
+			Pattern:       c.query,
+			Mode:          searchMode,
+			Scope:         c.scope,
+			ScopeResolved: scopeResolved,
+			Kind:          ksb.String(),
 		},
 		Results: matches,
 		Summary: output.SearchSummary{
@@ -237,65 +261,4 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 			Truncated: false,
 		},
 	}, nil
-}
-
-func filterByScope(results []golang.SearchResult, scope, modulePath string) []golang.SearchResult {
-	if scope == "project" {
-		// Filter to project packages only
-		filtered := make([]golang.SearchResult, 0, len(results))
-		for _, r := range results {
-			if strings.HasPrefix(r.Symbol.Package.Identifier.PkgPath, modulePath) {
-				filtered = append(filtered, r)
-			}
-		}
-		return filtered
-	}
-
-	// Parse scope for includes/excludes
-	var includes, excludes []string
-	for _, part := range strings.Split(scope, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" || part == "project" {
-			continue
-		}
-		if strings.HasPrefix(part, "-") {
-			excludes = append(excludes, strings.TrimPrefix(part, "-"))
-		} else {
-			includes = append(includes, part)
-		}
-	}
-
-	filtered := make([]golang.SearchResult, 0, len(results))
-	for _, r := range results {
-		pkgPath := r.Symbol.Package.Identifier.PkgPath
-
-		// Check excludes
-		excluded := false
-		for _, ex := range excludes {
-			if strings.Contains(pkgPath, ex) {
-				excluded = true
-				break
-			}
-		}
-		if excluded {
-			continue
-		}
-
-		// Check includes (if specified)
-		if len(includes) > 0 {
-			included := false
-			for _, inc := range includes {
-				if strings.Contains(pkgPath, inc) {
-					included = true
-					break
-				}
-			}
-			if !included {
-				continue
-			}
-		}
-
-		filtered = append(filtered, r)
-	}
-	return filtered
 }
