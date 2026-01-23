@@ -1,328 +1,181 @@
 # Wildcat CLI
 
-## Project Overview
-Static analysis CLI for AI agents. Uses gopls to provide symbol-based code queries with structured JSON output.
+## What This Is
 
-## Core Goals
+A code intelligence CLI for AI agents working on Go codebases. Built with Go's native analysis packages (`go/packages`, `go/types`, `go/ast`) to provide accurate, structured information about code.
 
-1. **Support AIs in developing Go code**: Wildcat exists to help AI agents understand, navigate, and modify Go codebases effectively. Every feature should ask: "Does this help an AI make better decisions about code?"
+**The user it serves:** AI agents that need to understand, navigate, and modify Go code.
 
-2. **Be a source of truth**: Wildcat's output must be accurate and complete. AIs rely on this information to reason about code - incorrect or missing data leads to incorrect reasoning and broken code.
+**The problem it solves:** AIs need trustworthy answers to questions like "who calls this function?" and "what would break if I changed this?" Traditional tools (grep, go doc) give unstructured output. Wildcat gives structured, complete answers.
 
-## Error Handling Philosophy
+## North Star
 
-**Never silently fail.** When wildcat cannot produce code intelligence, it must signal this clearly so the AI can reason about its situation. Silent failures (empty results, skipped items, swallowed errors) are bugs because they leave the AI operating on incomplete information without knowing it.
+**Be a source of truth that AIs can trust.**
 
-- Return errors, don't discard them with `_`
-- If something can't be processed, include it in output with an error field explaining why
-- Prefer surfacing problems over hiding them - an AI that knows it's missing information can ask for help or try alternatives
+Every piece of output should be accurate and complete. When wildcat says "these are all the callers," it means ALL the callers. When it can't provide complete information, it says so explicitly.
 
-## Design Principles
-- **Composability first**: Use interfaces to decouple components. Design for change.
-- **Simple over clever**: Clear, readable code beats complex abstractions.
-- **Adequate configuration**: Support config where needed, but avoid over-engineering.
-- **Small, focused packages**: Each package should do one thing well.
+This matters because AIs make decisions based on wildcat's output. Incomplete information presented as complete leads to broken code.
 
-## Code Standards
-- Use `cobra` for CLI structure
-- Use interfaces at package boundaries
-- Keep functions short and testable
-- Error handling: wrap errors with context using `fmt.Errorf("context: %w", err)`
-- No global state; pass dependencies explicitly
+## The Cardinal Rule
 
-## Project Structure
+**Never silently fail.**
+
+- Don't discard errors with `_`
+- Don't skip items without explanation
+- Don't return partial results as if they were complete
+- If something fails, include it in output with an error explaining why
+
+An AI that knows it's missing information can adapt. An AI that doesn't know is operating blind.
+
+## Current State
+
+The tool works and is useful. The main commands (`search`, `symbol`, `package`, `tree`, `deadcode`) provide real value.
+
+**Current priority:** Error handling consistency. A recent audit found ~18 places where errors are silently discarded or analysis fails without indication. These are tracked as tickets. Check `bd list -s open -p 1` for the high-priority work.
+
+**Key architectural tickets:**
+- `wc-f06a`: Add diagnostics channel for non-fatal issues
+- `wc-79d6`: Format functions should embed errors inline, not return them
+- `wc-c79f`: Error handling philosophy documentation
+
+## Architecture
+
 ```
-cmd/           # CLI commands (cobra)
-internal/      # Private packages
-  config/      # Configuration handling
-  errors/      # Error types and codes
-  golang/      # Go-specific helpers (stdlib detection, etc.)
-  lsp/         # LSP client and protocol types
-  output/      # Output formatting and writers
-  servers/     # Language server specs
-  symbols/     # Symbol parsing and resolution
-  traverse/    # Call graph traversal
+main.go                    # CLI entry point, cobra root command
+internal/
+  commands/                # CLI commands (search, symbol, package, tree, deadcode, readme)
+    commands.go            # Command[T] interface, ErrorResult, Result interface
+    wildcat.go             # Wildcat struct (Project + Index), shared helpers
+    scope.go               # ScopeFilter for package filtering
+    search/                # search command
+    symbol/                # symbol command
+    package/               # package command
+    tree/                  # tree command
+    deadcode/              # deadcode command
+    readme/                # readme command
+  golang/                  # Pure Go analysis (no CLI concerns)
+    pkgpath.go             # Project, Package, loading
+    search.go              # SymbolIndex, fuzzy search, regex search
+    refs.go                # Reference walking
+    calls.go               # Call graph walking
+    interfaces.go          # Interface satisfaction checking
+    deadcode.go            # RTA-based reachability analysis
+    format.go              # AST formatting helpers
+    channels.go            # Channel operation detection
+    embed.go               # go:embed directive parsing
+  output/                  # Output formatting
+    types.go               # Shared output types
+    snippet.go             # Code snippet extraction
 ```
 
-## Testing
-- Table-driven tests preferred
-- Test interfaces, not implementations
-- Mock external dependencies
+**Key types:**
+- `commands.Wildcat`: Holds loaded project, stdlib, and symbol index
+- `golang.Project`: Module info + all packages
+- `golang.Package`: Single package with AST and type info
+- `golang.Symbol`: A named entity (func, type, var, const, method)
+- `golang.SymbolIndex`: Searchable index of all symbols
 
-## Build & Run
-```bash
-go build -o wildcat .
-./wildcat
-```
+**Key patterns:**
+- Commands implement `Command[T]` interface with `Execute()` and `Cmd()`
+- Analysis functions are in `internal/golang/`, CLI wiring in `internal/commands/`
+- Visitor patterns for walking (`RefVisitor`, `CallVisitor`, `ChannelOpVisitor`)
+- `ScopeFilter` for include/exclude package patterns
 
-Use wildcat while developing wildcat to further inform how the tool should
-work and hone the workflows.
+## Bigger Picture
 
-----
+Wildcat is intended to be a reference implementation for a broader specification: **AIDE (AI Development Environment)**. The idea is that if we get the command surface area and output semantics right for Go, we can write a spec that other languages can implement.
 
-NOTE: bd has been provided as a mechanism of memory for you. Track your
-work and insights and communicate with future Claudes here. Please be
-aware your context may not be available to you in future sessions and
-bd is your only means of persisting information over time.
+This means command names and output structures should be thoughtfully designed - they're not just implementation details, they're potentially part of a standard.
 
-bd - Dependency-Aware Issue Tracker
+See `docs/AIDE-SPEC-SEED.md` for the early thinking on this.
 
-Issues chained together like beads.
+## Developing on Wildcat
 
-CREATING ISSUES
-  bd create "Fix login bug"
-  bd create "Add auth" -p 0 -t feature
-  bd create "Write tests" -d "Unit tests for auth" --assignee alice
-
-VIEWING ISSUES
-  bd list       List all issues
-  bd list --status open  List by status
-  bd list --priority 0  List by priority (0-4, 0=highest)
-  bd show bd-1       Show issue details
-
-MANAGING DEPENDENCIES
-  bd dep add bd-1 bd-2     Add dependency (bd-2 blocks bd-1)
-  bd dep tree bd-1  Visualize dependency tree
-  bd dep cycles      Detect circular dependencies
-
-DEPENDENCY TYPES
-  blocks  Task B must complete before task A
-  related  Soft connection, doesn't block progress
-  parent-child  Epic/subtask hierarchical relationship
-  discovered-from  Auto-created when AI discovers related work
-
-READY WORK
-  bd ready       Show issues ready to work on
-            Ready = status is 'open' AND no blocking dependencies
-            Perfect for agents to claim next work!
-
-UPDATING ISSUES
-  bd update bd-1 --status in_progress
-  bd update bd-1 --priority 0
-  bd update bd-1 --assignee bob
-
-CLOSING ISSUES
-  bd close bd-1
-  bd close bd-2 bd-3 --reason "Fixed in PR #42"
-
-AGENT INTEGRATION
-  bd is designed for AI-supervised workflows:
-    • Agents create issues when discovering new work
-    • bd ready shows unblocked work ready to claim
-    • Use --json flags for programmatic parsing
-    • Dependencies prevent agents from duplicating effort
-
-## bd Command Reference
-
-Quick reference for commonly-used flags. For basic usage, see the bd section above.
-
-### `bd create` - Create Issues
+### Orient yourself
 
 ```bash
-bd create "Title"                              # Basic (type=task, priority=2)
-bd create "Title" -t feature -p 1              # High-priority feature
-bd create "Title" -d "Description here"        # With description
-bd create "Title" --deps "blocks:bd-5"         # With dependency
-bd create "Title" --deps "bd-5,bd-6"           # Multiple deps (default: blocks)
-bd create "Title" --parent bd-10               # Child of epic bd-10
-bd create -f issues.md                         # Bulk create from markdown
+bd list -s open              # See what needs work
+bd ready                     # See unblocked tickets ready to claim
+wildcat package internal/golang   # Understand a package
+wildcat search "YourTopic"   # Find relevant symbols
 ```
 
-**Types:** `bug`, `feature`, `task`, `epic`, `chore`
-**Priority:** `0`=critical, `1`=high, `2`=medium (default), `3`=low, `4`=backlog
+### Use wildcat to develop wildcat
 
-### `bd list` - Query Issues
+This is critical. Every time you need to understand code, find symbols, or explore - use wildcat instead of grep. This surfaces bugs and UX issues.
 
 ```bash
-bd list                                        # All issues
-bd list -s open                                # By status
-bd list -p 0                                   # Critical priority only
-bd list -t bug -s open                         # Open bugs
-bd list --title "login"                        # Title contains "login"
-bd list --id "bd-1,bd-5,bd-10"                 # Specific IDs
-bd list -n 10                                  # Limit to 10 results
-bd list --json | jq '.[] | .id'                # JSON for scripting
-bd list --format dot > deps.dot                # Graphviz output
+wildcat search "DeadCode"                           # find symbols
+wildcat symbol golang.WalkReferences                # deep dive on a symbol
+wildcat package internal/commands/symbol            # understand a package
+wildcat tree commands.LoadWildcat                   # trace call graphs
 ```
 
-**Status:** `open`, `in_progress`, `blocked`, `closed`
+A stable `wildcat` is in PATH. After changes, build with `go build -o wildcat .` and test with `./wildcat`.
 
-### `bd close` / `bd reopen`
+### Working on tickets
 
 ```bash
-bd close bd-1                                  # Close single
-bd close bd-1 bd-2 bd-3                        # Close multiple
-bd close bd-1 -r "Fixed in commit abc123"      # With reason (recommended)
-bd reopen bd-1                                 # Reopen closed issue
-bd reopen bd-1 -r "Needs more work"            # With reason
+bd show wc-XXXX              # Read the ticket
+bd update wc-XXXX --status in_progress
+# ... do the work ...
+bd close wc-XXXX -r "Brief description of what was done"
+git add . && git commit      # Include .beads/ in commit
 ```
 
-### `bd dep` - Dependencies
+### Code patterns to follow
+
+**Adding a new analysis function** (in `internal/golang/`):
+- Return errors, don't panic
+- Use visitor pattern if walking AST/packages
+- Consider what happens when type info is unavailable
+
+**Adding error handling:**
+- For fatal errors: return `error` or `*commands.ErrorResult` with suggestions
+- For partial failures: emit diagnostic (once `wc-f06a` is implemented)
+- For format failures: embed error inline in output string (per `wc-79d6`)
+
+**Adding a new command:**
+- Implement `Command[T]` interface
+- Put in `internal/commands/<name>/`
+- Wire up in `main.go`
+
+## Build & Test
 
 ```bash
-# Add dependency (bd-2 blocks bd-1, i.e., bd-1 depends on bd-2)
-bd dep add bd-1 bd-2                           # Default type: blocks
-bd dep add bd-1 bd-2 -t related                # Soft relationship
-bd dep add bd-1 bd-2 -t discovered-from        # Tracking origin
-
-bd dep remove bd-1 bd-2                        # Remove dependency
-bd dep tree bd-1                               # What blocks bd-1
-bd dep tree bd-1 --reverse                     # What depends on bd-1
-bd dep tree bd-1 --format mermaid              # Mermaid.js output
-bd dep cycles                                  # Detect circular deps
+go build -o wildcat .        # Build
+go test ./...                # Run tests
+./wildcat <command>          # Test locally
 ```
 
-**Types:** `blocks` (hard), `related` (soft), `parent-child`, `discovered-from`
+Prefer writing `*_test.go` files over ad-hoc testing. For quick experiments, add print statements, build, run, then remove them.
 
-### `bd comments`
+---
+
+## Tools
+
+### bd - Issue Tracker
+
+Issues are in `.beads/issues.jsonl`. Use `bd` to manage them.
 
 ```bash
-bd comments bd-1                               # List comments
-bd comments bd-1 --json                        # JSON format
-bd comments add bd-1 "Comment text"            # Add comment
-bd comments add bd-1 -f notes.txt              # From file
+bd ready                     # What's ready to work on
+bd list -s open -p 1         # High priority open tickets
+bd show wc-XXXX              # Ticket details
+bd create "Title" -d "Description" -p 2
+bd close wc-XXXX -r "Reason"
+bd dep tree wc-XXXX          # See dependencies
 ```
 
-### Common Patterns
+**Workflow:** Create ticket → commit .beads/ → work → close ticket → commit code + .beads/ together
 
-```bash
-# Find ready work (open + no blockers)
-bd ready
+### Allowed Commands
 
-# Find in progress work
-bd list -s in_progress
+These don't require approval:
+- `bd`, `wildcat`, `go build`, `go test`, `go doc`, `jq`
+- `git status/add/commit/log/diff/show/checkout/branch/...`
+- `tree`, `find`, `ls`, `grep`
 
-# Close with context for future reference
-bd close bd-5 -r "Implemented in src/handler.go, tested with go test ./..."
+Avoid: `go run -`, `cat <<EOF | go run`, `-C <dir>` flags (cd instead)
 
-# Track discovered work during implementation
-bd create "Edge case: empty input" --deps "discovered-from:bd-5"
-```
-
-## bd Workflow Lifecycle
-
-**IMPORTANT:** bd is not just for tracking—it's the first step in any work.
-
-### The Complete Flow
-
-```
-User requests work
-       ↓
-   bd create         ← BEFORE starting work
-       ↓
-   git commit        ← Commit ticket creation immediately
-       ↓
-   bd update --status in_progress
-       ↓
-   ... do the work ...
-       ↓
-   bd close          ← Close FIRST (updates .beads/)
-       ↓
-   git add && git commit   ← Commit code + .beads/ together
-```
-
-### Rules
-
-1. **Commit ticket creation immediately**: After `bd create`, always commit `.beads/` right away
-2. **Ticket updates are case-by-case**: Status changes, priority updates, etc. don't require immediate commits
-3. **Commit closure with the work**: Close the issue, then commit code AND `.beads/` together
-
-### Why This Order Matters
-
-- **Create commits preserve intent**: Ticket exists in git even if work is interrupted
-- **Updates are transient**: Status changes during work don't need individual commits
-- **Closure is atomic with work**: Code changes + issue closure in one commit for traceability
-
-# Notes
-
-When executing commands the following guidance enalbes smoother workflow withour requiring
-approval for commands.
-
-The following commands do not require user approval:
-
-- Bash(bd:*)
-- Bash(wildcat:*)
-- Bash(go build:*)
-- Bash(go test:*)
-- Bash(go doc:*)
-- Bash(gopls:*)
-- Bash(jq:*)
-
-- Bash(git status:*)
-- Bash(git add:*)
-- Bash(git commit:*)
-- Bash(git log:*)
-- Bash(git diff:*)
-- Bash(git show:*)
-
-- Bash(git submodule:*)
-- Bash(git lfs:*)
-- Bash(git checkout:*)
-- Bash(git branch:*)
-- Bash(git remote:*)
-- Bash(git fetch:*)
-- Bash(git pull:*)
-- Bash(git merge:*)
-- Bash(git tag:*)
-- Bash(git rev-parse:*)
-
-- WebSearch
-- WebFetch(domain:github.com)
-- WebFetch(domain:github.io)
-- WebFetch(domain:microsoft.github.io)
-- WebFetch(domain:raw.githubusercontent.com)
-- WebFetch(domain:go.dev.googlesource.com)
-
-- Bash(tree:*)
-- Bash(find:*)
-- Bash(dirname:*)
-- Bash(grep:*)
-- Bash(ls:*)
-
-When executing commands that take a -C <dir>, avoid that pattern and instead
-cd into the target dir.  This will enable the command to be used without approval.
-
-NEVER use `go run -` or `cat <<'EOF' | go run -` patterns. They don't work.
-To test Go code, write a proper test file and use `go test`.
-
-**Testing Go code**: Prefer writing a temporary `*_test.go` file in the appropriate
-package directory, then run `go test` and delete the file. Avoid `cat > /tmp/test.go`
-patterns because:
-- They require approval every time
-- Package imports often fail due to path issues
-- Proper test files integrate with existing package context
-
-**When tests aren't suitable** (e.g., need real project context, testing harness is
-overkill): Add temporary print statements to the code, build with `go build`, and
-run `./wildcat` locally. This gives real answers quickly without test fixtures.
-Remove the prints when done.
-
-## File Operations
-
-ALWAYS use built-in tools (Edit, Write, Read) instead of shell patterns like:
-- `cat >> file << 'EOF'`
-- `echo "..." >> file`
-- `sed -i ...`
-
-Built-in tools don't require extra approvals and are faster. The Edit tool
-handles insertions, replacements, and deletions cleanly.
-
-## Dogfooding Wildcat
-
-**Use wildcat to develop wildcat.** This is critical for finding bugs, improving
-UX, and understanding what's missing. Every time you need to understand code,
-find symbols, or explore the codebase - use wildcat instead of grep/find.
-
-A stable version of `wildcat` is installed in PATH:
-- `wildcat ...` - stable version, always works
-- `./wildcat ...` - local build (after `go build -o wildcat .`)
-
-Examples:
-```bash
-wildcat search "DeadCode"                    # find symbols
-wildcat package internal/golang              # understand a package
-wildcat deadcode internal/lsp                # find dead code
-wildcat tree internal/commands/deadcode.Execute  # trace call graphs
-```
-
-When something doesn't work well or output is confusing, create a ticket.
+Use built-in tools (Read, Write, Edit) instead of cat/echo/sed for file operations.
