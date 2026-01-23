@@ -19,16 +19,39 @@ type EmbedInfo struct {
 	rawSize   int64    // raw bytes for internal aggregation
 }
 
+// ChannelOp represents a single channel operation.
+type ChannelOp struct {
+	Kind      string `json:"kind"`      // make, send, recv, close, select_send, select_recv
+	Operation string `json:"operation"` // the code snippet
+	Location  string `json:"location"`  // file:line
+}
+
+// ChannelFunc groups channel operations by enclosing function.
+type ChannelFunc struct {
+	Signature  string            `json:"signature"`            // function signature
+	Definition string            `json:"definition"`           // file:line
+	Refs       *output.TargetRefs `json:"refs,omitempty"`       // callers info
+	Operations []ChannelOp       `json:"operations"`           // channel ops in this function
+}
+
+// ChannelGroup groups channel operations by element type.
+type ChannelGroup struct {
+	ElementType string        `json:"element_type"`
+	Makes       []ChannelOp   `json:"makes,omitempty"`     // make() calls (not grouped by func)
+	Functions   []ChannelFunc `json:"functions,omitempty"` // operations grouped by enclosing function
+}
+
 type PackageCommandResponse struct {
 	Query      output.QueryInfo       `json:"query"`
 	Package    output.PackageInfo     `json:"package"`
 	Summary    output.PackageSummary  `json:"summary"`
 	Files      []output.FileInfo      `json:"files"`
-	Embeds     []EmbedInfo            `json:"embeds,omitempty"`
+	Embeds     []EmbedInfo            `json:"embeds"`
 	Constants  []output.PackageSymbol `json:"constants"`
 	Variables  []output.PackageSymbol `json:"variables"`
 	Functions  []output.PackageSymbol `json:"functions"`
 	Types      []output.PackageType   `json:"types"`
+	Channels   []ChannelGroup         `json:"channels"`
 	Imports    []output.DepResult     `json:"imports"`
 	ImportedBy []output.DepResult     `json:"imported_by"`
 }
@@ -39,11 +62,12 @@ func (resp *PackageCommandResponse) MarshalJSON() ([]byte, error) {
 		Package    output.PackageInfo     `json:"package"`
 		Summary    output.PackageSummary  `json:"summary"`
 		Files      []output.FileInfo      `json:"files"`
-		Embeds     []EmbedInfo            `json:"embeds,omitempty"`
+		Embeds     []EmbedInfo            `json:"embeds"`
 		Constants  []output.PackageSymbol `json:"constants"`
 		Variables  []output.PackageSymbol `json:"variables"`
 		Functions  []output.PackageSymbol `json:"functions"`
 		Types      []output.PackageType   `json:"types"`
+		Channels   []ChannelGroup         `json:"channels"`
 		Imports    []output.DepResult     `json:"imports"`
 		ImportedBy []output.DepResult     `json:"imported_by"`
 	}{
@@ -56,6 +80,7 @@ func (resp *PackageCommandResponse) MarshalJSON() ([]byte, error) {
 		Variables:  resp.Variables,
 		Functions:  resp.Functions,
 		Types:      resp.Types,
+		Channels:   resp.Channels,
 		Imports:    resp.Imports,
 		ImportedBy: resp.ImportedBy,
 	})
@@ -158,6 +183,35 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 		// Methods
 		for _, m := range t.Methods {
 			writeSymbolMd(&sb, m.Signature, m.Location, m.Refs, true)
+		}
+	}
+
+	// Channels - always show header for clear signal
+	if len(r.Channels) == 0 {
+		sb.WriteString("\n# Channels (0)\n")
+	} else {
+		// Count total ops
+		var totalOps int
+		for _, g := range r.Channels {
+			totalOps += len(g.Makes)
+			for _, f := range g.Functions {
+				totalOps += len(f.Operations)
+			}
+		}
+		fmt.Fprintf(&sb, "\n# Channels (%d ops, %d types)\n", totalOps, len(r.Channels))
+		for _, g := range r.Channels {
+			fmt.Fprintf(&sb, "\n## chan %s\n", g.ElementType)
+			// Makes are not grouped by function
+			for _, op := range g.Makes {
+				fmt.Fprintf(&sb, "make: %s // %s\n", op.Operation, op.Location)
+			}
+			// Other operations grouped by enclosing function
+			for _, f := range g.Functions {
+				writeSymbolMd(&sb, f.Signature, f.Definition, f.Refs, true)
+				for _, op := range f.Operations {
+					fmt.Fprintf(&sb, "  %s: %s // %s\n", op.Kind, op.Operation, op.Location)
+				}
+			}
 		}
 	}
 

@@ -446,6 +446,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		},
 		Files:      pkgret.Files,
 		Embeds:     pkgret.Embeds,
+		Channels:   c.collectChannels(wc, pkg),
 		Constants:  pkgret.Constants,
 		Variables:  pkgret.Variables,
 		Functions:  pkgret.Functions,
@@ -525,4 +526,123 @@ func calculateEmbedSize(pkgDir string, patterns []string) (int, int64) {
 	}
 
 	return fileCount, totalSize
+}
+
+// collectChannels collects channel operations from a package grouped by element type and function.
+func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Package) []ChannelGroup {
+	// Collect ops by element type, then by function
+	type opInfo struct {
+		kind      string
+		operation string
+		location  string
+		funcDecl  *ast.FuncDecl
+	}
+	typeOps := make(map[string][]opInfo)
+
+	golang.WalkChannelOps([]*golang.Package{pkg}, func(op golang.ChannelOp) bool {
+		// Skip test packages
+		if strings.HasSuffix(op.Package.Identifier.PkgPath, ".test") {
+			return true
+		}
+
+		operation, err := golang.FormatNode(op.Node)
+		if err != nil {
+			operation = "<format error>"
+		}
+		base := filepath.Base(op.File)
+		location := fmt.Sprintf("%s:%d", base, op.Line)
+
+		typeOps[op.ElemType] = append(typeOps[op.ElemType], opInfo{
+			kind:      string(op.Kind),
+			operation: operation,
+			location:  location,
+			funcDecl:  op.EnclosingFunc,
+		})
+		return true
+	})
+
+	// Sort element types
+	var elemTypes []string
+	for t := range typeOps {
+		elemTypes = append(elemTypes, t)
+	}
+	sort.Strings(elemTypes)
+
+	// Short package name for symbol lookups
+	pkgShortName := pkg.Identifier.PkgPath
+	if lastSlash := strings.LastIndex(pkgShortName, "/"); lastSlash >= 0 {
+		pkgShortName = pkgShortName[lastSlash+1:]
+	}
+
+	// Build groups
+	var groups []ChannelGroup
+	for _, elemType := range elemTypes {
+		group := ChannelGroup{ElementType: elemType}
+
+		// Group non-make ops by function
+		funcOps := make(map[string][]ChannelOp) // funcKey -> ops
+		funcDecls := make(map[string]*ast.FuncDecl)
+
+		for _, op := range typeOps[elemType] {
+			channelOp := ChannelOp{
+				Kind:      op.kind,
+				Operation: op.operation,
+				Location:  op.location,
+			}
+
+			if op.kind == "make" {
+				group.Makes = append(group.Makes, channelOp)
+			} else if op.funcDecl != nil {
+				// Group by function
+				funcKey := op.funcDecl.Name.Name
+				if op.funcDecl.Recv != nil && len(op.funcDecl.Recv.List) > 0 {
+					typeName := golang.ReceiverTypeName(op.funcDecl.Recv.List[0].Type)
+					funcKey = typeName + "." + funcKey
+				}
+				funcOps[funcKey] = append(funcOps[funcKey], channelOp)
+				funcDecls[funcKey] = op.funcDecl
+			} else {
+				// Package-level (init or var init) - use special key
+				funcOps["<init>"] = append(funcOps["<init>"], channelOp)
+			}
+		}
+
+		// Build function list sorted by name
+		var funcKeys []string
+		for k := range funcOps {
+			funcKeys = append(funcKeys, k)
+		}
+		sort.Strings(funcKeys)
+
+		for _, funcKey := range funcKeys {
+			ops := funcOps[funcKey]
+			fn := ChannelFunc{
+				Operations: ops,
+			}
+
+			if funcKey == "<init>" {
+				fn.Signature = "<package init>"
+				fn.Definition = ""
+			} else if fd := funcDecls[funcKey]; fd != nil {
+				sig, err := golang.FormatFuncDecl(fd)
+				if err != nil {
+					sig = "func " + funcKey + "(...)"
+				}
+				fn.Signature = sig
+
+				pos := pkg.Package.Fset.Position(fd.Pos())
+				fn.Definition = fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line)
+
+				// Get refs for this function
+				symbolKey := pkgShortName + "." + funcKey
+				fn.Refs = getSymbolRefs(wc, symbolKey)
+			}
+
+			group.Functions = append(group.Functions, fn)
+		}
+
+		groups = append(groups, group)
+	}
+
+	return groups
 }

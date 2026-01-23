@@ -21,12 +21,13 @@ const (
 
 // ChannelOp represents a channel operation.
 type ChannelOp struct {
-	Package  *Package      // package containing the operation
-	File     string        // file path
-	Line     int           // line number
-	Kind     ChannelOpKind // type of operation
-	ElemType string        // channel element type
-	Node     ast.Node      // the AST node
+	Package       *Package       // package containing the operation
+	File          string         // file path
+	Line          int            // line number
+	Kind          ChannelOpKind  // type of operation
+	ElemType      string         // channel element type
+	Node          ast.Node       // the AST node
+	EnclosingFunc *ast.FuncDecl  // enclosing function (nil if at package level)
 }
 
 // ChannelOpVisitor is called for each channel operation found. Return false to stop walking.
@@ -60,10 +61,48 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 	selectNodes := make(map[ast.Node]bool)
 	continueWalk := true
 
+	// Track current enclosing function during walk
+	var funcStack []*ast.FuncDecl
+
+	currentFunc := func() *ast.FuncDecl {
+		if len(funcStack) > 0 {
+			return funcStack[len(funcStack)-1]
+		}
+		return nil
+	}
+
+	emitOp := func(kind ChannelOpKind, elemType string, node ast.Node, pos token.Position) bool {
+		op := ChannelOp{
+			Package:       pkg,
+			File:          filename,
+			Line:          pos.Line,
+			Kind:          kind,
+			ElemType:      elemType,
+			Node:          node,
+			EnclosingFunc: currentFunc(),
+		}
+		if !visitor(op) {
+			continueWalk = false
+			return false
+		}
+		return true
+	}
+
 	// First pass: identify all select statement channel operations
-	ast.Inspect(file, func(n ast.Node) bool {
+	var inspectSelect func(n ast.Node) bool
+	inspectSelect = func(n ast.Node) bool {
 		if !continueWalk {
 			return false
+		}
+
+		// Track function boundaries
+		if fn, ok := n.(*ast.FuncDecl); ok {
+			funcStack = append(funcStack, fn)
+			for _, stmt := range fn.Body.List {
+				ast.Inspect(stmt, inspectSelect)
+			}
+			funcStack = funcStack[:len(funcStack)-1]
+			return false // don't descend again
 		}
 
 		sel, ok := n.(*ast.SelectStmt)
@@ -82,16 +121,7 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 				selectNodes[node] = true
 				if elemType := ChannelElemType(pkg.Package.TypesInfo, node.Chan); elemType != "" {
 					pos := pkg.Package.Fset.Position(node.Pos())
-					op := ChannelOp{
-						Package:  pkg,
-						File:     filename,
-						Line:     pos.Line,
-						Kind:     ChannelOpSelectSend,
-						ElemType: elemType,
-						Node:     node,
-					}
-					if !visitor(op) {
-						continueWalk = false
+					if !emitOp(ChannelOpSelectSend, elemType, node, pos) {
 						return false
 					}
 				}
@@ -101,16 +131,7 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 					selectNodes[recv] = true
 					if elemType := ChannelElemType(pkg.Package.TypesInfo, recv.X); elemType != "" {
 						pos := pkg.Package.Fset.Position(recv.Pos())
-						op := ChannelOp{
-							Package:  pkg,
-							File:     filename,
-							Line:     pos.Line,
-							Kind:     ChannelOpSelectReceive,
-							ElemType: elemType,
-							Node:     recv,
-						}
-						if !visitor(op) {
-							continueWalk = false
+						if !emitOp(ChannelOpSelectReceive, elemType, recv, pos) {
 							return false
 						}
 					}
@@ -122,16 +143,7 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 						selectNodes[recv] = true
 						if elemType := ChannelElemType(pkg.Package.TypesInfo, recv.X); elemType != "" {
 							pos := pkg.Package.Fset.Position(recv.Pos())
-							op := ChannelOp{
-								Package:  pkg,
-								File:     filename,
-								Line:     pos.Line,
-								Kind:     ChannelOpSelectReceive,
-								ElemType: elemType,
-								Node:     recv,
-							}
-							if !visitor(op) {
-								continueWalk = false
+							if !emitOp(ChannelOpSelectReceive, elemType, recv, pos) {
 								return false
 							}
 						}
@@ -140,16 +152,35 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 			}
 		}
 		return true
-	})
-
-	if !continueWalk {
-		return false
 	}
 
-	// Second pass: collect non-select channel operations
-	ast.Inspect(file, func(n ast.Node) bool {
+	for _, decl := range file.Decls {
+		ast.Inspect(decl, inspectSelect)
 		if !continueWalk {
 			return false
+		}
+	}
+
+	// Reset func stack for second pass
+	funcStack = nil
+
+	// Second pass: collect non-select channel operations
+	var inspectOps func(n ast.Node) bool
+	inspectOps = func(n ast.Node) bool {
+		if !continueWalk {
+			return false
+		}
+
+		// Track function boundaries
+		if fn, ok := n.(*ast.FuncDecl); ok {
+			funcStack = append(funcStack, fn)
+			if fn.Body != nil {
+				for _, stmt := range fn.Body.List {
+					ast.Inspect(stmt, inspectOps)
+				}
+			}
+			funcStack = funcStack[:len(funcStack)-1]
+			return false // don't descend again
 		}
 
 		switch node := n.(type) {
@@ -159,16 +190,7 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 			}
 			if elemType := ChannelElemType(pkg.Package.TypesInfo, node.Chan); elemType != "" {
 				pos := pkg.Package.Fset.Position(node.Pos())
-				op := ChannelOp{
-					Package:  pkg,
-					File:     filename,
-					Line:     pos.Line,
-					Kind:     ChannelOpSend,
-					ElemType: elemType,
-					Node:     node,
-				}
-				if !visitor(op) {
-					continueWalk = false
+				if !emitOp(ChannelOpSend, elemType, node, pos) {
 					return false
 				}
 			}
@@ -180,16 +202,7 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 			if node.Op == token.ARROW {
 				if elemType := ChannelElemType(pkg.Package.TypesInfo, node.X); elemType != "" {
 					pos := pkg.Package.Fset.Position(node.Pos())
-					op := ChannelOp{
-						Package:  pkg,
-						File:     filename,
-						Line:     pos.Line,
-						Kind:     ChannelOpReceive,
-						ElemType: elemType,
-						Node:     node,
-					}
-					if !visitor(op) {
-						continueWalk = false
+					if !emitOp(ChannelOpReceive, elemType, node, pos) {
 						return false
 					}
 				}
@@ -206,16 +219,7 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 				if len(node.Args) > 0 {
 					if elemType := ChannelElemType(pkg.Package.TypesInfo, node.Args[0]); elemType != "" {
 						pos := pkg.Package.Fset.Position(node.Pos())
-						op := ChannelOp{
-							Package:  pkg,
-							File:     filename,
-							Line:     pos.Line,
-							Kind:     ChannelOpClose,
-							ElemType: elemType,
-							Node:     node,
-						}
-						if !visitor(op) {
-							continueWalk = false
+						if !emitOp(ChannelOpClose, elemType, node, pos) {
 							return false
 						}
 					}
@@ -226,16 +230,7 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 					if ch, ok := t.Underlying().(*types.Chan); ok {
 						elemType := ch.Elem().String()
 						pos := pkg.Package.Fset.Position(node.Pos())
-						op := ChannelOp{
-							Package:  pkg,
-							File:     filename,
-							Line:     pos.Line,
-							Kind:     ChannelOpMake,
-							ElemType: elemType,
-							Node:     node,
-						}
-						if !visitor(op) {
-							continueWalk = false
+						if !emitOp(ChannelOpMake, elemType, node, pos) {
 							return false
 						}
 					}
@@ -245,22 +240,20 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 		case *ast.RangeStmt:
 			if elemType := ChannelElemType(pkg.Package.TypesInfo, node.X); elemType != "" {
 				pos := pkg.Package.Fset.Position(node.Pos())
-				op := ChannelOp{
-					Package:  pkg,
-					File:     filename,
-					Line:     pos.Line,
-					Kind:     ChannelOpRange,
-					ElemType: elemType,
-					Node:     node,
-				}
-				if !visitor(op) {
-					continueWalk = false
+				if !emitOp(ChannelOpRange, elemType, node, pos) {
 					return false
 				}
 			}
 		}
 		return true
-	})
+	}
+
+	for _, decl := range file.Decls {
+		ast.Inspect(decl, inspectOps)
+		if !continueWalk {
+			return false
+		}
+	}
 
 	return continueWalk
 }

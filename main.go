@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	channels_cmd "github.com/jasonmoo/wildcat/internal/commands/channels"
 	deadcode_cmd "github.com/jasonmoo/wildcat/internal/commands/deadcode"
 	package_cmd "github.com/jasonmoo/wildcat/internal/commands/package"
 	readme_cmd "github.com/jasonmoo/wildcat/internal/commands/readme"
@@ -104,7 +103,6 @@ and actionable error messages.`,
 	rootCmd.AddCommand(symbol_cmd.NewSymbolCommand().Cmd())
 	rootCmd.AddCommand(search_cmd.NewSearchCommand().Cmd())
 	rootCmd.AddCommand(tree_cmd.NewTreeCommand().Cmd())
-	rootCmd.AddCommand(channels_cmd.NewChannelsCommand().Cmd())
 	rootCmd.AddCommand(deadcode_cmd.NewDeadcodeCommand().Cmd())
 	rootCmd.AddCommand(readme_cmd.NewReadmeCommand().Cmd())
 	rootCmd.AddCommand(versionCmd)
