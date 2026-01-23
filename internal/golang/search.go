@@ -258,14 +258,37 @@ type SearchOptions struct {
 // Search performs fuzzy search on the symbol index.
 // For plain queries, searches Name only.
 // For package-qualified queries (containing "."), also searches PkgPath.Name.
+// Also performs reverse matching to find shorter symbols that are "inside" the query
+// (e.g., query "NewServerClient" finds symbol "NewClient").
 func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult {
-	// Search against symbol names (always)
+	// Forward search: find targets where query chars appear in order (current behavior)
 	nameMatches := fuzzy.FindFrom(query, nameSource{idx})
 
 	// Search against full path only for package-qualified queries like "lsp.Client"
 	var fullMatches []fuzzy.Match
 	if strings.Contains(query, ".") {
 		fullMatches = fuzzy.FindFrom(query, fullSource{idx})
+	}
+
+	// Reverse search: find symbols whose name appears "inside" the query.
+	// This handles cases like query "NewServerClient" finding "NewClient",
+	// where the symbol is shorter than the query.
+	queryAsTarget := []string{query}
+	var reverseMatches []fuzzy.Match
+	for i := range idx.symbols {
+		// Only check if symbol name is shorter than query (reverse case)
+		name := idx.symbols[i].Name
+		if len(name) >= len(query) {
+			continue
+		}
+		matches := fuzzy.Find(name, queryAsTarget)
+		if len(matches) > 0 {
+			reverseMatches = append(reverseMatches, fuzzy.Match{
+				Index:          i,
+				Score:          matches[0].Score,
+				MatchedIndexes: matches[0].MatchedIndexes,
+			})
+		}
 	}
 
 	// Scoring function: reward length similarity and case match
@@ -305,6 +328,16 @@ func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult
 		// Full path matches get base fuzzy score (no length bonus since path is long)
 		if m.Score > scores[m.Index] {
 			scores[m.Index] = m.Score
+			matched[m.Index] = m.MatchedIndexes
+		}
+	}
+
+	for _, m := range reverseMatches {
+		// Reverse matches: symbol name found inside query
+		name := idx.symbols[m.Index].Name
+		score := scoreMatch(name, m.Score)
+		if score > scores[m.Index] {
+			scores[m.Index] = score
 			matched[m.Index] = m.MatchedIndexes
 		}
 	}
