@@ -145,14 +145,15 @@ func ConstructorTypeName(ft *ast.FuncType) string {
 	return name
 }
 
-// ChannelElemType returns the element type of a channel expression, or empty string if not a channel.
+// ChannelElemType returns the element type of a channel expression.
+// Returns "<unknown type>" if type info is unavailable (e.g., code doesn't compile).
 func ChannelElemType(info *types.Info, expr ast.Expr) string {
 	if t := info.TypeOf(expr); t != nil {
 		if ch, ok := t.Underlying().(*types.Chan); ok {
 			return ch.Elem().String()
 		}
 	}
-	return ""
+	return "<unknown type>"
 }
 
 // FormatNode formats an AST node to its canonical source representation.

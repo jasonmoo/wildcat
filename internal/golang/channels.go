@@ -119,21 +119,19 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 			switch node := comm.Comm.(type) {
 			case *ast.SendStmt:
 				selectNodes[node] = true
-				if elemType := ChannelElemType(pkg.Package.TypesInfo, node.Chan); elemType != "" {
-					pos := pkg.Package.Fset.Position(node.Pos())
-					if !emitOp(ChannelOpSelectSend, elemType, node, pos) {
-						return false
-					}
+				elemType := ChannelElemType(pkg.Package.TypesInfo, node.Chan)
+				pos := pkg.Package.Fset.Position(node.Pos())
+				if !emitOp(ChannelOpSelectSend, elemType, node, pos) {
+					return false
 				}
 
 			case *ast.ExprStmt:
 				if recv, ok := node.X.(*ast.UnaryExpr); ok && recv.Op == token.ARROW {
 					selectNodes[recv] = true
-					if elemType := ChannelElemType(pkg.Package.TypesInfo, recv.X); elemType != "" {
-						pos := pkg.Package.Fset.Position(recv.Pos())
-						if !emitOp(ChannelOpSelectReceive, elemType, recv, pos) {
-							return false
-						}
+					elemType := ChannelElemType(pkg.Package.TypesInfo, recv.X)
+					pos := pkg.Package.Fset.Position(recv.Pos())
+					if !emitOp(ChannelOpSelectReceive, elemType, recv, pos) {
+						return false
 					}
 				}
 
@@ -141,11 +139,10 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 				if len(node.Rhs) == 1 {
 					if recv, ok := node.Rhs[0].(*ast.UnaryExpr); ok && recv.Op == token.ARROW {
 						selectNodes[recv] = true
-						if elemType := ChannelElemType(pkg.Package.TypesInfo, recv.X); elemType != "" {
-							pos := pkg.Package.Fset.Position(recv.Pos())
-							if !emitOp(ChannelOpSelectReceive, elemType, recv, pos) {
-								return false
-							}
+						elemType := ChannelElemType(pkg.Package.TypesInfo, recv.X)
+						pos := pkg.Package.Fset.Position(recv.Pos())
+						if !emitOp(ChannelOpSelectReceive, elemType, recv, pos) {
+							return false
 						}
 					}
 				}
@@ -188,11 +185,10 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 			if selectNodes[node] {
 				return true
 			}
-			if elemType := ChannelElemType(pkg.Package.TypesInfo, node.Chan); elemType != "" {
-				pos := pkg.Package.Fset.Position(node.Pos())
-				if !emitOp(ChannelOpSend, elemType, node, pos) {
-					return false
-				}
+			elemType := ChannelElemType(pkg.Package.TypesInfo, node.Chan)
+			pos := pkg.Package.Fset.Position(node.Pos())
+			if !emitOp(ChannelOpSend, elemType, node, pos) {
+				return false
 			}
 
 		case *ast.UnaryExpr:
@@ -200,11 +196,10 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 				return true
 			}
 			if node.Op == token.ARROW {
-				if elemType := ChannelElemType(pkg.Package.TypesInfo, node.X); elemType != "" {
-					pos := pkg.Package.Fset.Position(node.Pos())
-					if !emitOp(ChannelOpReceive, elemType, node, pos) {
-						return false
-					}
+				elemType := ChannelElemType(pkg.Package.TypesInfo, node.X)
+				pos := pkg.Package.Fset.Position(node.Pos())
+				if !emitOp(ChannelOpReceive, elemType, node, pos) {
+					return false
 				}
 			}
 
@@ -217,11 +212,10 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 			switch ident.Name {
 			case "close":
 				if len(node.Args) > 0 {
-					if elemType := ChannelElemType(pkg.Package.TypesInfo, node.Args[0]); elemType != "" {
-						pos := pkg.Package.Fset.Position(node.Pos())
-						if !emitOp(ChannelOpClose, elemType, node, pos) {
-							return false
-						}
+					elemType := ChannelElemType(pkg.Package.TypesInfo, node.Args[0])
+					pos := pkg.Package.Fset.Position(node.Pos())
+					if !emitOp(ChannelOpClose, elemType, node, pos) {
+						return false
 					}
 				}
 
@@ -238,11 +232,10 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 			}
 
 		case *ast.RangeStmt:
-			if elemType := ChannelElemType(pkg.Package.TypesInfo, node.X); elemType != "" {
-				pos := pkg.Package.Fset.Position(node.Pos())
-				if !emitOp(ChannelOpRange, elemType, node, pos) {
-					return false
-				}
+			elemType := ChannelElemType(pkg.Package.TypesInfo, node.X)
+			pos := pkg.Package.Fset.Position(node.Pos())
+			if !emitOp(ChannelOpRange, elemType, node, pos) {
+				return false
 			}
 		}
 		return true
