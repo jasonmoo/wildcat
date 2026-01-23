@@ -34,6 +34,7 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 		for _, e := range p.Package.Errors {
 			ds = append(ds, Diagnostics{
 				Level:   "warning",
+				Package: p.Identifier.PkgPath,
 				Message: e.Error(),
 			})
 		}
@@ -41,12 +42,14 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 		if p.Package.TypesInfo == nil {
 			ds = append(ds, Diagnostics{
 				Level:   "warning",
-				Message: "package " + p.Identifier.PkgPath + ": type information unavailable",
+				Package: p.Identifier.PkgPath,
+				Message: "type information unavailable",
 			})
 		} else if p.Package.TypesInfo.Defs == nil {
 			ds = append(ds, Diagnostics{
 				Level:   "warning",
-				Message: "package " + p.Identifier.PkgPath + ": type definitions unavailable",
+				Package: p.Identifier.PkgPath,
+				Message: "type definitions unavailable",
 			})
 		}
 	}

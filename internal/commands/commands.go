@@ -25,7 +25,8 @@ type (
 	}
 
 	Diagnostics struct {
-		Level   string `json:"level"` // "warning", "info"
+		Level   string `json:"level"`             // "warning", "info"
+		Package string `json:"package,omitempty"` // package path (if applicable)
 		Message string `json:"message"`
 	}
 
@@ -89,7 +90,11 @@ func FormatDiagnosticsMarkdown(w io.Writer, ds []Diagnostics) {
 	fmt.Fprintln(w, "**Note:** Issues below may affect analysis. Results shown are accurate for successfully loaded packages but may be incomplete.")
 	fmt.Fprintln(w)
 	for _, d := range ds {
-		fmt.Fprintf(w, "- [%s] %s\n", d.Level, d.Message)
+		if d.Package != "" {
+			fmt.Fprintf(w, "- [%s] %s: %s\n", d.Level, d.Package, d.Message)
+		} else {
+			fmt.Fprintf(w, "- [%s] %s\n", d.Level, d.Message)
+		}
 	}
 }
 
