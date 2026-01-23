@@ -183,7 +183,7 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 		for _, e := range r.Embeds {
 			fmt.Fprintf(&sb, "//go:embed %s\n", strings.Join(e.Patterns, " "))
 			if e.Error != "" {
-				fmt.Fprintf(&sb, "%s // %s, ERROR: %s\n", e.Variable, e.Location, e.Error)
+				fmt.Fprintf(&sb, "%s // %s, %d files, %s (%s)\n", e.Variable, e.Location, e.FileCount, e.TotalSize, e.Error)
 			} else {
 				fmt.Fprintf(&sb, "%s // %s, %d files, %s\n", e.Variable, e.Location, e.FileCount, e.TotalSize)
 			}

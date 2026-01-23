@@ -388,7 +388,11 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 
 	// Collect embed directives
 	for _, ed := range golang.FindEmbedDirectives(pkg) {
-		fileCount, rawSize := calculateEmbedSize(pi.PkgDir, ed.Patterns)
+		fileCount, rawSize, errCount := calculateEmbedSize(pi.PkgDir, ed.Patterns)
+		var errMsg string
+		if errCount > 0 {
+			errMsg = fmt.Sprintf("%d inaccessible", errCount)
+		}
 		pkgret.Embeds = append(pkgret.Embeds, EmbedInfo{
 			Patterns:  ed.Patterns,
 			Variable:  fmt.Sprintf("var %s %s", ed.VarName, ed.VarType),
@@ -396,6 +400,7 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 			FileCount: fileCount,
 			TotalSize: formatSize(rawSize),
 			rawSize:   rawSize,
+			Error:     errMsg,
 		})
 	}
 
@@ -475,9 +480,12 @@ func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *output.TargetRefs {
 }
 
 // calculateEmbedSize calculates the total file count and size for embed patterns.
-func calculateEmbedSize(pkgDir string, patterns []string) (int, int64) {
+// Returns (fileCount, totalSize, errorCount) where errorCount indicates files that
+// couldn't be accessed due to permission or other errors.
+func calculateEmbedSize(pkgDir string, patterns []string) (int, int64, int) {
 	var fileCount int
 	var totalSize int64
+	var errCount int
 	seen := make(map[string]bool) // avoid counting same file twice
 
 	for _, pattern := range patterns {
@@ -487,6 +495,7 @@ func calculateEmbedSize(pkgDir string, patterns []string) (int, int64) {
 		// Use filepath.Glob for simple patterns
 		matches, err := filepath.Glob(fullPattern)
 		if err != nil {
+			errCount++
 			continue
 		}
 
@@ -494,13 +503,18 @@ func calculateEmbedSize(pkgDir string, patterns []string) (int, int64) {
 			// Walk if it's a directory
 			info, err := os.Stat(match)
 			if err != nil {
+				errCount++
 				continue
 			}
 
 			if info.IsDir() {
 				// Walk the directory
 				filepath.WalkDir(match, func(path string, d fs.DirEntry, err error) error {
-					if err != nil || d.IsDir() {
+					if err != nil {
+						errCount++
+						return nil
+					}
+					if d.IsDir() {
 						return nil
 					}
 					if seen[path] {
@@ -510,6 +524,8 @@ func calculateEmbedSize(pkgDir string, patterns []string) (int, int64) {
 					if fi, err := d.Info(); err == nil {
 						fileCount++
 						totalSize += fi.Size()
+					} else {
+						errCount++
 					}
 					return nil
 				})
@@ -524,7 +540,7 @@ func calculateEmbedSize(pkgDir string, patterns []string) (int, int64) {
 		}
 	}
 
-	return fileCount, totalSize
+	return fileCount, totalSize, errCount
 }
 
 // collectChannels collects channel operations from a package grouped by element type and function.
