@@ -94,8 +94,10 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 		sb.WriteString("\n")
 	}
 
-	// Embeds (only show if present)
-	if len(r.Embeds) > 0 {
+	// Embeds - always show header for clear signal
+	if len(r.Embeds) == 0 {
+		sb.WriteString("\n# Embeds (0)\n")
+	} else {
 		var totalEmbedSize int64
 		var totalEmbedFiles int
 		for _, e := range r.Embeds {
