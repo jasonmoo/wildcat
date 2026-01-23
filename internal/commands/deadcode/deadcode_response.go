@@ -12,9 +12,9 @@ import (
 var _ commands.Result = (*DeadcodeCommandResponse)(nil)
 
 type QueryInfo struct {
-	Command      string   `json:"command"`
-	Targets      []string `json:"targets,omitempty"`
-	IncludeTests bool     `json:"include_tests"`
+	Command      string `json:"command"`
+	Scope        string `json:"scope"`
+	IncludeTests bool   `json:"include_tests"`
 }
 
 type Summary struct {
@@ -104,9 +104,7 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 	sb.WriteString("# Dead Code Analysis\n\n")
 
 	// Query info
-	if len(r.Query.Targets) > 0 {
-		fmt.Fprintf(&sb, "targets: %s\n", strings.Join(r.Query.Targets, ", "))
-	}
+	fmt.Fprintf(&sb, "scope: %s\n", r.Query.Scope)
 	fmt.Fprintf(&sb, "include_tests: %v\n\n", r.Query.IncludeTests)
 
 	// Summary

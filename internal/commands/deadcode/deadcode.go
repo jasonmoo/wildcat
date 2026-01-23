@@ -15,16 +15,16 @@ import (
 )
 
 type DeadcodeCommand struct {
-	targets         []string // which packages' symbols to report (empty = all project)
-	includeTests    bool     // include test entry points in reachability analysis
-	includeExported bool     // include exported symbols (may have external callers)
+	scope           string // scope filter for packages (default: project)
+	includeTests    bool   // include test entry points in reachability analysis
+	includeExported bool   // include exported symbols (may have external callers)
 }
 
 var _ commands.Command[*DeadcodeCommand] = (*DeadcodeCommand)(nil)
 
-func WithTargets(targets []string) func(*DeadcodeCommand) error {
+func WithScope(scope string) func(*DeadcodeCommand) error {
 	return func(c *DeadcodeCommand) error {
-		c.targets = targets
+		c.scope = scope
 		return nil
 	}
 }
@@ -45,16 +45,18 @@ func WithIncludeExported(include bool) func(*DeadcodeCommand) error {
 
 func NewDeadcodeCommand() *DeadcodeCommand {
 	return &DeadcodeCommand{
-		includeTests: true, // include tests by default
+		scope:        "project",
+		includeTests: true,
 	}
 }
 
 func (c *DeadcodeCommand) Cmd() *cobra.Command {
 	var includeTests bool
 	var includeExported bool
+	var scope string
 
 	cmd := &cobra.Command{
-		Use:   "deadcode [packages...]",
+		Use:   "deadcode",
 		Short: "Find unreachable code using static analysis",
 		Long: `Find functions and methods not reachable from entry points.
 
@@ -62,20 +64,30 @@ Uses Rapid Type Analysis (RTA) to determine which code is actually
 reachable from main(), init(), and test functions. This catches
 transitively dead code that simple reference counting misses.
 
-Target (optional):
-  If one or more packages specified, only report dead code in those packages.
-  If omitted, report all dead code in the project.
+Scope:
+  project           - All project packages (default)
+  pkg1,pkg2         - Specific packages (comma-separated)
+  -pkg              - Exclude package (prefix with -)
+
+Pattern syntax:
+  internal/lsp      - Exact package match
+  internal/...      - Package and all subpackages (Go-style)
+  internal/*        - Direct children only
+  internal/**       - All descendants
+  **/util           - Match anywhere in path
 
 Flags:
-  --tests         Include Test/Benchmark/Example functions as entry points (default: true)
-  --exported      Include exported symbols (may have external callers)
+  --scope           Package scope filter (default: project)
+  --tests           Include Test/Benchmark/Example functions as entry points (default: true)
+  --include-exported Include exported symbols (may have external callers)
 
 Examples:
-  wildcat deadcode                              # find all dead code
-  wildcat deadcode internal/lsp                 # dead code in lsp package
-  wildcat deadcode internal/lsp internal/errors # dead code in multiple packages
-  wildcat deadcode --tests=false                # ignore test entry points
-  wildcat deadcode --include-exported           # include exported API`,
+  wildcat deadcode                                    # find all dead code
+  wildcat deadcode --scope internal/lsp              # dead code in lsp package
+  wildcat deadcode --scope 'internal/...'            # dead code in internal subtree
+  wildcat deadcode --scope 'internal/...,-**/test'   # exclude test packages
+  wildcat deadcode --tests=false                      # ignore test entry points
+  wildcat deadcode --include-exported                 # include exported API`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wc, err := commands.LoadWildcat(cmd.Context(), ".")
 			if err != nil {
@@ -83,7 +95,7 @@ Examples:
 			}
 
 			result, err := c.Execute(cmd.Context(), wc,
-				WithTargets(args),
+				WithScope(scope),
 				WithIncludeTests(includeTests),
 				WithIncludeExported(includeExported),
 			)
@@ -111,6 +123,7 @@ Examples:
 		},
 	}
 
+	cmd.Flags().StringVar(&scope, "scope", "project", "Package scope filter (patterns: internal/..., **/util, -excluded)")
 	cmd.Flags().BoolVar(&includeTests, "tests", true, "Include Test/Benchmark/Example/Fuzz functions as entry points")
 	cmd.Flags().BoolVar(&includeExported, "include-exported", false, "Include exported symbols (may have external callers)")
 
@@ -128,14 +141,10 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		}
 	}
 
-	// Resolve target package paths if specified
-	targetPkgPaths := make(map[string]bool)
-	for _, target := range c.targets {
-		pi, err := wc.Project.ResolvePackageName(ctx, target)
-		if err != nil {
-			return commands.NewErrorResultf("invalid_target", "cannot resolve package %q: %v", target, err), nil
-		}
-		targetPkgPaths[pi.PkgPath] = true
+	// Parse scope filter
+	scopeFilter, err := wc.ParseScope(ctx, c.scope, ".")
+	if err != nil {
+		return commands.NewErrorResultf("invalid_scope", "invalid scope: %s", err), nil
 	}
 
 	// Run RTA analysis
@@ -171,13 +180,8 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 	var totalDeadSymbols int
 
 	for _, sym := range wc.Index.Symbols() {
-		// Filter by target packages if specified
-		if len(targetPkgPaths) > 0 && !targetPkgPaths[sym.Package.Identifier.PkgPath] {
-			continue
-		}
-
-		// Only report project packages
-		if !strings.HasPrefix(sym.Package.Identifier.PkgPath, wc.Project.Module.Path) {
+		// Filter by scope
+		if !scopeFilter.InScope(sym.Package.Identifier.PkgPath) {
 			continue
 		}
 
@@ -400,16 +404,10 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 	sort.Strings(deadPackages)
 
-	// Convert target map keys to slice for response
-	var targetsList []string
-	for pkgPath := range targetPkgPaths {
-		targetsList = append(targetsList, pkgPath)
-	}
-
 	return &DeadcodeCommandResponse{
 		Query: QueryInfo{
 			Command:      "deadcode",
-			Targets:      targetsList,
+			Scope:        c.scope,
 			IncludeTests: c.includeTests,
 		},
 		Summary: Summary{
