@@ -22,13 +22,6 @@ type SymbolCommand struct {
 
 var _ commands.Command[*SymbolCommand] = (*SymbolCommand)(nil)
 
-func WithSymbol(s string) func(*SymbolCommand) error {
-	return func(c *SymbolCommand) error {
-		c.symbols = append(c.symbols, s)
-		return nil
-	}
-}
-
 func WithSymbols(symbols []string) func(*SymbolCommand) error {
 	return func(c *SymbolCommand) error {
 		c.symbols = append(c.symbols, symbols...)
