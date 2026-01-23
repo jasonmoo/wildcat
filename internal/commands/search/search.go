@@ -108,7 +108,11 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var kinds []golang.SymbolKind
 			if kind != "" {
-				kinds = golang.ParseKinds(kind)
+				var err error
+				kinds, err = golang.ParseKinds(kind)
+				if err != nil {
+					return err
+				}
 			}
 			return commands.RunCommand(cmd, c,
 				WithQuery(args[0]),

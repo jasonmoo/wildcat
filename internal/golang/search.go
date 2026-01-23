@@ -24,41 +24,50 @@ const (
 	SymbolKindVar       SymbolKind = "var"
 )
 
-// ParseKind parses a flexible kind string into SymbolKind.
-// Accepts variations like "func", "function", "fn" -> SymbolKindFunc.
+// KindAliases maps accepted kind names to their SymbolKind.
+var KindAliases = map[string]SymbolKind{
+	"func": SymbolKindFunc, "function": SymbolKindFunc,
+	"method": SymbolKindMethod,
+	"type": SymbolKindType, "struct": SymbolKindType,
+	"interface": SymbolKindInterface, "iface": SymbolKindInterface,
+	"const": SymbolKindConst, "constant": SymbolKindConst,
+	"var": SymbolKindVar, "variable": SymbolKindVar,
+}
+
+// ParseKind parses a kind string into SymbolKind.
 // Returns empty string if not recognized.
 func ParseKind(s string) SymbolKind {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "func", "function", "fn":
-		return SymbolKindFunc
-	case "method", "meth":
-		return SymbolKindMethod
-	case "type", "struct":
-		return SymbolKindType
-	case "interface", "iface":
-		return SymbolKindInterface
-	case "const", "constant":
-		return SymbolKindConst
-	case "var", "variable":
-		return SymbolKindVar
-	default:
-		return ""
-	}
+	return KindAliases[strings.ToLower(strings.TrimSpace(s))]
 }
 
 // ParseKinds parses a comma-separated list of kind strings.
-// Unknown kinds are silently ignored.
-func ParseKinds(s string) []SymbolKind {
+// Returns an error if any kind is not recognized.
+func ParseKinds(s string) ([]SymbolKind, error) {
 	if s == "" {
-		return nil
+		return nil, nil
 	}
 	var kinds []SymbolKind
+	var unknown []string
 	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
 		if k := ParseKind(part); k != "" {
 			kinds = append(kinds, k)
+		} else {
+			unknown = append(unknown, part)
 		}
 	}
-	return kinds
+	if len(unknown) > 0 {
+		valid := make([]string, 0, len(KindAliases))
+		for k := range KindAliases {
+			valid = append(valid, k)
+		}
+		slices.Sort(valid)
+		return nil, fmt.Errorf("unknown kind(s): %v; valid: %v", unknown, valid)
+	}
+	return kinds, nil
 }
 
 // Symbol represents a searchable symbol from the AST
