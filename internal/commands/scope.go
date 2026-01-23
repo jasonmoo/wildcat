@@ -94,21 +94,20 @@ func isPattern(s string) bool {
 // Pattern types:
 //   - "foo/..." matches "foo" and any path starting with "foo/"
 //   - glob patterns use doublestar.Match
-func matchPattern(pattern, pkgPath string) bool {
+func matchPattern(pattern, pkgPath string) (bool, error) {
 	// Handle Go-style /... suffix (match package and all subpackages)
 	if strings.HasSuffix(pattern, "/...") {
 		base := strings.TrimSuffix(pattern, "/...")
-		return pkgPath == base || strings.HasPrefix(pkgPath, base+"/")
+		return pkgPath == base || strings.HasPrefix(pkgPath, base+"/"), nil
 	}
 
 	// Use doublestar for glob patterns
-	matched, _ := doublestar.Match(pattern, pkgPath)
-	return matched
+	return doublestar.Match(pattern, pkgPath)
 }
 
 // resolvePattern matches a pattern against all project packages and returns
 // the list of matching package paths.
-func (wc *Wildcat) resolvePattern(pattern string) []string {
+func (wc *Wildcat) resolvePattern(pattern string) ([]string, error) {
 	var matches []string
 
 	// Get the module path prefix to convert full paths to relative for matching
@@ -126,13 +125,21 @@ func (wc *Wildcat) resolvePattern(pattern string) []string {
 		}
 
 		// Try matching against both relative and full path
-		if matchPattern(pattern, relPath) || matchPattern(pattern, pkgPath) {
+		relMatch, err := matchPattern(pattern, relPath)
+		if err != nil {
+			return nil, err
+		}
+		fullMatch, err := matchPattern(pattern, pkgPath)
+		if err != nil {
+			return nil, err
+		}
+		if relMatch || fullMatch {
 			matches = append(matches, pkgPath)
 		}
 	}
 
 	sort.Strings(matches)
-	return matches
+	return matches, nil
 }
 
 // ParseScope parses a scope string and returns a ScopeFilter.
@@ -182,7 +189,11 @@ func (wc *Wildcat) ParseScope(ctx context.Context, scope, targetPkg string) (*Sc
 			if isPattern(pattern) {
 				// Resolve pattern against all packages
 				filter.excludePatterns = append(filter.excludePatterns, pattern)
-				for _, pkgPath := range wc.resolvePattern(pattern) {
+				resolved, err := wc.resolvePattern(pattern)
+				if err != nil {
+					return nil, err
+				}
+				for _, pkgPath := range resolved {
 					filter.excludes[pkgPath] = true
 					delete(filter.includes, pkgPath)
 				}
@@ -200,7 +211,11 @@ func (wc *Wildcat) ParseScope(ctx context.Context, scope, targetPkg string) (*Sc
 			if isPattern(part) {
 				// Resolve pattern against all packages
 				filter.includePatterns = append(filter.includePatterns, part)
-				for _, pkgPath := range wc.resolvePattern(part) {
+				resolved, err := wc.resolvePattern(part)
+				if err != nil {
+					return nil, err
+				}
+				for _, pkgPath := range resolved {
 					filter.includes[pkgPath] = true
 					delete(filter.excludes, pkgPath)
 				}

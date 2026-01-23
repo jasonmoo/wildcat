@@ -41,7 +41,11 @@ func TestMatchPattern(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := matchPattern(tt.pattern, tt.pkgPath)
+		got, err := matchPattern(tt.pattern, tt.pkgPath)
+		if err != nil {
+			t.Errorf("matchPattern(%q, %q) error: %v", tt.pattern, tt.pkgPath, err)
+			continue
+		}
 		if got != tt.want {
 			t.Errorf("matchPattern(%q, %q) = %v, want %v", tt.pattern, tt.pkgPath, got, tt.want)
 		}
