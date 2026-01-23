@@ -630,8 +630,9 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 				}
 				fn.Signature = sig
 
-				pos := pkg.Package.Fset.Position(fd.Pos())
-				fn.Definition = fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line)
+				startPos := pkg.Package.Fset.Position(fd.Pos())
+				endPos := pkg.Package.Fset.Position(fd.End())
+				fn.Definition = fmt.Sprintf("%s:%d:%d", filepath.Base(startPos.Filename), startPos.Line, endPos.Line)
 
 				// Get refs for this function
 				symbolKey := pkgShortName + "." + funcKey
