@@ -102,18 +102,25 @@ Returns:
 Scope:
   project       - All project packages (default)
   package       - Target package only
-  pkg1,pkg2     - Specific packages (resolved to full import paths)
-  -pkg          - Exclude package (must be a valid package path)
+  all           - All packages including dependencies
+  pkg1,pkg2     - Specific packages (comma-separated)
+  -pkg          - Exclude package (prefix with -)
 
-Note: Package names are resolved to full import paths. Use directory-style
-paths like "internal/lsp" not just "lsp". Exclusions require existing packages.
+Pattern syntax:
+  internal/lsp       - Exact package match
+  internal/...       - Package and all subpackages (Go-style)
+  internal/*         - Direct children only
+  internal/**        - All descendants
+  **/util            - Match anywhere in path
+
+Patterns are resolved at parse time. Output shows exactly which packages
+were examined, ensuring transparency.
 
 Examples:
-  wildcat symbol Config                         # analyze Config type
-  wildcat symbol Config Handler Logger          # analyze multiple symbols
-  wildcat symbol --scope package Server.Start   # callers in target package only
-  wildcat symbol --scope internal/lsp Handler   # callers in specific package
-  wildcat symbol --scope -internal/lsp Config   # exclude a package`,
+  wildcat symbol Config                              # analyze Config type
+  wildcat symbol --scope package Server.Start        # target package only
+  wildcat symbol --scope "project,-internal/..."     # exclude internal subtree
+  wildcat symbol --scope "**/lsp" Handler            # only packages matching pattern`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wc, err := commands.LoadWildcat(cmd.Context(), ".")
