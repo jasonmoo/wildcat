@@ -85,7 +85,9 @@ func FormatDiagnosticsMarkdown(w io.Writer, ds []Diagnostics) {
 	if len(ds) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "\n## Diagnostics (%d)\n\n", len(ds))
+	fmt.Fprintf(w, "\n## ⚠️ Diagnostics (%d)\n\n", len(ds))
+	fmt.Fprintln(w, "**Note:** Issues below may affect analysis. Results shown are accurate for successfully loaded packages but may be incomplete.")
+	fmt.Fprintln(w)
 	for _, d := range ds {
 		fmt.Fprintf(w, "- [%s] %s\n", d.Level, d.Message)
 	}

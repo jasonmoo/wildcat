@@ -37,6 +37,18 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 				Message: e.Error(),
 			})
 		}
+		// Check for incomplete type info (could cause GetTypesObject to return nil)
+		if p.Package.TypesInfo == nil {
+			ds = append(ds, Diagnostics{
+				Level:   "warning",
+				Message: "package " + p.Identifier.PkgPath + ": type information unavailable",
+			})
+		} else if p.Package.TypesInfo.Defs == nil {
+			ds = append(ds, Diagnostics{
+				Level:   "warning",
+				Message: "package " + p.Identifier.PkgPath + ": type definitions unavailable",
+			})
+		}
 	}
 	stdps, err := golang.LoadStdlibPackages(ctx)
 	if err != nil {

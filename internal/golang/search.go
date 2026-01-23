@@ -399,12 +399,12 @@ func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult
 func CollectSymbols(pkgs []*Package) *SymbolIndex {
 	idx := &SymbolIndex{}
 
-	for i, pkg := range pkgs {
-
+	for _, pkg := range pkgs {
+		// Skip packages with incomplete type info (diagnostics emitted at load time)
 		if pkg.Package.TypesInfo == nil {
-			panic("? ")
+			continue
 		}
-		if i == 0 {
+		if idx.modulePath == "" {
 			idx.modulePath = pkg.Identifier.ModulePath
 		}
 
