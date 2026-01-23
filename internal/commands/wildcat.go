@@ -163,6 +163,15 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 	return ret
 }
 
+// AddDiagnostic adds a diagnostic message to be shown in output.
+func (wc *Wildcat) AddDiagnostic(level, pkg, format string, args ...any) {
+	wc.Diagnostics = append(wc.Diagnostics, Diagnostics{
+		Level:   level,
+		Package: pkg,
+		Message: fmt.Sprintf(format, args...),
+	})
+}
+
 func (wc *Wildcat) NewSymbolNotFoundErrorResponse(symbol string) *ErrorResult {
 	e := NewErrorResultf("symbol_not_found", "%q not found", symbol)
 	for _, s := range wc.Suggestions(symbol, &golang.SearchOptions{Limit: 5, Exclude: []string{symbol}}) {
@@ -181,4 +190,26 @@ func (wc *Wildcat) NewFuncNotFoundErrorResponse(symbol string) *ErrorResult {
 		e.Suggestions = append(e.Suggestions, s.Symbol)
 	}
 	return e
+}
+
+func (wc *Wildcat) NewSymbolAmbiguousErrorResponse(symbol string, candidates []*golang.Symbol) *ErrorResult {
+	e := NewErrorResultf("symbol_ambiguous", "%q matches multiple symbols; qualify with package name", symbol)
+	for _, c := range candidates {
+		e.Suggestions = append(e.Suggestions, c.Package.Identifier.Name+"."+c.Name)
+	}
+	return e
+}
+
+// LookupSymbol looks up a symbol and returns an appropriate error response if not found or ambiguous.
+// Returns (symbol, nil) on success, or (nil, error response) on failure.
+func (wc *Wildcat) LookupSymbol(query string) (*golang.Symbol, *ErrorResult) {
+	matches := wc.Index.Lookup(query)
+	switch len(matches) {
+	case 0:
+		return nil, wc.NewSymbolNotFoundErrorResponse(query)
+	case 1:
+		return matches[0], nil
+	default:
+		return nil, wc.NewSymbolAmbiguousErrorResponse(query, matches)
+	}
 }

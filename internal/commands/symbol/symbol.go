@@ -45,11 +45,19 @@ type pkgUsage struct {
 
 // getSymbolRefs looks up a symbol and returns its reference counts.
 func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *SymbolRefs {
-	sym := wc.Index.Lookup(symbolKey)
-	if sym == nil {
+	matches := wc.Index.Lookup(symbolKey)
+	if len(matches) == 0 {
 		return nil
 	}
-	counts := golang.CountReferences(wc.Project.Packages, sym)
+	if len(matches) > 1 {
+		var candidates []string
+		for _, m := range matches {
+			candidates = append(candidates, m.Package.Identifier.PkgPath+"."+m.Name)
+		}
+		wc.AddDiagnostic("warning", "", "ambiguous symbol %q matches %v; refs unavailable", symbolKey, candidates)
+		return nil
+	}
+	counts := golang.CountReferences(wc.Project.Packages, matches[0])
 	return &SymbolRefs{
 		Internal: counts.Internal,
 		External: counts.External,
@@ -59,11 +67,19 @@ func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *SymbolRefs {
 
 // getSymbolRefsOutput looks up a symbol and returns its reference counts as output.TargetRefs.
 func getSymbolRefsOutput(wc *commands.Wildcat, symbolKey string) *output.TargetRefs {
-	sym := wc.Index.Lookup(symbolKey)
-	if sym == nil {
+	matches := wc.Index.Lookup(symbolKey)
+	if len(matches) == 0 {
 		return nil
 	}
-	counts := golang.CountReferences(wc.Project.Packages, sym)
+	if len(matches) > 1 {
+		var candidates []string
+		for _, m := range matches {
+			candidates = append(candidates, m.Package.Identifier.PkgPath+"."+m.Name)
+		}
+		wc.AddDiagnostic("warning", "", "ambiguous symbol %q matches %v; refs unavailable", symbolKey, candidates)
+		return nil
+	}
+	counts := golang.CountReferences(wc.Project.Packages, matches[0])
 	return &output.TargetRefs{
 		Internal: counts.Internal,
 		External: counts.External,
@@ -172,9 +188,9 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	}
 
 	// Find target symbol
-	target := wc.Index.Lookup(symbol)
-	if target == nil {
-		return wc.NewSymbolNotFoundErrorResponse(symbol), nil
+	target, errResp := wc.LookupSymbol(symbol)
+	if errResp != nil {
+		return errResp, nil
 	}
 
 	// Build target info
@@ -898,8 +914,8 @@ func (c *SymbolCommand) findReferencedTypes(wc *commands.Wildcat, pkg *golang.Pa
 			pkgShortName = pkgShortName[lastSlash+1:]
 		}
 		symbolKey := pkgShortName + "." + obj.Name()
-		sym := wc.Index.Lookup(symbolKey)
-		if sym == nil {
+		matches := wc.Index.Lookup(symbolKey)
+		if len(matches) != 1 {
 			// Can't resolve this type (e.g., type parameter like T in generics) - skip it
 			return true
 		}
@@ -907,8 +923,8 @@ func (c *SymbolCommand) findReferencedTypes(wc *commands.Wildcat, pkg *golang.Pa
 			name:       obj.Name(),
 			pkg:        refPkg,
 			obj:        obj,
-			signature:  sym.Signature(),
-			definition: fmt.Sprintf("%s:%s", sym.Filename(), sym.Location()),
+			signature:  matches[0].Signature(),
+			definition: fmt.Sprintf("%s:%s", matches[0].Filename(), matches[0].Location()),
 		})
 
 		return true

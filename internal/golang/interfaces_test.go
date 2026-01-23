@@ -39,8 +39,9 @@ func TestIsInterfaceMethod(t *testing.T) {
 			var typeSym *Symbol
 			var foundKey string
 			for _, key := range lookups {
-				typeSym = idx.Lookup(key)
-				if typeSym != nil {
+				matches := idx.Lookup(key)
+				if len(matches) == 1 {
+					typeSym = matches[0]
 					foundKey = key
 					break
 				}

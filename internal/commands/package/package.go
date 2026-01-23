@@ -454,11 +454,19 @@ func makeLocation(fset *token.FileSet, fileName string, pos token.Pos) string {
 // getSymbolRefs looks up a symbol and returns its reference counts.
 // symbolKey should be in format: pkg.Name or pkg.Type.Method
 func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *output.TargetRefs {
-	sym := wc.Index.Lookup(symbolKey)
-	if sym == nil {
+	matches := wc.Index.Lookup(symbolKey)
+	if len(matches) == 0 {
 		return nil
 	}
-	counts := golang.CountReferences(wc.Project.Packages, sym)
+	if len(matches) > 1 {
+		var candidates []string
+		for _, m := range matches {
+			candidates = append(candidates, m.Package.Identifier.PkgPath+"."+m.Name)
+		}
+		wc.AddDiagnostic("warning", "", "ambiguous symbol %q matches %v; refs unavailable", symbolKey, candidates)
+		return nil
+	}
+	counts := golang.CountReferences(wc.Project.Packages, matches[0])
 	return &output.TargetRefs{
 		Internal: counts.Internal,
 		External: counts.External,

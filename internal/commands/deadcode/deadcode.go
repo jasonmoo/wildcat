@@ -244,7 +244,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		// Interface methods are required if the type is used, even if never called directly.
 		if sym.Kind == golang.SymbolKindMethod && golang.IsInterfaceMethod(&sym, wc.Project, wc.Stdlib) {
 			// Check if the receiver type is used (has any references)
-			typeSym := findReceiverTypeSymbol(wc.Index, &sym)
+			typeSym := findReceiverTypeSymbol(wc, &sym)
 			if typeSym != nil && golang.CountReferences(wc.Project.Packages, typeSym).Total() > 0 {
 				continue
 			}
@@ -432,7 +432,7 @@ func isEntryPoint(sym golang.Symbol) bool {
 }
 
 // findReceiverTypeSymbol finds the type symbol for a method's receiver.
-func findReceiverTypeSymbol(idx *golang.SymbolIndex, methodSym *golang.Symbol) *golang.Symbol {
+func findReceiverTypeSymbol(wc *commands.Wildcat, methodSym *golang.Symbol) *golang.Symbol {
 	node, ok := methodSym.Node().(*ast.FuncDecl)
 	if !ok || node.Recv == nil || len(node.Recv.List) == 0 {
 		return nil
@@ -443,7 +443,19 @@ func findReceiverTypeSymbol(idx *golang.SymbolIndex, methodSym *golang.Symbol) *
 		return nil
 	}
 
-	// Look up the type symbol - Lookup handles just the type name
-	return idx.Lookup(typeName)
+	// Look up the type symbol
+	matches := wc.Index.Lookup(typeName)
+	if len(matches) == 0 {
+		return nil
+	}
+	if len(matches) > 1 {
+		var candidates []string
+		for _, m := range matches {
+			candidates = append(candidates, m.Package.Identifier.PkgPath+"."+m.Name)
+		}
+		wc.AddDiagnostic("warning", "", "ambiguous type %q for method %s; matches %v", typeName, methodSym.Name, candidates)
+		return nil
+	}
+	return matches[0]
 }
 

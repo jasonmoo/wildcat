@@ -131,15 +131,18 @@ func (idx *SymbolIndex) Len() int {
 	return len(idx.symbols)
 }
 
-// Lookup finds a symbol by exact match. Query formats:
+// Lookup finds symbols by exact match. Query formats:
 //   - "FuncName" - matches any symbol with that name
 //   - "pkg.FuncName" - matches by short package name + symbol
 //   - "Type.Method" - matches method on type
 //   - "pkg.Type.Method" - matches by short package + type + method
 //   - "github.com/user/repo/pkg.Symbol" - matches by full import path
 //
-// Returns nil if not found or if multiple matches exist for ambiguous queries.
-func (idx *SymbolIndex) Lookup(query string) *Symbol {
+// Returns all matching symbols:
+//   - Empty slice: symbol not found
+//   - Single element: exact match
+//   - Multiple elements: ambiguous query, returns all candidates
+func (idx *SymbolIndex) Lookup(query string) []*Symbol {
 	// Check if query contains a path (has slashes)
 	if strings.Count(query, "/") > 0 {
 		// Path-based lookup: full path or relative path
@@ -156,7 +159,7 @@ func (idx *SymbolIndex) Lookup(query string) *Symbol {
 		// Try exact match first (full import path)
 		for i := range idx.symbols {
 			if idx.symbols[i].Package.Identifier.PkgPath == pkgPath && idx.symbols[i].Name == symbolName {
-				return &idx.symbols[i]
+				return []*Symbol{&idx.symbols[i]}
 			}
 		}
 
@@ -165,7 +168,7 @@ func (idx *SymbolIndex) Lookup(query string) *Symbol {
 			fullPath := path.Join(idx.modulePath, pkgPath)
 			for i := range idx.symbols {
 				if idx.symbols[i].Package.Identifier.PkgPath == fullPath && idx.symbols[i].Name == symbolName {
-					return &idx.symbols[i]
+					return []*Symbol{&idx.symbols[i]}
 				}
 			}
 		}
@@ -177,60 +180,48 @@ func (idx *SymbolIndex) Lookup(query string) *Symbol {
 
 	switch len(parts) {
 	case 1:
-		// Just "Name" - find unique match
-		var match *Symbol
+		// Just "Name" - find all matches
+		var matches []*Symbol
 		for i := range idx.symbols {
 			if idx.symbols[i].Name == parts[0] {
-				if match != nil {
-					return nil // ambiguous
-				}
-				match = &idx.symbols[i]
+				matches = append(matches, &idx.symbols[i])
 			}
 		}
-		return match
+		return matches
 
 	case 2:
 		// Could be "pkg.Name" or "Type.Method"
 		// Try pkg.Name first (using actual Go package name, not directory)
-		var match *Symbol
+		var matches []*Symbol
 		for i := range idx.symbols {
 			pkgName := idx.symbols[i].Package.Identifier.Name
 			if pkgName == parts[0] && idx.symbols[i].Name == parts[1] {
-				if match != nil {
-					return nil // ambiguous
-				}
-				match = &idx.symbols[i]
+				matches = append(matches, &idx.symbols[i])
 			}
 		}
-		if match != nil {
-			return match
+		if len(matches) > 0 {
+			return matches
 		}
 		// Try Type.Method (symbol name includes receiver)
 		methodName := parts[0] + "." + parts[1]
 		for i := range idx.symbols {
 			if idx.symbols[i].Name == methodName {
-				if match != nil {
-					return nil // ambiguous
-				}
-				match = &idx.symbols[i]
+				matches = append(matches, &idx.symbols[i])
 			}
 		}
-		return match
+		return matches
 
 	case 3:
 		// "pkg.Type.Method" (using actual Go package name, not directory)
 		methodName := parts[1] + "." + parts[2]
-		var match *Symbol
+		var matches []*Symbol
 		for i := range idx.symbols {
 			pkgName := idx.symbols[i].Package.Identifier.Name
 			if pkgName == parts[0] && idx.symbols[i].Name == methodName {
-				if match != nil {
-					return nil // ambiguous
-				}
-				match = &idx.symbols[i]
+				matches = append(matches, &idx.symbols[i])
 			}
 		}
-		return match
+		return matches
 	}
 
 	return nil

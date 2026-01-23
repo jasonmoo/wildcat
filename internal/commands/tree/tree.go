@@ -130,10 +130,14 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	}
 
 	// Find target symbol
-	target := wc.Index.Lookup(c.symbol)
-	if target == nil {
+	matches := wc.Index.Lookup(c.symbol)
+	if len(matches) == 0 {
 		return wc.NewFuncNotFoundErrorResponse(c.symbol), nil
 	}
+	if len(matches) > 1 {
+		return wc.NewSymbolAmbiguousErrorResponse(c.symbol, matches), nil
+	}
+	target := matches[0]
 
 	if target.Kind != golang.SymbolKindFunc && target.Kind != golang.SymbolKindMethod {
 		return commands.NewErrorResultf("invalid_symbol_kind", "tree requires a function or method, got %s", target.Kind), nil

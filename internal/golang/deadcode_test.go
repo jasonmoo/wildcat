@@ -40,11 +40,14 @@ func TestAnalyzeDeadCode(t *testing.T) {
 
 	// Test IsReachable with NewSymbolCommand function (called from main)
 	idx := CollectSymbols(project.Packages)
-	sym := idx.Lookup("NewSymbolCommand")
-	if sym == nil {
+	matches := idx.Lookup("NewSymbolCommand")
+	if len(matches) == 0 {
 		t.Fatal("NewSymbolCommand symbol not found")
 	}
-	reachable, analyzed := result.IsReachable(sym)
+	if len(matches) > 1 {
+		t.Fatalf("NewSymbolCommand is ambiguous (%d matches)", len(matches))
+	}
+	reachable, analyzed := result.IsReachable(matches[0])
 	if !analyzed {
 		t.Error("NewSymbolCommand should be analyzable")
 	}

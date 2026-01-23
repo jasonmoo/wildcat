@@ -38,10 +38,14 @@ func TestCountNonCallReferences(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			sym := idx.Lookup(tc.symbol)
-			if sym == nil {
+			matches := idx.Lookup(tc.symbol)
+			if len(matches) == 0 {
 				t.Fatalf("symbol %q not found", tc.symbol)
 			}
+			if len(matches) > 1 {
+				t.Fatalf("symbol %q is ambiguous (%d matches)", tc.symbol, len(matches))
+			}
+			sym := matches[0]
 
 			total := CountReferences(project.Packages, sym).Total()
 			nonCall := CountNonCallReferences(project.Packages, sym)
