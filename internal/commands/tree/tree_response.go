@@ -120,12 +120,18 @@ func (r *TreeCommandResponse) MarshalMarkdown() ([]byte, error) {
 
 // writeCallNode renders a call node as ASCII tree
 func writeCallNode(sb *strings.Builder, node *output.CallNode, prefix string, isRoot bool, isLast bool) {
+	// Build the node line with optional error suffix
+	errorSuffix := ""
+	if node.Error != "" {
+		errorSuffix = " [ERROR: " + node.Error + "]"
+	}
+
 	// Render this node
 	if isRoot {
 		if node.Callsite != "" {
-			fmt.Fprintf(sb, "%s (%s)\n", node.Symbol, node.Callsite)
+			fmt.Fprintf(sb, "%s (%s)%s\n", node.Symbol, node.Callsite, errorSuffix)
 		} else {
-			fmt.Fprintf(sb, "%s\n", node.Symbol)
+			fmt.Fprintf(sb, "%s%s\n", node.Symbol, errorSuffix)
 		}
 	} else {
 		connector := "├── "
@@ -133,9 +139,9 @@ func writeCallNode(sb *strings.Builder, node *output.CallNode, prefix string, is
 			connector = "└── "
 		}
 		if node.Callsite != "" {
-			fmt.Fprintf(sb, "%s%s%s (%s)\n", prefix, connector, node.Symbol, node.Callsite)
+			fmt.Fprintf(sb, "%s%s%s (%s)%s\n", prefix, connector, node.Symbol, node.Callsite, errorSuffix)
 		} else {
-			fmt.Fprintf(sb, "%s%s%s\n", prefix, connector, node.Symbol)
+			fmt.Fprintf(sb, "%s%s%s%s\n", prefix, connector, node.Symbol, errorSuffix)
 		}
 	}
 

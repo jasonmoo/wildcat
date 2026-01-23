@@ -313,7 +313,11 @@ func (c *TreeCommand) buildCallersTree(
 	// Get target's types.Func for comparison
 	targetObj := targetPkg.Package.TypesInfo.Defs[targetFn.Name]
 	if targetObj == nil {
-		return nil
+		// Return an error node so AI knows analysis couldn't continue here
+		return []*output.CallNode{{
+			Symbol: targetPkg.Identifier.Name + "." + targetFn.Name.Name,
+			Error:  "type info unavailable, callers analysis incomplete",
+		}}
 	}
 
 	var callers []*output.CallNode

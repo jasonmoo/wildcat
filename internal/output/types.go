@@ -58,6 +58,7 @@ type CallNode struct {
 	Symbol   string      `json:"symbol"`             // qualified: pkg.Name
 	Callsite string      `json:"callsite,omitempty"` // where called: /full/path/file.go:line (empty for entry points)
 	Calls    []*CallNode `json:"calls,omitempty"`    // next in chain (toward target for callers, away from target for callees)
+	Error    string      `json:"error,omitempty"`    // if set, analysis couldn't continue past this node
 }
 
 // TreeFunction contains information about a function in the call tree.
