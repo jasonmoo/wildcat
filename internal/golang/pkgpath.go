@@ -130,11 +130,11 @@ func (pi *PackageIdentifier) IsInternal() bool {
 		strings.HasSuffix(pi.PkgPath, "/internal")
 }
 
-func LoadStdlibPackages(ctx context.Context) ([]*packages.Package, error) {
+func LoadStdlibPackages(ctx context.Context, goroot string) ([]*packages.Package, error) {
 	return packages.Load(&packages.Config{
 		Context: ctx,
 		Mode:    packages.LoadTypes,
-		Dir:     GOROOT(),
+		Dir:     goroot,
 	}, "std")
 }
 

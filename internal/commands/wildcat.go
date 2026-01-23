@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -54,7 +56,14 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 			})
 		}
 	}
-	stdps, err := golang.LoadStdlibPackages(ctx)
+	gr, err := goroot()
+	if err != nil {
+		return nil, err
+	}
+	if gr == "" {
+		return nil, errors.New("failed to detect GOROOT env var!")
+	}
+	stdps, err := golang.LoadStdlibPackages(ctx, gr)
 	if err != nil {
 		return nil, err
 	}
@@ -212,4 +221,9 @@ func (wc *Wildcat) LookupSymbol(query string) (*golang.Symbol, *ErrorResult) {
 	default:
 		return nil, wc.NewSymbolAmbiguousErrorResponse(query, matches)
 	}
+}
+
+func goroot() (string, error) {
+	out, err := exec.Command("go", "env", "GOROOT").Output()
+	return strings.TrimSpace(string(out)), err
 }
