@@ -178,7 +178,7 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	}
 
 	// Build target info
-	sig, _ := target.Signature()
+	sig := target.Signature()
 	definition := fmt.Sprintf("%s:%s", filepath.Base(target.Filename()), target.Location())
 	qualifiedSymbol := target.Package.Identifier.PkgPath + "." + target.Name
 
@@ -206,28 +206,26 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 		foundMethods := golang.FindMethods(target.Package, target.Name)
 		foundConstructors := golang.FindConstructors(target.Package, target.Name)
 		for _, fn := range foundMethods {
-			sig, _ := golang.FormatFuncDecl(fn)
 			pos := target.Package.Package.Fset.Position(fn.Pos())
 			endPos := target.Package.Package.Fset.Position(fn.End())
 			// Build qualified symbol: pkg.Type.Method
 			methodSymbol := target.Package.Identifier.Name + "." + target.Name + "." + fn.Name.Name
 			methods = append(methods, FunctionInfo{
 				Symbol:     methodSymbol,
-				Signature:  sig,
+				Signature:  golang.FormatFuncDecl(fn),
 				Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
 				Refs:       getSymbolRefs(wc, methodSymbol),
 			})
 			excludeFromRefs[fmt.Sprintf("%s:%d", pos.Filename, pos.Line)] = true
 		}
 		for _, fn := range foundConstructors {
-			sig, _ := golang.FormatFuncDecl(fn)
 			pos := target.Package.Package.Fset.Position(fn.Pos())
 			endPos := target.Package.Package.Fset.Position(fn.End())
 			// Build qualified symbol: pkg.FuncName
 			constructorSymbol := target.Package.Identifier.Name + "." + fn.Name.Name
 			constructors = append(constructors, FunctionInfo{
 				Symbol:     constructorSymbol,
-				Signature:  sig,
+				Signature:  golang.FormatFuncDecl(fn),
 				Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
 				Refs:       getSymbolRefs(wc, constructorSymbol),
 			})
@@ -631,7 +629,6 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 						}
 
 						pos := pkg.Package.Fset.Position(ts.Pos())
-						sig, _ := golang.FormatTypeSpec(genDecl.Tok, ts)
 						symbolKey := pkg.Identifier.Name + "." + ts.Name.Name
 
 						pkgPath := pkg.Identifier.PkgPath
@@ -643,7 +640,7 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 						}
 						byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
 							Symbol:     symbolKey,
-							Signature:  sig,
+							Signature:  golang.FormatTypeSpec(genDecl.Tok, ts),
 							Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
 							Refs:       getSymbolRefs(wc, symbolKey),
 						})
@@ -699,7 +696,6 @@ func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbo
 				}
 
 				// Build function info
-				sig, _ := golang.FormatFuncDecl(fn)
 				pos := pkg.Package.Fset.Position(fn.Pos())
 				endPos := pkg.Package.Fset.Position(fn.End())
 
@@ -719,7 +715,7 @@ func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbo
 				}
 				byPkg[pkgPath].Functions = append(byPkg[pkgPath].Functions, FunctionInfo{
 					Symbol:     symbol,
-					Signature:  sig,
+					Signature:  golang.FormatFuncDecl(fn),
 					Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
 					Refs:       getSymbolRefs(wc, symbol),
 				})
@@ -907,15 +903,12 @@ func (c *SymbolCommand) findReferencedTypes(wc *commands.Wildcat, pkg *golang.Pa
 			// Can't resolve this type (e.g., type parameter like T in generics) - skip it
 			return true
 		}
-		sig, _ := sym.Signature()
-		def := fmt.Sprintf("%s:%s", sym.Filename(), sym.Location())
-
 		refs = append(refs, referencedType{
 			name:       obj.Name(),
 			pkg:        refPkg,
 			obj:        obj,
-			signature:  sig,
-			definition: def,
+			signature:  sym.Signature(),
+			definition: fmt.Sprintf("%s:%s", sym.Filename(), sym.Location()),
 		})
 
 		return true
@@ -1054,7 +1047,6 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 
 					if types.Implements(typ, iface) || types.Implements(ptrTyp, iface) {
 						pos := pkg.Package.Fset.Position(ts.Pos())
-						sig, _ := golang.FormatTypeSpec(genDecl.Tok, ts)
 						symbolKey := pkg.Identifier.Name + "." + ts.Name.Name
 
 						// Count implementations of this interface
@@ -1076,7 +1068,7 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 						}
 						byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
 							Symbol:     symbolKey,
-							Signature:  sig,
+							Signature:  golang.FormatTypeSpec(genDecl.Tok, ts),
 							Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
 							Impls: &ImplCounts{
 								Package: packageCount,

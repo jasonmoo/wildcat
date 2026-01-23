@@ -204,12 +204,8 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 			switch v := d.(type) {
 
 			case *ast.FuncDecl:
-				sig, err := golang.FormatFuncDecl(v)
-				if err != nil {
-					return nil, fmt.Errorf("internal_error: %w", err)
-				}
 				sym := output.PackageSymbol{
-					Signature: sig,
+					Signature: golang.FormatFuncDecl(v),
 					Location:  makeLocation(pkg.Package.Fset, fileName, v.Pos()),
 				}
 				addFileSymbol(fileName, v.Name.Name)
@@ -241,13 +237,9 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 				for _, spec := range v.Specs {
 					switch vv := spec.(type) {
 					case *ast.TypeSpec:
-						sig, err := golang.FormatTypeSpec(v.Tok, vv)
-						if err != nil {
-							return nil, fmt.Errorf("internal_error: %w", err)
-						}
 						addFileSymbol(fileName, vv.Name.Name)
 						tb := ensureType(vv.Name.Name)
-						tb.signature = sig
+						tb.signature = golang.FormatTypeSpec(v.Tok, vv)
 						tb.location = makeLocation(pkg.Package.Fset, fileName, vv.Pos())
 						_, tb.isInterface = vv.Type.(*ast.InterfaceType)
 						// Symbol key: pkg.TypeName
@@ -255,10 +247,6 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 						tb.refs = getSymbolRefs(wc, symbolKey)
 						addFileRefs(fileName, tb.refs)
 					case *ast.ValueSpec:
-						sig, err := golang.FormatValueSpec(v.Tok, vv)
-						if err != nil {
-							return nil, fmt.Errorf("internal_error: %w", err)
-						}
 						// ValueSpec can have multiple names (e.g., var a, b, c int)
 						// but signature covers all, so use first name for refs lookup
 						for _, ident := range vv.Names {
@@ -271,7 +259,7 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 							addFileRefs(fileName, refs)
 						}
 						sym := output.PackageSymbol{
-							Signature: sig,
+							Signature: golang.FormatValueSpec(v.Tok, vv),
 							Location:  makeLocation(pkg.Package.Fset, fileName, vv.Pos()),
 							Refs:      refs,
 						}
@@ -408,7 +396,6 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 			FileCount: fileCount,
 			TotalSize: formatSize(rawSize),
 			rawSize:   rawSize,
-			Error:     ed.Error,
 		})
 	}
 
@@ -549,16 +536,12 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 			return true
 		}
 
-		operation, err := golang.FormatNode(op.Node)
-		if err != nil {
-			operation = "<format error>"
-		}
 		base := filepath.Base(op.File)
 		location := fmt.Sprintf("%s:%d", base, op.Line)
 
 		typeOps[op.ElemType] = append(typeOps[op.ElemType], opInfo{
 			kind:      string(op.Kind),
-			operation: operation,
+			operation: golang.FormatNode(op.Node),
 			location:  location,
 			funcDecl:  op.EnclosingFunc,
 		})
@@ -628,11 +611,7 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 				fn.Signature = "<package init>"
 				fn.Definition = ""
 			} else if fd := funcDecls[funcKey]; fd != nil {
-				sig, err := golang.FormatFuncDecl(fd)
-				if err != nil {
-					sig = "func " + funcKey + "(...)"
-				}
-				fn.Signature = sig
+				fn.Signature = golang.FormatFuncDecl(fd)
 
 				startPos := pkg.Package.Fset.Position(fd.Pos())
 				endPos := pkg.Package.Fset.Position(fd.End())

@@ -152,7 +152,7 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	}
 
 	// Build target info
-	sig, _ := target.Signature()
+	sig := target.Signature()
 	definition := fmt.Sprintf("%s:%s", target.Filename(), target.Location())
 	qualifiedSymbol := target.Package.Identifier.Name + "." + target.Name
 
@@ -416,11 +416,10 @@ func collectFromSymbol(sym *golang.Symbol, collected map[string]*collectedFunc) 
 	if _, ok := collected[key]; ok {
 		return
 	}
-	sig, _ := sym.Signature()
 	collected[key] = &collectedFunc{
 		name:       sym.Name,
 		pkg:        sym.Package,
-		signature:  sig,
+		signature:  sym.Signature(),
 		definition: fmt.Sprintf("%s:%s", sym.Filename(), sym.Location()),
 	}
 }
@@ -435,14 +434,13 @@ func collectFromFuncInfo(info *golang.FuncInfo, collected map[string]*collectedF
 		return
 	}
 
-	sig, _ := golang.FormatFuncDecl(info.Decl)
 	start := info.Pkg.Package.Fset.Position(info.Decl.Pos())
 	end := info.Pkg.Package.Fset.Position(info.Decl.End())
 
 	collected[key] = &collectedFunc{
 		name:       name,
 		pkg:        info.Pkg,
-		signature:  sig,
+		signature:  golang.FormatFuncDecl(info.Decl),
 		definition: fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line),
 	}
 }

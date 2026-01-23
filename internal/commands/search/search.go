@@ -183,17 +183,11 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 
 	for _, r := range results {
 		kindCounts[string(r.Symbol.Kind)]++
-
-		sig, err := r.Symbol.Signature()
-		if err != nil {
-			sig = r.Symbol.Name
-		}
-
 		matches = append(matches, SearchMatch{
 			Symbol:     r.Symbol.Package.Identifier.Name + "." + r.Symbol.Name,
 			Kind:       string(r.Symbol.Kind),
 			Package:    r.Symbol.Package.Identifier.PkgPath,
-			Signature:  sig,
+			Signature:  r.Symbol.Signature(),
 			Definition: fmt.Sprintf("%s:%s", r.Symbol.Filename(), r.Symbol.Location()),
 		})
 	}

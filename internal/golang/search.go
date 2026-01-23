@@ -76,7 +76,7 @@ type Symbol struct {
 }
 
 // Signature renders the symbol's signature on demand
-func (s *Symbol) Signature() (string, error) {
+func (s *Symbol) Signature() string {
 	switch n := s.node.(type) {
 	case *ast.FuncDecl:
 		return FormatFuncDecl(n)
@@ -85,7 +85,7 @@ func (s *Symbol) Signature() (string, error) {
 	case *ast.ValueSpec:
 		return FormatValueSpec(s.tok, n)
 	}
-	return s.Name, nil
+	return s.Name
 }
 
 // Location renders the symbol's line range (start:end)

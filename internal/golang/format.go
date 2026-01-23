@@ -10,12 +10,12 @@ import (
 	"strings"
 )
 
-func FormatFuncDecl(v *ast.FuncDecl) (string, error) {
+func FormatFuncDecl(v *ast.FuncDecl) string {
 	var sb strings.Builder
 	if err := formatFuncDecl(&sb, v); err != nil {
-		return "", err
+		return fmt.Sprintf("<format error: %v>", err)
 	}
-	return sb.String(), nil
+	return sb.String()
 }
 
 func formatFuncDecl(w io.Writer, v *ast.FuncDecl) error {
@@ -32,12 +32,12 @@ func formatFuncDecl(w io.Writer, v *ast.FuncDecl) error {
 	return format.Node(w, token.NewFileSet(), &cp)
 }
 
-func FormatTypeSpec(tok token.Token, v *ast.TypeSpec) (string, error) {
+func FormatTypeSpec(tok token.Token, v *ast.TypeSpec) string {
 	var sb strings.Builder
 	if err := formatTypeSpec(&sb, tok, v); err != nil {
-		return "", err
+		return fmt.Sprintf("<format error: %v>", err)
 	}
-	return sb.String(), nil
+	return sb.String()
 }
 
 func formatTypeSpec(w io.Writer, tok token.Token, spec *ast.TypeSpec) error {
@@ -55,12 +55,12 @@ func formatTypeSpec(w io.Writer, tok token.Token, spec *ast.TypeSpec) error {
 	})
 }
 
-func FormatValueSpec(tok token.Token, v *ast.ValueSpec) (string, error) {
+func FormatValueSpec(tok token.Token, v *ast.ValueSpec) string {
 	var sb strings.Builder
 	if err := formatValueSpec(&sb, tok, v); err != nil {
-		return "", err
+		return fmt.Sprintf("<format error: %v>", err)
 	}
-	return sb.String(), nil
+	return sb.String()
 }
 
 func formatValueSpec(w io.Writer, tok token.Token, spec *ast.ValueSpec) error {
@@ -157,13 +157,13 @@ func ChannelElemType(info *types.Info, expr ast.Expr) string {
 
 // FormatNode formats an AST node to its canonical source representation.
 // Strips comments and doc strings from the node before formatting.
-func FormatNode(node ast.Node) (string, error) {
+func FormatNode(node ast.Node) string {
 	stripComments(node)
 	var sb strings.Builder
 	if err := format.Node(&sb, token.NewFileSet(), node); err != nil {
-		return "", err
+		return fmt.Sprintf("<format error: %v>", err)
 	}
-	return sb.String(), nil
+	return sb.String()
 }
 
 // stripComments removes comments and doc strings from an AST node.

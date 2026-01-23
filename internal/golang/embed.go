@@ -10,14 +10,12 @@ import (
 type EmbedDirective struct {
 	Patterns []string       // embed patterns from directive
 	VarName  string         // variable name
-	VarType  string         // type expression (e.g., "embed.FS", "string", "[]byte")
+	VarType  string         // type expression (e.g., "embed.FS", "string", "[]byte"), or error message if formatting failed
 	Position token.Position // file:line
-	Error    string         // error message if directive couldn't be fully processed
 }
 
 // FindEmbedDirectives finds all //go:embed directives in a package.
-// Returns directives in source order. If a directive can't be fully processed,
-// it's still included with an Error field explaining the issue.
+// Returns directives in source order.
 func FindEmbedDirectives(pkg *Package) []EmbedDirective {
 	var directives []EmbedDirective
 
@@ -51,19 +49,12 @@ func FindEmbedDirectives(pkg *Package) []EmbedDirective {
 				}
 
 				varName := vs.Names[0].Name
-				varType, err := FormatNode(vs.Type)
-
-				ed := EmbedDirective{
+				directives = append(directives, EmbedDirective{
 					Patterns: embedPatterns,
 					VarName:  varName,
-					VarType:  varType,
+					VarType:  FormatNode(vs.Type),
 					Position: pkg.Package.Fset.Position(gd.Pos()),
-				}
-				if err != nil {
-					ed.Error = err.Error()
-				}
-
-				directives = append(directives, ed)
+				})
 			}
 		}
 	}

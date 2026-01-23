@@ -255,11 +255,10 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		totalDeadSymbols++
 
 		// Build dead symbol info
-		sig, _ := sym.Signature()
 		ds := DeadSymbol{
 			Symbol:     sym.Package.Identifier.Name + "." + sym.Name,
 			Kind:       string(sym.Kind),
-			Signature:  sig,
+			Signature:  sym.Signature(),
 			Definition: filename + ":" + sym.Location(),
 		}
 
