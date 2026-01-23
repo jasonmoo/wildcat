@@ -231,7 +231,7 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 
 	// Find callers (for functions and methods)
 	if target.Kind == golang.SymbolKindFunc || target.Kind == golang.SymbolKindMethod {
-		c.findCallers(wc, target, scopeFilter, usageByPkg)
+		c.findCallers(wc, target, usageByPkg)
 	}
 
 	// Find methods and constructors for types (before references so we can exclude them)
@@ -271,7 +271,7 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	}
 
 	// Find references (for all symbol types)
-	c.findReferences(wc, target, scopeFilter, usageByPkg)
+	c.findReferences(wc, target, usageByPkg)
 
 	// Find interface relationships
 	var implementations []PackageTypes
@@ -310,8 +310,13 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 		}
 	}
 
-	// Build package usages
+	// Build package usages (filtered by scope)
 	for _, pkgPath := range pkgPaths {
+		// Apply scope filter to output
+		if !scopeFilter.InScope(pkgPath) {
+			continue
+		}
+
 		usage := usageByPkg[pkgPath]
 
 		var callerLocs []output.Location
@@ -509,7 +514,7 @@ type referenceInfo struct {
 	symbol string
 }
 
-func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol, filter *commands.ScopeFilter, usageByPkg map[string]*pkgUsage) {
+func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol, usageByPkg map[string]*pkgUsage) {
 	// Get the target's types.Object for comparison
 	node := target.Node()
 	funcDecl, ok := node.(*ast.FuncDecl)
@@ -524,10 +529,6 @@ func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol,
 
 	// Search all packages for calls to target
 	for _, pkg := range wc.Project.Packages {
-		if !filter.InScope(pkg.Identifier.PkgPath) {
-			continue
-		}
-
 		for _, file := range pkg.Package.Syntax {
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
@@ -576,7 +577,7 @@ func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol,
 	}
 }
 
-func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symbol, filter *commands.ScopeFilter, usageByPkg map[string]*pkgUsage) {
+func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symbol, usageByPkg map[string]*pkgUsage) {
 	// Track caller locations to avoid duplicates
 	callerLocs := make(map[string]bool)
 	for _, usage := range usageByPkg {
@@ -591,11 +592,6 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 	targetFile := target.Filename()
 
 	golang.WalkReferences(wc.Project.Packages, target, func(ref golang.Reference) bool {
-		// Scope filter
-		if !filter.InScope(ref.Package.Identifier.PkgPath) {
-			return true
-		}
-
 		key := fmt.Sprintf("%s:%d", ref.File, ref.Line)
 
 		// Skip if already counted as caller
