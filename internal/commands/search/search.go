@@ -82,9 +82,9 @@ Sorting:
   Fuzzy: Ranked by match quality, length similarity, case-sensitive bonus.
   Regex: Sorted by symbol name length (shorter first), then alphabetically.
 
-Scope:
+Scope (filters output, not search area):
   project       - All project packages (default)
-  all           - All packages including dependencies
+  all           - Include dependencies and stdlib
   pkg1,pkg2     - Specific packages (comma-separated)
   -pkg          - Exclude package (prefix with -)
 
@@ -94,6 +94,8 @@ Pattern syntax:
   internal/*         - Direct children only
   internal/**        - All descendants
   **/util            - Match anywhere in path
+
+All symbols are indexed; scope controls which results appear in output.
 
 Examples:
   wildcat search Client                            # fuzzy match "Client"
@@ -149,7 +151,7 @@ Examples:
 	}
 
 	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum results")
-	cmd.Flags().StringVar(&scope, "scope", "project", "Scope: 'project', 'all', or package substrings (lsp, commands,-test)")
+	cmd.Flags().StringVar(&scope, "scope", "project", "Filter output to packages (patterns: internal/..., **/util, -excluded)")
 	cmd.Flags().StringVar(&kind, "kind", "", "Filter by kind: func, method, type, interface, const, var (comma-separated)")
 	return cmd
 }

@@ -99,10 +99,10 @@ Returns:
   - All references (type usage, not just calls)
   - Interface relationships (satisfies/implements)
 
-Scope:
+Scope (filters output, not analysis):
   project       - All project packages (default)
   package       - Target package only
-  all           - All packages including dependencies
+  all           - Include dependencies and stdlib
   pkg1,pkg2     - Specific packages (comma-separated)
   -pkg          - Exclude package (prefix with -)
 
@@ -113,8 +113,7 @@ Pattern syntax:
   internal/**        - All descendants
   **/util            - Match anywhere in path
 
-Patterns are resolved at parse time. Output shows exactly which packages
-were examined, ensuring transparency.
+Full project is analyzed; scope controls which usages appear in output.
 
 Examples:
   wildcat symbol Config                              # analyze Config type
@@ -156,7 +155,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&scope, "scope", "project", "Scope: 'project', 'package', packages, or -pkg to exclude")
+	cmd.Flags().StringVar(&scope, "scope", "project", "Filter output to packages (patterns: internal/..., **/util, -excluded)")
 
 	return cmd
 }

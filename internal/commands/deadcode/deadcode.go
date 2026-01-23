@@ -64,8 +64,9 @@ Uses Rapid Type Analysis (RTA) to determine which code is actually
 reachable from main(), init(), and test functions. This catches
 transitively dead code that simple reference counting misses.
 
-Scope:
+Scope (filters output, not analysis):
   project           - All project packages (default)
+  all               - Include dependencies and stdlib
   pkg1,pkg2         - Specific packages (comma-separated)
   -pkg              - Exclude package (prefix with -)
 
@@ -75,6 +76,10 @@ Pattern syntax:
   internal/*        - Direct children only
   internal/**       - All descendants
   **/util           - Match anywhere in path
+
+Full project is analyzed for reachability; scope controls which dead
+symbols appear in output. A symbol is only dead if unreachable from
+the entire project, not just the scoped packages.
 
 Flags:
   --scope           Package scope filter (default: project)
@@ -123,7 +128,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&scope, "scope", "project", "Package scope filter (patterns: internal/..., **/util, -excluded)")
+	cmd.Flags().StringVar(&scope, "scope", "project", "Filter output to packages (patterns: internal/..., **/util, -excluded)")
 	cmd.Flags().BoolVar(&includeTests, "tests", true, "Include Test/Benchmark/Example/Fuzz functions as entry points")
 	cmd.Flags().BoolVar(&includeExported, "include-exported", false, "Include exported symbols (may have external callers)")
 

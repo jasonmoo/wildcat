@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/ast"
 	"os"
-	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
@@ -13,20 +12,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type Scope string
-
-const (
-	ScopeAll     Scope = "all"
-	ScopeProject Scope = "project"
-	ScopePackage Scope = "package"
-)
-
 type TreeCommand struct {
-	symbol        string
-	upDepth       int
-	downDepth     int
-	scope         Scope
-	targetPkgPath string // set after symbol resolution, used for ScopePackage
+	symbol      string
+	upDepth     int
+	downDepth   int
+	scope       string
+	scopeFilter *commands.ScopeFilter
 }
 
 var _ commands.Command[*TreeCommand] = (*TreeCommand)(nil)
@@ -52,7 +43,7 @@ func WithDownDepth(d int) func(*TreeCommand) error {
 	}
 }
 
-func WithScope(s Scope) func(*TreeCommand) error {
+func WithScope(s string) func(*TreeCommand) error {
 	return func(c *TreeCommand) error {
 		c.scope = s
 		return nil
@@ -63,7 +54,7 @@ func NewTreeCommand() *TreeCommand {
 	return &TreeCommand{
 		upDepth:   2,
 		downDepth: 2,
-		scope:     ScopeProject,
+		scope:     "project",
 	}
 }
 
@@ -84,16 +75,28 @@ The symbol is the center point of the tree:
 
 By default, shows 2 levels in each direction.
 
-Scope:
-  all     - Include everything (stdlib, dependencies)
-  project - Project packages only (default)
-  package - Same package as starting symbol only
+Scope (filters output, not traversal):
+  project           - All project packages (default)
+  all               - Include dependencies and stdlib
+  pkg1,pkg2         - Specific packages (comma-separated)
+  -pkg              - Exclude package (prefix with -)
+
+Pattern syntax:
+  internal/lsp      - Exact package match
+  internal/...      - Package and all subpackages (Go-style)
+  internal/*        - Direct children only
+  internal/**       - All descendants
+  **/util           - Match anywhere in path
+
+Full call graph is traversed; scope controls which calls appear in
+output. Out-of-scope intermediate calls are elided with "...".
 
 Examples:
   wildcat tree main.main
   wildcat tree db.Query --up 3 --down 1
   wildcat tree Server.Start --up 0 --down 4
-  wildcat tree Handler.ServeHTTP --scope all`,
+  wildcat tree Handler.ServeHTTP --scope all
+  wildcat tree Execute --scope 'internal/commands/...'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wc, err := commands.LoadWildcat(cmd.Context(), ".")
@@ -105,7 +108,7 @@ Examples:
 				WithSymbol(args[0]),
 				WithUpDepth(upDepth),
 				WithDownDepth(downDepth),
-				WithScope(Scope(scope)),
+				WithScope(scope),
 			)
 			if err != nil {
 				return err
@@ -133,7 +136,7 @@ Examples:
 
 	cmd.Flags().IntVar(&upDepth, "up", 2, "Depth of callers to show (0 to skip)")
 	cmd.Flags().IntVar(&downDepth, "down", 2, "Depth of callees to show (0 to skip)")
-	cmd.Flags().StringVar(&scope, "scope", "project", "Traversal scope: all, project, package")
+	cmd.Flags().StringVar(&scope, "scope", "project", "Filter output to packages (patterns: internal/..., **/util, -excluded)")
 
 	return cmd
 }
@@ -163,8 +166,12 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 		return commands.NewErrorResultf("invalid_symbol_kind", "tree requires a function or method, got %s", target.Kind), nil
 	}
 
-	// Store target package for ScopePackage filtering
-	c.targetPkgPath = target.Package.Identifier.PkgPath
+	// Parse scope filter (target package always included)
+	scopeFilter, err := wc.ParseScope(ctx, c.scope, target.Package.Identifier.PkgPath)
+	if err != nil {
+		return commands.NewErrorResultf("invalid_scope", "invalid scope: %s", err), nil
+	}
+	c.scopeFilter = scopeFilter
 
 	funcDecl, ok := target.Node().(*ast.FuncDecl)
 	if !ok || funcDecl.Body == nil {
@@ -180,6 +187,10 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	collected := make(map[string]*collectedFunc)
 	collectFromSymbol(target, collected)
 
+	// Map symbol names to full package paths for scope filtering
+	symbolPkgPaths := make(map[string]string)
+	symbolPkgPaths[qualifiedSymbol] = target.Package.Identifier.PkgPath
+
 	var callers, callees []*output.CallNode
 	var maxUpDepth, maxDownDepth int
 	var totalCallers, totalCallees int
@@ -187,15 +198,19 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	// Build callers (--up)
 	if c.upDepth > 0 {
 		visited := make(map[string]bool)
-		callersBottomUp := c.buildCallersTree(wc, target.Package, funcDecl, 0, visited, collected, &maxUpDepth, &totalCallers)
+		callersBottomUp := c.buildCallersTree(wc, target.Package, funcDecl, 0, visited, collected, symbolPkgPaths, &maxUpDepth, &totalCallers)
 		callers = invertCallersTree(callersBottomUp, qualifiedSymbol)
 	}
 
 	// Build callees (--down)
 	if c.downDepth > 0 {
 		visited := make(map[string]bool)
-		callees = c.buildCalleesTree(wc, target.Package, funcDecl, 0, visited, collected, &maxDownDepth, &totalCallees)
+		callees = c.buildCalleesTree(wc, target.Package, funcDecl, 0, visited, collected, symbolPkgPaths, &maxDownDepth, &totalCallees)
 	}
+
+	// Apply scope filtering with elision
+	callers = c.elideOutOfScope(callers, symbolPkgPaths)
+	callees = c.elideOutOfScope(callees, symbolPkgPaths)
 
 	return &TreeCommandResponse{
 		Query: output.TreeQuery{
@@ -231,6 +246,7 @@ func (c *TreeCommand) buildCalleesTree(
 	depth int,
 	visited map[string]bool,
 	collected map[string]*collectedFunc,
+	symbolPkgPaths map[string]string,
 	maxDepth *int,
 	totalCalls *int,
 ) []*output.CallNode {
@@ -259,11 +275,7 @@ func (c *TreeCommand) buildCalleesTree(
 			return true
 		}
 
-		if !c.inScope(call.Called.Pkg().Path(), wc) {
-			return true
-		}
-
-		// Find the callee's AST
+		// Find the callee's AST (only works for project packages)
 		calleeInfo := golang.FindFuncInfo(wc.Project.Packages, call.Called)
 
 		*totalCalls++
@@ -274,15 +286,19 @@ func (c *TreeCommand) buildCalleesTree(
 		}
 
 		callsite := fmt.Sprintf("%s:%d", call.CallerFile, call.Line)
+		symbolName := call.CalledName()
+
+		// Track package path for scope filtering
+		symbolPkgPaths[symbolName] = call.Called.Pkg().Path()
 
 		node := &output.CallNode{
-			Symbol:   call.CalledName(),
+			Symbol:   symbolName,
 			Callsite: callsite,
 		}
 
 		// Recurse if we have the AST
 		if calleeInfo != nil && calleeInfo.Decl.Body != nil {
-			node.Calls = c.buildCalleesTree(wc, calleeInfo.Pkg, calleeInfo.Decl, depth+1, visited, collected, maxDepth, totalCalls)
+			node.Calls = c.buildCalleesTree(wc, calleeInfo.Pkg, calleeInfo.Decl, depth+1, visited, collected, symbolPkgPaths, maxDepth, totalCalls)
 		}
 
 		nodes = append(nodes, node)
@@ -299,6 +315,7 @@ func (c *TreeCommand) buildCallersTree(
 	depth int,
 	visited map[string]bool,
 	collected map[string]*collectedFunc,
+	symbolPkgPaths map[string]string,
 	maxDepth *int,
 	totalCalls *int,
 ) []*output.CallNode {
@@ -325,11 +342,6 @@ func (c *TreeCommand) buildCallersTree(
 	var callers []*output.CallNode
 
 	golang.WalkCalls(wc.Project.Packages, func(call golang.Call) bool {
-		// Scope filter
-		if !c.inScope(call.Package.Identifier.PkgPath, wc) {
-			return true
-		}
-
 		// Check if this call targets our function
 		if call.Called == nil || call.Called != targetObj {
 			return true
@@ -350,11 +362,15 @@ func (c *TreeCommand) buildCallersTree(
 		collectFromFuncInfo(callerInfo, collected)
 
 		callsite := fmt.Sprintf("%s:%d", call.CallerFile, call.Line)
+		symbolName := call.CallerName()
+
+		// Track package path for scope filtering
+		symbolPkgPaths[symbolName] = call.Package.Identifier.PkgPath
 
 		callerNode := &output.CallNode{
-			Symbol:   call.CallerName(),
+			Symbol:   symbolName,
 			Callsite: callsite,
-			Calls:    c.buildCallersTree(wc, call.Package, call.Caller, depth+1, visited, collected, maxDepth, totalCalls),
+			Calls:    c.buildCallersTree(wc, call.Package, call.Caller, depth+1, visited, collected, symbolPkgPaths, maxDepth, totalCalls),
 		}
 
 		callers = append(callers, callerNode)
@@ -364,16 +380,54 @@ func (c *TreeCommand) buildCallersTree(
 	return callers
 }
 
-func (c *TreeCommand) inScope(pkgPath string, wc *commands.Wildcat) bool {
-	switch c.scope {
-	case ScopeAll:
-		return true
-	case ScopeProject:
-		return strings.HasPrefix(pkgPath, wc.Project.Module.Path)
-	case ScopePackage:
-		return pkgPath == c.targetPkgPath
+// elideOutOfScope filters the call tree to only show in-scope nodes,
+// collapsing consecutive out-of-scope nodes into "..." elision markers.
+func (c *TreeCommand) elideOutOfScope(nodes []*output.CallNode, pkgPaths map[string]string) []*output.CallNode {
+	if c.scopeFilter == nil {
+		return nodes
 	}
-	return false
+
+	var result []*output.CallNode
+	for _, node := range nodes {
+		pkgPath := pkgPaths[node.Symbol]
+		if c.scopeFilter.InScope(pkgPath) {
+			// In scope: keep node, recurse on children
+			filtered := *node
+			filtered.Calls = c.elideOutOfScope(node.Calls, pkgPaths)
+			result = append(result, &filtered)
+		} else {
+			// Out of scope: find in-scope descendants and elide
+			descendants := c.findInScopeDescendants(node.Calls, pkgPaths)
+			if len(descendants) > 0 {
+				// Create elision node
+				elision := &output.CallNode{
+					Symbol: "...",
+					Calls:  descendants,
+				}
+				result = append(result, elision)
+			}
+		}
+	}
+	return result
+}
+
+// findInScopeDescendants recursively finds all in-scope nodes,
+// collapsing out-of-scope intermediate nodes.
+func (c *TreeCommand) findInScopeDescendants(nodes []*output.CallNode, pkgPaths map[string]string) []*output.CallNode {
+	var result []*output.CallNode
+	for _, node := range nodes {
+		pkgPath := pkgPaths[node.Symbol]
+		if c.scopeFilter.InScope(pkgPath) {
+			// In scope: include with filtered children
+			filtered := *node
+			filtered.Calls = c.elideOutOfScope(node.Calls, pkgPaths)
+			result = append(result, &filtered)
+		} else {
+			// Out of scope: recurse to find in-scope descendants
+			result = append(result, c.findInScopeDescendants(node.Calls, pkgPaths)...)
+		}
+	}
+	return result
 }
 
 // collectedFunc holds function data for definitions section
