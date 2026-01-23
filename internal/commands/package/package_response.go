@@ -8,11 +8,23 @@ import (
 	"github.com/jasonmoo/wildcat/internal/output"
 )
 
+// EmbedInfo describes a //go:embed directive.
+type EmbedInfo struct {
+	Patterns  []string `json:"patterns"`            // embed patterns (e.g., "templates/*", "static/*.css")
+	Variable  string   `json:"variable"`            // variable name and type (e.g., "var templates embed.FS")
+	Location  string   `json:"location"`            // file:line
+	FileCount int      `json:"file_count"`          // number of files matched
+	TotalSize string   `json:"total_size"`          // formatted size (e.g., "1.2KB")
+	Error     string   `json:"error,omitempty"`     // error message if directive couldn't be fully processed
+	rawSize   int64    // raw bytes for internal aggregation
+}
+
 type PackageCommandResponse struct {
 	Query      output.QueryInfo       `json:"query"`
 	Package    output.PackageInfo     `json:"package"`
 	Summary    output.PackageSummary  `json:"summary"`
 	Files      []output.FileInfo      `json:"files"`
+	Embeds     []EmbedInfo            `json:"embeds,omitempty"`
 	Constants  []output.PackageSymbol `json:"constants"`
 	Variables  []output.PackageSymbol `json:"variables"`
 	Functions  []output.PackageSymbol `json:"functions"`
@@ -27,6 +39,7 @@ func (resp *PackageCommandResponse) MarshalJSON() ([]byte, error) {
 		Package    output.PackageInfo     `json:"package"`
 		Summary    output.PackageSummary  `json:"summary"`
 		Files      []output.FileInfo      `json:"files"`
+		Embeds     []EmbedInfo            `json:"embeds,omitempty"`
 		Constants  []output.PackageSymbol `json:"constants"`
 		Variables  []output.PackageSymbol `json:"variables"`
 		Functions  []output.PackageSymbol `json:"functions"`
@@ -38,6 +51,7 @@ func (resp *PackageCommandResponse) MarshalJSON() ([]byte, error) {
 		Package:    resp.Package,
 		Summary:    resp.Summary,
 		Files:      resp.Files,
+		Embeds:     resp.Embeds,
 		Constants:  resp.Constants,
 		Variables:  resp.Variables,
 		Functions:  resp.Functions,
@@ -78,6 +92,25 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 			fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", f.Refs.Internal, f.Refs.External, f.Refs.Packages)
 		}
 		sb.WriteString("\n")
+	}
+
+	// Embeds (only show if present)
+	if len(r.Embeds) > 0 {
+		var totalEmbedSize int64
+		var totalEmbedFiles int
+		for _, e := range r.Embeds {
+			totalEmbedSize += e.rawSize
+			totalEmbedFiles += e.FileCount
+		}
+		fmt.Fprintf(&sb, "\n# Embeds (%d directives, %d files, %s)\n", len(r.Embeds), totalEmbedFiles, formatSize(totalEmbedSize))
+		for _, e := range r.Embeds {
+			fmt.Fprintf(&sb, "//go:embed %s\n", strings.Join(e.Patterns, " "))
+			if e.Error != "" {
+				fmt.Fprintf(&sb, "%s // %s, ERROR: %s\n", e.Variable, e.Location, e.Error)
+			} else {
+				fmt.Fprintf(&sb, "%s // %s, %d files, %s\n", e.Variable, e.Location, e.FileCount, e.TotalSize)
+			}
+		}
 	}
 
 	// Constants
@@ -168,4 +201,23 @@ func writeSymbolMd(sb *strings.Builder, signature, location string, refs *output
 		}
 	}
 	sb.WriteString("\n")
+}
+
+// formatSize formats a byte size in human-readable form.
+func formatSize(bytes int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.1fGB", float64(bytes)/GB)
+	case bytes >= MB:
+		return fmt.Sprintf("%.1fMB", float64(bytes)/MB)
+	case bytes >= KB:
+		return fmt.Sprintf("%.1fKB", float64(bytes)/KB)
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
 }

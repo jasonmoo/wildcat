@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"path"
 	"path/filepath"
 	"slices"
@@ -172,6 +175,10 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 		// TODO: pare these flags down
 		Mode: packages.LoadAllSyntax,
 		Dir:  mp.Module.Dir,
+		// ParseFile with comments so we can detect //go:embed directives
+		ParseFile: func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
+			return parser.ParseFile(fset, filename, src, parser.ParseComments)
+		},
 		// If Tests is set, the loader includes not just the packages
 		// matching a particular pattern but also any related test packages,
 		// including test-only variants of the package and the test executable.

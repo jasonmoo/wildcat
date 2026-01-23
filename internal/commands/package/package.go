@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/token"
 	gotypes "go/types"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -116,6 +117,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 
 	var pkgret struct {
 		Files      []output.FileInfo      // √
+		Embeds     []EmbedInfo            // √
 		Constants  []output.PackageSymbol // √
 		Variables  []output.PackageSymbol // √
 		Functions  []output.PackageSymbol // √
@@ -392,6 +394,20 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		methodCount += len(t.Methods)
 	}
 
+	// Collect embed directives
+	for _, ed := range golang.FindEmbedDirectives(pkg) {
+		fileCount, rawSize := calculateEmbedSize(pi.PkgDir, ed.Patterns)
+		pkgret.Embeds = append(pkgret.Embeds, EmbedInfo{
+			Patterns:  ed.Patterns,
+			Variable:  fmt.Sprintf("var %s %s", ed.VarName, ed.VarType),
+			Location:  fmt.Sprintf("%s:%d", filepath.Base(ed.Position.Filename), ed.Position.Line),
+			FileCount: fileCount,
+			TotalSize: formatSize(rawSize),
+			rawSize:   rawSize,
+			Error:     ed.Error,
+		})
+	}
+
 	// Sort all slices alphabetically
 	sort.Slice(pkgret.Constants, func(i, j int) bool {
 		return pkgret.Constants[i].Signature < pkgret.Constants[j].Signature
@@ -429,6 +445,7 @@ func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 			ImportedBy: len(pkgret.ImportedBy),
 		},
 		Files:      pkgret.Files,
+		Embeds:     pkgret.Embeds,
 		Constants:  pkgret.Constants,
 		Variables:  pkgret.Variables,
 		Functions:  pkgret.Functions,
@@ -455,4 +472,57 @@ func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *output.TargetRefs {
 		External: counts.External,
 		Packages: counts.PackageCount(),
 	}
+}
+
+// calculateEmbedSize calculates the total file count and size for embed patterns.
+func calculateEmbedSize(pkgDir string, patterns []string) (int, int64) {
+	var fileCount int
+	var totalSize int64
+	seen := make(map[string]bool) // avoid counting same file twice
+
+	for _, pattern := range patterns {
+		// Resolve pattern relative to package directory
+		fullPattern := filepath.Join(pkgDir, pattern)
+
+		// Use filepath.Glob for simple patterns
+		matches, err := filepath.Glob(fullPattern)
+		if err != nil {
+			continue
+		}
+
+		for _, match := range matches {
+			// Walk if it's a directory
+			info, err := os.Stat(match)
+			if err != nil {
+				continue
+			}
+
+			if info.IsDir() {
+				// Walk the directory
+				filepath.WalkDir(match, func(path string, d fs.DirEntry, err error) error {
+					if err != nil || d.IsDir() {
+						return nil
+					}
+					if seen[path] {
+						return nil
+					}
+					seen[path] = true
+					if fi, err := d.Info(); err == nil {
+						fileCount++
+						totalSize += fi.Size()
+					}
+					return nil
+				})
+			} else {
+				if seen[match] {
+					continue
+				}
+				seen[match] = true
+				fileCount++
+				totalSize += info.Size()
+			}
+		}
+	}
+
+	return fileCount, totalSize
 }

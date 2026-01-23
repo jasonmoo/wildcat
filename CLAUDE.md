@@ -3,6 +3,20 @@
 ## Project Overview
 Static analysis CLI for AI agents. Uses gopls to provide symbol-based code queries with structured JSON output.
 
+## Core Goals
+
+1. **Support AIs in developing Go code**: Wildcat exists to help AI agents understand, navigate, and modify Go codebases effectively. Every feature should ask: "Does this help an AI make better decisions about code?"
+
+2. **Be a source of truth**: Wildcat's output must be accurate and complete. AIs rely on this information to reason about code - incorrect or missing data leads to incorrect reasoning and broken code.
+
+## Error Handling Philosophy
+
+**Never silently fail.** When wildcat cannot produce code intelligence, it must signal this clearly so the AI can reason about its situation. Silent failures (empty results, skipped items, swallowed errors) are bugs because they leave the AI operating on incomplete information without knowing it.
+
+- Return errors, don't discard them with `_`
+- If something can't be processed, include it in output with an error field explaining why
+- Prefer surfacing problems over hiding them - an AI that knows it's missing information can ask for help or try alternatives
+
 ## Design Principles
 - **Composability first**: Use interfaces to decouple components. Design for change.
 - **Simple over clever**: Clear, readable code beats complex abstractions.
