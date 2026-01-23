@@ -115,13 +115,17 @@ A stable `wildcat` is in PATH. After changes, build with `go build -o wildcat .`
 
 ### Working on tickets
 
+The workflow is atomic: close the ticket and commit the code together.
+
 ```bash
 bd show wc-XXXX              # Read the ticket
 bd update wc-XXXX --status in_progress
 # ... do the work ...
 bd close wc-XXXX -r "Brief description of what was done"
-git add . && git commit      # Include .beads/ in commit
+git add . && git commit      # Code + .beads/ in same commit
 ```
+
+**Why this order:** The ticket closure and code change belong together for traceability. Close the ticket first (updates `.beads/`), then commit everything atomically. Don't commit the ticket closure separately from the code it describes.
 
 ### Code patterns to follow
 
@@ -148,7 +152,12 @@ go test ./...                # Run tests
 ./wildcat <command>          # Test locally
 ```
 
-Prefer writing `*_test.go` files over ad-hoc testing. For quick experiments, add print statements, build, run, then remove them.
+**Testing approach:**
+- Prefer writing `*_test.go` files - they integrate with package context
+- For quick experiments: add print statements, build, run, remove them
+- NEVER use `go run -` or `cat <<EOF | go run` - they don't work and require approval
+
+**Why test files over ad-hoc:** Shell patterns like `cat > /tmp/test.go` require approval every time and fail due to import path issues. A proper test file in the package directory just works.
 
 ---
 
@@ -167,7 +176,10 @@ bd close wc-XXXX -r "Reason"
 bd dep tree wc-XXXX          # See dependencies
 ```
 
-**Workflow:** Create ticket → commit .beads/ → work → close ticket → commit code + .beads/ together
+**Workflow rules:**
+1. Close ticket FIRST (updates .beads/)
+2. THEN commit code + .beads/ together
+3. Never commit ticket closure separately from the code it describes
 
 ### Allowed Commands
 
