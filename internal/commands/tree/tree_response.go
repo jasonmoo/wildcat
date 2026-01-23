@@ -12,23 +12,30 @@ import (
 var _ commands.Result = (*TreeCommandResponse)(nil)
 
 type TreeCommandResponse struct {
-	Query       output.TreeQuery      `json:"query"`
-	Target      output.TreeTargetInfo `json:"target"`
-	Summary     output.TreeSummary    `json:"summary"`
-	Callers     []*output.CallNode    `json:"callers"`
-	Calls       []*output.CallNode    `json:"calls"`
-	Definitions []output.TreePackage  `json:"definitions"`
+	Query       output.TreeQuery       `json:"query"`
+	Target      output.TreeTargetInfo  `json:"target"`
+	Summary     output.TreeSummary     `json:"summary"`
+	Callers     []*output.CallNode     `json:"callers"`
+	Calls       []*output.CallNode     `json:"calls"`
+	Definitions []output.TreePackage   `json:"definitions"`
+	Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+}
+
+func (r *TreeCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+	r.Diagnostics = ds
 }
 
 func (r *TreeCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Query       output.TreeQuery      `json:"query"`
-		Target      output.TreeTargetInfo `json:"target"`
-		Summary     output.TreeSummary    `json:"summary"`
-		Callers     []*output.CallNode    `json:"callers"`
-		Calls       []*output.CallNode    `json:"calls"`
-		Definitions []output.TreePackage  `json:"definitions"`
+		Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Query       output.TreeQuery       `json:"query"`
+		Target      output.TreeTargetInfo  `json:"target"`
+		Summary     output.TreeSummary     `json:"summary"`
+		Callers     []*output.CallNode     `json:"callers"`
+		Calls       []*output.CallNode     `json:"calls"`
+		Definitions []output.TreePackage   `json:"definitions"`
 	}{
+		Diagnostics: r.Diagnostics,
 		Query:       r.Query,
 		Target:      r.Target,
 		Summary:     r.Summary,
@@ -43,6 +50,8 @@ func (r *TreeCommandResponse) MarshalMarkdown() ([]byte, error) {
 
 	// Header
 	fmt.Fprintf(&sb, "# Tree: %s\n\n", r.Query.Target)
+
+	commands.FormatDiagnosticsMarkdown(&sb, r.Diagnostics)
 
 	// Target section
 	sb.WriteString("## Target\n\n")

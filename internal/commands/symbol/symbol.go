@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -122,36 +121,10 @@ Examples:
   wildcat symbol --scope "**/lsp" Handler            # only packages matching pattern`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			wc, err := commands.LoadWildcat(cmd.Context(), ".")
-			if err != nil {
-				return err
-			}
-
-			result, err := c.Execute(cmd.Context(), wc,
+			return commands.RunCommand(cmd, c,
 				WithSymbols(args),
 				WithScope(scope),
 			)
-			if err != nil {
-				return err
-			}
-
-			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
-				data, err := result.MarshalJSON()
-				if err != nil {
-					return err
-				}
-				os.Stdout.Write(data)
-				os.Stdout.WriteString("\n")
-				return nil
-			}
-
-			md, err := result.MarshalMarkdown()
-			if err != nil {
-				return err
-			}
-			os.Stdout.Write(md)
-			os.Stdout.WriteString("\n")
-			return nil
 		},
 	}
 

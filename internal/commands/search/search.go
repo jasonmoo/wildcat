@@ -3,7 +3,6 @@ package search_cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
@@ -107,46 +106,16 @@ Examples:
   wildcat search --limit 10 Config                 # top 10 matches`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			wc, err := commands.LoadWildcat(cmd.Context(), ".")
-			if err != nil {
-				return err
-			}
-
-			// Parse kinds
 			var kinds []golang.SymbolKind
 			if kind != "" {
 				kinds = golang.ParseKinds(kind)
 			}
-
-			result, err := c.Execute(cmd.Context(), wc,
+			return commands.RunCommand(cmd, c,
 				WithQuery(args[0]),
 				WithLimit(limit),
 				WithScope(scope),
 				WithKinds(kinds),
 			)
-			if err != nil {
-				return err
-			}
-
-			// Check if JSON output requested
-			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
-				data, err := result.MarshalJSON()
-				if err != nil {
-					return err
-				}
-				os.Stdout.Write(data)
-				os.Stdout.WriteString("\n")
-				return nil
-			}
-
-			// Default to markdown
-			md, err := result.MarshalMarkdown()
-			if err != nil {
-				return err
-			}
-			os.Stdout.Write(md)
-			os.Stdout.WriteString("\n")
-			return nil
 		},
 	}
 

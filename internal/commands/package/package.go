@@ -55,36 +55,7 @@ Examples:
 			if len(pkgPaths) == 0 {
 				pkgPaths = []string{"."}
 			}
-
-			wc, err := commands.LoadWildcat(cmd.Context(), ".")
-			if err != nil {
-				return err
-			}
-
-			result, err := c.Execute(cmd.Context(), wc, WithPackages(pkgPaths))
-			if err != nil {
-				return err
-			}
-
-			// Check if JSON output requested via inherited flag
-			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
-				data, err := result.MarshalJSON()
-				if err != nil {
-					return err
-				}
-				os.Stdout.Write(data)
-				os.Stdout.WriteString("\n")
-				return nil
-			}
-
-			// Default to markdown
-			md, err := result.MarshalMarkdown()
-			if err != nil {
-				return err
-			}
-			os.Stdout.Write(md)
-			os.Stdout.WriteString("\n")
-			return nil
+			return commands.RunCommand(cmd, c, WithPackages(pkgPaths))
 		},
 	}
 }

@@ -72,46 +72,58 @@ type SuggestionInfo struct {
 }
 
 type SymbolCommandResponse struct {
-	Query             output.QueryInfo      `json:"query"`
-	Package           output.PackageInfo    `json:"package"`
-	Target            output.TargetInfo     `json:"target"`
-	Methods           []FunctionInfo        `json:"methods,omitempty"`
-	Constructors      []FunctionInfo        `json:"constructors,omitempty"`
-	Descendants       []DescendantInfo      `json:"descendants,omitempty"` // types orphaned if target removed
-	ImportedBy        []output.DepResult    `json:"imported_by"`
-	References        []output.PackageUsage `json:"references"`
-	Implementations   []PackageTypes        `json:"implementations,omitempty"`
-	Consumers         []PackageFunctions    `json:"consumers,omitempty"` // funcs that accept the interface as param
-	Satisfies         []PackageTypes        `json:"satisfies,omitempty"`
-	QuerySummary      output.SymbolSummary  `json:"query_summary"`
-	PackageSummary    output.SymbolSummary  `json:"package_summary"`
-	ProjectSummary    output.SymbolSummary  `json:"project_summary"`
-	OtherFuzzyMatches []SuggestionInfo      `json:"other_fuzzy_matches"`
+	Query             output.QueryInfo       `json:"query"`
+	Package           output.PackageInfo     `json:"package"`
+	Target            output.TargetInfo      `json:"target"`
+	Methods           []FunctionInfo         `json:"methods,omitempty"`
+	Constructors      []FunctionInfo         `json:"constructors,omitempty"`
+	Descendants       []DescendantInfo       `json:"descendants,omitempty"` // types orphaned if target removed
+	ImportedBy        []output.DepResult     `json:"imported_by"`
+	References        []output.PackageUsage  `json:"references"`
+	Implementations   []PackageTypes         `json:"implementations,omitempty"`
+	Consumers         []PackageFunctions     `json:"consumers,omitempty"` // funcs that accept the interface as param
+	Satisfies         []PackageTypes         `json:"satisfies,omitempty"`
+	QuerySummary      output.SymbolSummary   `json:"query_summary"`
+	PackageSummary    output.SymbolSummary   `json:"package_summary"`
+	ProjectSummary    output.SymbolSummary   `json:"project_summary"`
+	OtherFuzzyMatches []SuggestionInfo       `json:"other_fuzzy_matches"`
+	Diagnostics       []commands.Diagnostics `json:"diagnostics,omitempty"`
+}
+
+func (r *SymbolCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+	r.Diagnostics = ds
 }
 
 // MultiSymbolCommandResponse wraps multiple symbol results.
 type MultiSymbolCommandResponse struct {
-	Symbols []SymbolCommandResponse `json:"symbols"`
+	Symbols     []SymbolCommandResponse `json:"symbols"`
+	Diagnostics []commands.Diagnostics  `json:"diagnostics,omitempty"`
+}
+
+func (r *MultiSymbolCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+	r.Diagnostics = ds
 }
 
 func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Query             output.QueryInfo      `json:"query"`
-		Package           output.PackageInfo    `json:"package"`
-		Target            output.TargetInfo     `json:"target"`
-		QuerySummary      output.SymbolSummary  `json:"query_summary"`
-		PackageSummary    output.SymbolSummary  `json:"package_summary"`
-		ProjectSummary    output.SymbolSummary  `json:"project_summary"`
-		Methods           []FunctionInfo        `json:"methods,omitempty"`
-		Constructors      []FunctionInfo        `json:"constructors,omitempty"`
-		Descendants       []DescendantInfo      `json:"descendants,omitempty"`
-		ImportedBy        []output.DepResult    `json:"imported_by"`
-		References        []output.PackageUsage `json:"references"`
-		Implementations   []PackageTypes        `json:"implementations,omitempty"`
-		Consumers         []PackageFunctions    `json:"consumers,omitempty"`
-		Satisfies         []PackageTypes        `json:"satisfies,omitempty"`
-		OtherFuzzyMatches []SuggestionInfo      `json:"other_fuzzy_matches"`
+		Diagnostics       []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Query             output.QueryInfo       `json:"query"`
+		Package           output.PackageInfo     `json:"package"`
+		Target            output.TargetInfo      `json:"target"`
+		QuerySummary      output.SymbolSummary   `json:"query_summary"`
+		PackageSummary    output.SymbolSummary   `json:"package_summary"`
+		ProjectSummary    output.SymbolSummary   `json:"project_summary"`
+		Methods           []FunctionInfo         `json:"methods,omitempty"`
+		Constructors      []FunctionInfo         `json:"constructors,omitempty"`
+		Descendants       []DescendantInfo       `json:"descendants,omitempty"`
+		ImportedBy        []output.DepResult     `json:"imported_by"`
+		References        []output.PackageUsage  `json:"references"`
+		Implementations   []PackageTypes         `json:"implementations,omitempty"`
+		Consumers         []PackageFunctions     `json:"consumers,omitempty"`
+		Satisfies         []PackageTypes         `json:"satisfies,omitempty"`
+		OtherFuzzyMatches []SuggestionInfo       `json:"other_fuzzy_matches"`
 	}{
+		Diagnostics:       r.Diagnostics,
 		Query:             r.Query,
 		Package:           r.Package,
 		Target:            r.Target,
@@ -139,6 +151,8 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	// Header with target symbol and package context
 	fmt.Fprintf(&sb, "# %s\n\n", r.Target.Symbol)
 	fmt.Fprintf(&sb, "%s // %s\n\n", r.Package.ImportPath, r.Package.Dir)
+
+	commands.FormatDiagnosticsMarkdown(&sb, r.Diagnostics)
 
 	// Show resolved scope if patterns were used
 	if r.Query.ScopeResolved != nil {
@@ -348,11 +362,18 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 }
 
 func (r *MultiSymbolCommandResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal(r.Symbols)
+	return json.Marshal(struct {
+		Diagnostics []commands.Diagnostics  `json:"diagnostics,omitempty"`
+		Symbols     []SymbolCommandResponse `json:"symbols"`
+	}{
+		Diagnostics: r.Diagnostics,
+		Symbols:     r.Symbols,
+	})
 }
 
 func (r *MultiSymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 	var sb strings.Builder
+	commands.FormatDiagnosticsMarkdown(&sb, r.Diagnostics)
 	for i, sym := range r.Symbols {
 		if i > 0 {
 			sb.WriteString("\n---\n\n")

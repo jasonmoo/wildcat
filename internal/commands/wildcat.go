@@ -10,9 +10,10 @@ import (
 )
 
 type Wildcat struct {
-	Project *golang.Project
-	Stdlib  []*packages.Package
-	Index   *golang.SymbolIndex
+	Project     *golang.Project
+	Stdlib      []*packages.Package
+	Index       *golang.SymbolIndex
+	Diagnostics []Diagnostics
 }
 
 func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
@@ -20,14 +21,32 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	if err != nil {
 		return nil, err
 	}
+	var ds []Diagnostics
+	for i, p := range p.Packages {
+		if i == 0 {
+			if err := p.Package.Module.Error; err != nil {
+				ds = append(ds, Diagnostics{
+					Level:   "warning",
+					Message: err.Err,
+				})
+			}
+		}
+		for _, e := range p.Package.Errors {
+			ds = append(ds, Diagnostics{
+				Level:   "warning",
+				Message: e.Error(),
+			})
+		}
+	}
 	stdps, err := golang.LoadStdlibPackages(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return &Wildcat{
-		Project: p,
-		Stdlib:  stdps,
-		Index:   golang.CollectSymbols(p.Packages),
+		Project:     p,
+		Stdlib:      stdps,
+		Index:       golang.CollectSymbols(p.Packages),
+		Diagnostics: ds,
 	}, nil
 }
 

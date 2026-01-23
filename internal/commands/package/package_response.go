@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/output"
 )
 
@@ -42,38 +43,55 @@ type ChannelGroup struct {
 }
 
 type PackageCommandResponse struct {
-	Query      output.QueryInfo       `json:"query"`
-	Package    output.PackageInfo     `json:"package"`
-	Summary    output.PackageSummary  `json:"summary"`
-	Files      []output.FileInfo      `json:"files"`
-	Embeds     []EmbedInfo            `json:"embeds"`
-	Constants  []output.PackageSymbol `json:"constants"`
-	Variables  []output.PackageSymbol `json:"variables"`
-	Functions  []output.PackageSymbol `json:"functions"`
-	Types      []output.PackageType   `json:"types"`
-	Channels   []ChannelGroup         `json:"channels"`
-	Imports    []output.DepResult     `json:"imports"`
-	ImportedBy []output.DepResult     `json:"imported_by"`
+	Query       output.QueryInfo       `json:"query"`
+	Package     output.PackageInfo     `json:"package"`
+	Summary     output.PackageSummary  `json:"summary"`
+	Files       []output.FileInfo      `json:"files"`
+	Embeds      []EmbedInfo            `json:"embeds"`
+	Constants   []output.PackageSymbol `json:"constants"`
+	Variables   []output.PackageSymbol `json:"variables"`
+	Functions   []output.PackageSymbol `json:"functions"`
+	Types       []output.PackageType   `json:"types"`
+	Channels    []ChannelGroup         `json:"channels"`
+	Imports     []output.DepResult     `json:"imports"`
+	ImportedBy  []output.DepResult     `json:"imported_by"`
+	Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+}
+
+var _ commands.Result = (*PackageCommandResponse)(nil)
+
+func (r *PackageCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+	r.Diagnostics = ds
 }
 
 // MultiPackageResponse wraps multiple package responses for multi-package queries.
 type MultiPackageResponse struct {
-	Query    output.QueryInfo          `json:"query"`
-	Packages []*PackageCommandResponse `json:"packages"`
+	Query       output.QueryInfo          `json:"query"`
+	Packages    []*PackageCommandResponse `json:"packages"`
+	Diagnostics []commands.Diagnostics    `json:"diagnostics,omitempty"`
+}
+
+var _ commands.Result = (*MultiPackageResponse)(nil)
+
+func (r *MultiPackageResponse) SetDiagnostics(ds []commands.Diagnostics) {
+	r.Diagnostics = ds
 }
 
 func (resp *MultiPackageResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Query    output.QueryInfo          `json:"query"`
-		Packages []*PackageCommandResponse `json:"packages"`
+		Diagnostics []commands.Diagnostics    `json:"diagnostics,omitempty"`
+		Query       output.QueryInfo          `json:"query"`
+		Packages    []*PackageCommandResponse `json:"packages"`
 	}{
-		Query:    resp.Query,
-		Packages: resp.Packages,
+		Diagnostics: resp.Diagnostics,
+		Query:       resp.Query,
+		Packages:    resp.Packages,
 	})
 }
 
 func (resp *MultiPackageResponse) MarshalMarkdown() ([]byte, error) {
 	var sb strings.Builder
+	commands.FormatDiagnosticsMarkdown(&sb, resp.Diagnostics)
 	for i, pkg := range resp.Packages {
 		if i > 0 {
 			sb.WriteString("\n---\n\n")
@@ -85,36 +103,41 @@ func (resp *MultiPackageResponse) MarshalMarkdown() ([]byte, error) {
 
 func (resp *PackageCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Query      output.QueryInfo       `json:"query"`
-		Package    output.PackageInfo     `json:"package"`
-		Summary    output.PackageSummary  `json:"summary"`
-		Files      []output.FileInfo      `json:"files"`
-		Embeds     []EmbedInfo            `json:"embeds"`
-		Constants  []output.PackageSymbol `json:"constants"`
-		Variables  []output.PackageSymbol `json:"variables"`
-		Functions  []output.PackageSymbol `json:"functions"`
-		Types      []output.PackageType   `json:"types"`
-		Channels   []ChannelGroup         `json:"channels"`
-		Imports    []output.DepResult     `json:"imports"`
-		ImportedBy []output.DepResult     `json:"imported_by"`
+		Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Query       output.QueryInfo       `json:"query"`
+		Package     output.PackageInfo     `json:"package"`
+		Summary     output.PackageSummary  `json:"summary"`
+		Files       []output.FileInfo      `json:"files"`
+		Embeds      []EmbedInfo            `json:"embeds"`
+		Constants   []output.PackageSymbol `json:"constants"`
+		Variables   []output.PackageSymbol `json:"variables"`
+		Functions   []output.PackageSymbol `json:"functions"`
+		Types       []output.PackageType   `json:"types"`
+		Channels    []ChannelGroup         `json:"channels"`
+		Imports     []output.DepResult     `json:"imports"`
+		ImportedBy  []output.DepResult     `json:"imported_by"`
 	}{
-		Query:      resp.Query,
-		Package:    resp.Package,
-		Summary:    resp.Summary,
-		Files:      resp.Files,
-		Embeds:     resp.Embeds,
-		Constants:  resp.Constants,
-		Variables:  resp.Variables,
-		Functions:  resp.Functions,
-		Types:      resp.Types,
-		Channels:   resp.Channels,
-		Imports:    resp.Imports,
-		ImportedBy: resp.ImportedBy,
+		Diagnostics: resp.Diagnostics,
+		Query:       resp.Query,
+		Package:     resp.Package,
+		Summary:     resp.Summary,
+		Files:       resp.Files,
+		Embeds:      resp.Embeds,
+		Constants:   resp.Constants,
+		Variables:   resp.Variables,
+		Functions:   resp.Functions,
+		Types:       resp.Types,
+		Channels:    resp.Channels,
+		Imports:     resp.Imports,
+		ImportedBy:  resp.ImportedBy,
 	})
 }
 
 func (resp *PackageCommandResponse) MarshalMarkdown() ([]byte, error) {
-	return []byte(renderPackageMarkdown(resp)), nil
+	var sb strings.Builder
+	commands.FormatDiagnosticsMarkdown(&sb, resp.Diagnostics)
+	sb.WriteString(renderPackageMarkdown(resp))
+	return []byte(sb.String()), nil
 }
 
 // renderPackageMarkdown renders the package response as compressed markdown.

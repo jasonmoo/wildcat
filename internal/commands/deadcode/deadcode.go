@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -94,37 +93,11 @@ Examples:
   wildcat deadcode --tests=false                      # ignore test entry points
   wildcat deadcode --include-exported                 # include exported API`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			wc, err := commands.LoadWildcat(cmd.Context(), ".")
-			if err != nil {
-				return err
-			}
-
-			result, err := c.Execute(cmd.Context(), wc,
+			return commands.RunCommand(cmd, c,
 				WithScope(scope),
 				WithIncludeTests(includeTests),
 				WithIncludeExported(includeExported),
 			)
-			if err != nil {
-				return err
-			}
-
-			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
-				data, err := result.MarshalJSON()
-				if err != nil {
-					return err
-				}
-				os.Stdout.Write(data)
-				os.Stdout.WriteString("\n")
-				return nil
-			}
-
-			md, err := result.MarshalMarkdown()
-			if err != nil {
-				return err
-			}
-			os.Stdout.Write(md)
-			os.Stdout.WriteString("\n")
-			return nil
 		},
 	}
 

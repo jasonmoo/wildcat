@@ -2,7 +2,6 @@ package readme_cmd
 
 import (
 	"context"
-	"os"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/spf13/cobra"
@@ -42,32 +41,7 @@ Examples:
   wildcat readme > CLAUDE.md
   wildcat readme --compact`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// readme doesn't need Wildcat context
-			result, err := c.Execute(cmd.Context(), nil,
-				WithCompact(compact),
-			)
-			if err != nil {
-				return err
-			}
-
-			// Check if JSON output requested via inherited flag
-			if outputFlag := cmd.Flag("output"); outputFlag != nil && outputFlag.Changed && outputFlag.Value.String() == "json" {
-				data, err := result.MarshalJSON()
-				if err != nil {
-					return err
-				}
-				os.Stdout.Write(data)
-				os.Stdout.WriteString("\n")
-				return nil
-			}
-
-			// Default to markdown
-			md, err := result.MarshalMarkdown()
-			if err != nil {
-				return err
-			}
-			os.Stdout.Write(md)
-			return nil
+			return commands.RunCommand(cmd, c, WithCompact(compact))
 		},
 	}
 

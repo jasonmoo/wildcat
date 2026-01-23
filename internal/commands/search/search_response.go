@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/output"
 )
 
@@ -18,20 +19,29 @@ type SearchMatch struct {
 }
 
 type SearchCommandResponse struct {
-	Query   output.SearchQuery   `json:"query"`
-	Summary output.SearchSummary `json:"summary"`
-	Results []SearchMatch        `json:"results"`
+	Query       output.SearchQuery      `json:"query"`
+	Summary     output.SearchSummary    `json:"summary"`
+	Results     []SearchMatch           `json:"results"`
+	Diagnostics []commands.Diagnostics  `json:"diagnostics,omitempty"`
+}
+
+var _ commands.Result = (*SearchCommandResponse)(nil)
+
+func (r *SearchCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+	r.Diagnostics = ds
 }
 
 func (r *SearchCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Query   output.SearchQuery   `json:"query"`
-		Summary output.SearchSummary `json:"summary"`
-		Results []SearchMatch        `json:"results"`
+		Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Query       output.SearchQuery     `json:"query"`
+		Summary     output.SearchSummary   `json:"summary"`
+		Results     []SearchMatch          `json:"results"`
 	}{
-		Query:   r.Query,
-		Summary: r.Summary,
-		Results: r.Results,
+		Diagnostics: r.Diagnostics,
+		Query:       r.Query,
+		Summary:     r.Summary,
+		Results:     r.Results,
 	})
 }
 
@@ -42,6 +52,8 @@ func (r *SearchCommandResponse) MarshalMarkdown() ([]byte, error) {
 	sb.WriteString("# search ")
 	sb.WriteString(r.Query.Pattern)
 	sb.WriteString("\n")
+
+	commands.FormatDiagnosticsMarkdown(&sb, r.Diagnostics)
 
 	// Summary
 	fmt.Fprintf(&sb, "\n## Summary (%d results)\n", r.Summary.Count)

@@ -66,13 +66,18 @@ type PackageDeadCode struct {
 
 // DeadcodeCommandResponse is the structured response for deadcode analysis
 type DeadcodeCommandResponse struct {
-	Query        QueryInfo          `json:"query"`
-	Summary      Summary            `json:"summary"`
-	DeadPackages []string           `json:"dead_packages,omitempty"` // fully dead package paths
-	Packages     []*PackageDeadCode `json:"packages,omitempty"`
+	Query        QueryInfo              `json:"query"`
+	Summary      Summary                `json:"summary"`
+	DeadPackages []string               `json:"dead_packages,omitempty"` // fully dead package paths
+	Packages     []*PackageDeadCode     `json:"packages,omitempty"`
+	Diagnostics  []commands.Diagnostics `json:"diagnostics,omitempty"`
 
 	// Internal fields for building the response
 	totalMethodsByType map[string]int // tracks total methods per type for grouping logic
+}
+
+func (r *DeadcodeCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+	r.Diagnostics = ds
 }
 
 func (r *DeadcodeCommandResponse) MarshalJSON() ([]byte, error) {
@@ -86,11 +91,13 @@ func (r *DeadcodeCommandResponse) MarshalJSON() ([]byte, error) {
 	})
 
 	return json.Marshal(struct {
-		Query        QueryInfo          `json:"query"`
-		Summary      Summary            `json:"summary"`
-		DeadPackages []string           `json:"dead_packages,omitempty"`
-		Packages     []*PackageDeadCode `json:"packages,omitempty"`
+		Diagnostics  []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Query        QueryInfo              `json:"query"`
+		Summary      Summary                `json:"summary"`
+		DeadPackages []string               `json:"dead_packages,omitempty"`
+		Packages     []*PackageDeadCode     `json:"packages,omitempty"`
 	}{
+		Diagnostics:  r.Diagnostics,
 		Query:        r.Query,
 		Summary:      r.Summary,
 		DeadPackages: r.DeadPackages,
@@ -102,6 +109,8 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 	var sb strings.Builder
 
 	sb.WriteString("# Dead Code Analysis\n\n")
+
+	commands.FormatDiagnosticsMarkdown(&sb, r.Diagnostics)
 
 	// Query info
 	fmt.Fprintf(&sb, "scope: %s\n", r.Query.Scope)
