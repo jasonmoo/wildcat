@@ -12,9 +12,9 @@ import (
 var _ commands.Result = (*DeadcodeCommandResponse)(nil)
 
 type QueryInfo struct {
-	Command      string `json:"command"`
-	Scope        string `json:"scope"`
-	IncludeTests bool   `json:"include_tests"`
+	Command        string `json:"command"`
+	Scope          string `json:"scope"`
+	HasEntryPoints bool   `json:"has_entry_points"` // false = library mode (exports used as roots)
 }
 
 type Summary struct {
@@ -114,7 +114,11 @@ func (r *DeadcodeCommandResponse) MarshalMarkdown() ([]byte, error) {
 
 	// Query info
 	fmt.Fprintf(&sb, "scope: %s\n", r.Query.Scope)
-	fmt.Fprintf(&sb, "include_tests: %v\n\n", r.Query.IncludeTests)
+	if r.Query.HasEntryPoints {
+		fmt.Fprintf(&sb, "mode: executable (main/init found)\n\n")
+	} else {
+		fmt.Fprintf(&sb, "mode: library (exports used as roots)\n\n")
+	}
 
 	// Summary
 	fmt.Fprintf(&sb, "## Summary\n\n")

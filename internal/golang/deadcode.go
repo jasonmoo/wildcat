@@ -2,7 +2,6 @@ package golang
 
 import (
 	"fmt"
-	"strings"
 
 	"golang.org/x/tools/go/callgraph/rta"
 	"golang.org/x/tools/go/packages"
@@ -18,11 +17,19 @@ type DeadCodeResult struct {
 	// (multiple SSA functions can represent the same source function in test mode)
 	// Key format: "filename:line"
 	ReachablePos map[string]bool
+	// HasEntryPoints indicates whether main/init entry points were found.
+	// When false, exported functions were used as roots instead, and
+	// only unexported unreachable symbols should be reported as dead.
+	HasEntryPoints bool
 }
 
 // AnalyzeDeadCode performs reachability analysis using Rapid Type Analysis (RTA).
-// It finds all functions reachable from entry points (main, init, and optionally tests).
-func AnalyzeDeadCode(project *Project, includeTests bool) (*DeadCodeResult, error) {
+//
+// Entry points are main and init functions only. If none are found (library),
+// exported functions are used as roots instead. In library mode, only unexported
+// unreachable symbols should be reported as dead (exported symbols may have
+// external callers).
+func AnalyzeDeadCode(project *Project) (*DeadCodeResult, error) {
 	// Collect packages for SSA conversion
 	var pkgs []*packages.Package
 	for _, p := range project.Packages {
@@ -40,35 +47,37 @@ func AnalyzeDeadCode(project *Project, includeTests bool) (*DeadCodeResult, erro
 		return nil, err
 	}
 
-	// Find root functions (entry points)
+	// Find entry points: main and init functions only
 	var roots []*ssa.Function
 	for _, pkg := range ssaPkgs {
 		if pkg == nil {
 			continue
 		}
 
-		// main function
 		if fn := pkg.Func("main"); fn != nil {
 			roots = append(roots, fn)
 		}
 
-		// init function (synthesized)
 		if fn := pkg.Func("init"); fn != nil {
 			roots = append(roots, fn)
 		}
+	}
 
-		// Test/Benchmark/Example/Fuzz functions
-		if includeTests {
+	hasEntryPoints := len(roots) > 0
+
+	// If no entry points (library), use exported functions as roots
+	if !hasEntryPoints {
+		for _, pkg := range ssaPkgs {
+			if pkg == nil {
+				continue
+			}
 			for _, mem := range pkg.Members {
 				fn, ok := mem.(*ssa.Function)
-				if !ok {
-					continue
+				if !ok || fn.Signature.Recv() != nil {
+					continue // skip non-functions and methods (methods handled via their types)
 				}
-				name := fn.Name()
-				if strings.HasPrefix(name, "Test") ||
-					strings.HasPrefix(name, "Benchmark") ||
-					strings.HasPrefix(name, "Example") ||
-					strings.HasPrefix(name, "Fuzz") {
+				// Check if exported (starts with uppercase)
+				if len(fn.Name()) > 0 && fn.Name()[0] >= 'A' && fn.Name()[0] <= 'Z' {
 					roots = append(roots, fn)
 				}
 			}
@@ -76,11 +85,12 @@ func AnalyzeDeadCode(project *Project, includeTests bool) (*DeadCodeResult, erro
 	}
 
 	if len(roots) == 0 {
-		// No entry points found - return empty result
+		// No roots at all - can't analyze anything
 		return &DeadCodeResult{
-			Program:      prog,
-			Reachable:    make(map[*ssa.Function]bool),
-			ReachablePos: make(map[string]bool),
+			Program:        prog,
+			Reachable:      make(map[*ssa.Function]bool),
+			ReachablePos:   make(map[string]bool),
+			HasEntryPoints: false,
 		}, nil
 	}
 
@@ -104,9 +114,10 @@ func AnalyzeDeadCode(project *Project, includeTests bool) (*DeadCodeResult, erro
 	}
 
 	return &DeadCodeResult{
-		Program:      prog,
-		Reachable:    reachable,
-		ReachablePos: reachablePos,
+		Program:        prog,
+		Reachable:      reachable,
+		ReachablePos:   reachablePos,
+		HasEntryPoints: hasEntryPoints,
 	}, nil
 }
 
@@ -135,19 +146,22 @@ We apologize for the inconvenience. This will work automatically once the fix is
 }
 
 // IsReachable checks if a symbol is reachable from entry points.
-func (r *DeadCodeResult) IsReachable(sym *Symbol) bool {
+// Returns (reachable, analyzed) where analyzed indicates if the symbol
+// could actually be checked. When analyzed is false, reachable defaults
+// to true (conservative: assume used when uncertain).
+func (r *DeadCodeResult) IsReachable(sym *Symbol) (reachable, analyzed bool) {
 	if r == nil || r.Program == nil {
-		return true // assume reachable if no analysis
+		return true, false // assume reachable if no analysis
 	}
 
 	// Use the symbol's own package Fset to get position
 	pos := sym.Package.Package.Fset.Position(sym.Node().Pos())
 	if !pos.IsValid() {
-		return true // assume reachable if position unknown
+		return true, false // assume reachable if position unknown
 	}
 
 	// Check if this filename:line is in the reachable set
 	key := posKey(pos.Filename, pos.Line)
-	return r.ReachablePos[key]
+	return r.ReachablePos[key], true
 }
 

@@ -11,9 +11,14 @@ func TestAnalyzeDeadCode(t *testing.T) {
 		t.Fatalf("LoadModulePackages: %v", err)
 	}
 
-	result, err := AnalyzeDeadCode(project, true)
+	result, err := AnalyzeDeadCode(project)
 	if err != nil {
 		t.Fatalf("AnalyzeDeadCode: %v", err)
+	}
+
+	// Should have entry points (wildcat has main)
+	if !result.HasEntryPoints {
+		t.Error("Expected HasEntryPoints=true for wildcat (has main)")
 	}
 
 	// Should have found many reachable functions
@@ -39,7 +44,11 @@ func TestAnalyzeDeadCode(t *testing.T) {
 	if sym == nil {
 		t.Fatal("NewSymbolCommand symbol not found")
 	}
-	if !result.IsReachable(sym) {
+	reachable, analyzed := result.IsReachable(sym)
+	if !analyzed {
+		t.Error("NewSymbolCommand should be analyzable")
+	}
+	if !reachable {
 		t.Error("NewSymbolCommand should be reachable from main")
 	}
 }

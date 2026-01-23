@@ -15,7 +15,6 @@ import (
 
 type DeadcodeCommand struct {
 	scope           string // scope filter for packages (default: project)
-	includeTests    bool   // include test entry points in reachability analysis
 	includeExported bool   // include exported symbols (may have external callers)
 }
 
@@ -24,13 +23,6 @@ var _ commands.Command[*DeadcodeCommand] = (*DeadcodeCommand)(nil)
 func WithScope(scope string) func(*DeadcodeCommand) error {
 	return func(c *DeadcodeCommand) error {
 		c.scope = scope
-		return nil
-	}
-}
-
-func WithIncludeTests(include bool) func(*DeadcodeCommand) error {
-	return func(c *DeadcodeCommand) error {
-		c.includeTests = include
 		return nil
 	}
 }
@@ -44,13 +36,11 @@ func WithIncludeExported(include bool) func(*DeadcodeCommand) error {
 
 func NewDeadcodeCommand() *DeadcodeCommand {
 	return &DeadcodeCommand{
-		scope:        "project",
-		includeTests: true,
+		scope: "project",
 	}
 }
 
 func (c *DeadcodeCommand) Cmd() *cobra.Command {
-	var includeTests bool
 	var includeExported bool
 	var scope string
 
@@ -60,8 +50,13 @@ func (c *DeadcodeCommand) Cmd() *cobra.Command {
 		Long: `Find functions and methods not reachable from entry points.
 
 Uses Rapid Type Analysis (RTA) to determine which code is actually
-reachable from main(), init(), and test functions. This catches
-transitively dead code that simple reference counting misses.
+reachable from main() and init() functions. This catches transitively
+dead code that simple reference counting misses.
+
+For executables (has main): Reports all unreachable code.
+For libraries (no main): Uses exported functions as roots and reports
+only unreachable unexported code. Exported symbols are excluded since
+they may have external callers.
 
 Scope (filters output, not analysis):
   project           - All project packages (default)
@@ -82,28 +77,24 @@ the entire project, not just the scoped packages.
 
 Flags:
   --scope           Package scope filter (default: project)
-  --tests           Include Test/Benchmark/Example functions as entry points (default: true)
-  --include-exported Include exported symbols (may have external callers)
+  --include-exported Include exported symbols (libraries only)
 
 Examples:
   wildcat deadcode                                    # find all dead code
   wildcat deadcode --scope internal/lsp              # dead code in lsp package
   wildcat deadcode --scope 'internal/...'            # dead code in internal subtree
   wildcat deadcode --scope 'internal/...,-**/test'   # exclude test packages
-  wildcat deadcode --tests=false                      # ignore test entry points
   wildcat deadcode --include-exported                 # include exported API`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return commands.RunCommand(cmd, c,
 				WithScope(scope),
-				WithIncludeTests(includeTests),
 				WithIncludeExported(includeExported),
 			)
 		},
 	}
 
 	cmd.Flags().StringVar(&scope, "scope", "project", "Filter output to packages (patterns: internal/..., **/util, -excluded)")
-	cmd.Flags().BoolVar(&includeTests, "tests", true, "Include Test/Benchmark/Example/Fuzz functions as entry points")
-	cmd.Flags().BoolVar(&includeExported, "include-exported", false, "Include exported symbols (may have external callers)")
+	cmd.Flags().BoolVar(&includeExported, "include-exported", false, "Include exported symbols (for libraries without main)")
 
 	return cmd
 }
@@ -126,9 +117,17 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 	}
 
 	// Run RTA analysis
-	analysis, err := golang.AnalyzeDeadCode(wc.Project, c.includeTests)
+	analysis, err := golang.AnalyzeDeadCode(wc.Project)
 	if err != nil {
 		return nil, fmt.Errorf("dead code analysis failed: %w", err)
+	}
+
+	// Emit diagnostic if no entry points (library mode)
+	if !analysis.HasEntryPoints {
+		wc.Diagnostics = append(wc.Diagnostics, commands.Diagnostics{
+			Level:   "info",
+			Message: "no main/init entry points found; using exported functions as roots, exported symbols excluded from results",
+		})
 	}
 
 	// Track file info per package (total symbols, dead symbols)
@@ -163,9 +162,13 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			continue
 		}
 
-		// Skip exported unless requested (but internal/ exports are always included)
-		if !c.includeExported && ast.IsExported(sym.Name) && !sym.Package.Identifier.IsInternal() {
-			continue
+		// Skip exported symbols we can't reason about (internal/ exports are always included)
+		if ast.IsExported(sym.Name) && !sym.Package.Identifier.IsInternal() {
+			// In library mode: always skip exported (can't reason about external callers)
+			// In executable mode: skip unless --include-exported
+			if !analysis.HasEntryPoints || !c.includeExported {
+				continue
+			}
 		}
 
 		// Skip special functions (entry points)
@@ -205,7 +208,17 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		}
 
 		// Check if reachable via SSA
-		if analysis.IsReachable(&sym) {
+		reachable, analyzed := analysis.IsReachable(&sym)
+		if !analyzed {
+			// Couldn't analyze this symbol - add diagnostic and skip
+			wc.Diagnostics = append(wc.Diagnostics, commands.Diagnostics{
+				Level:   "warning",
+				Package: sym.Package.Identifier.PkgPath,
+				Message: fmt.Sprintf("could not analyze reachability for %s (position invalid or analysis incomplete)", sym.Name),
+			})
+			continue
+		}
+		if reachable {
 			continue
 		}
 
@@ -384,9 +397,9 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 	return &DeadcodeCommandResponse{
 		Query: QueryInfo{
-			Command:      "deadcode",
-			Scope:        c.scope,
-			IncludeTests: c.includeTests,
+			Command:        "deadcode",
+			Scope:          c.scope,
+			HasEntryPoints: analysis.HasEntryPoints,
 		},
 		Summary: Summary{
 			TotalSymbols: len(wc.Index.Symbols()),
