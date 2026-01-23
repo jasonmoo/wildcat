@@ -95,8 +95,9 @@ func stripFields(fs []*ast.Field) {
 	}
 }
 
-// receiverTypeName extracts the type name from a method receiver.
-// Handles both T and *T receivers.
+// ReceiverTypeName extracts the type name from a method receiver.
+// Handles both T and *T receivers, including generic types.
+// Returns "<unknown receiver>" if the expression type is unrecognized.
 func ReceiverTypeName(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -122,7 +123,7 @@ func ReceiverTypeName(expr ast.Expr) string {
 		// Could be nested
 		return ReceiverTypeName(t.X)
 	}
-	return ""
+	return "<unknown receiver>"
 }
 
 // constructorTypeName returns the type name if this function looks like a constructor.
