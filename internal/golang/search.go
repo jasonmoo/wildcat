@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -117,7 +118,8 @@ func (s *Symbol) SearchName() string {
 
 // SymbolIndex holds symbols for fuzzy searching
 type SymbolIndex struct {
-	symbols []Symbol
+	symbols    []Symbol
+	modulePath string
 }
 
 // Symbols returns all collected symbols
@@ -138,9 +140,9 @@ func (idx *SymbolIndex) Len() int {
 //
 // Returns nil if not found or if multiple matches exist for ambiguous queries.
 func (idx *SymbolIndex) Lookup(query string) *Symbol {
-	// Check if query contains a full import path (has multiple slashes)
+	// Check if query contains a path (has slashes)
 	if strings.Count(query, "/") > 0 {
-		// Full import path: github.com/user/repo/pkg.Symbol or pkg.Type.Method
+		// Path-based lookup: full path or relative path
 		// Find first dot after last slash to separate package from symbol
 		lastSlash := strings.LastIndex(query, "/")
 		dotAfterSlash := strings.Index(query[lastSlash+1:], ".")
@@ -151,9 +153,20 @@ func (idx *SymbolIndex) Lookup(query string) *Symbol {
 		pkgPath := query[:splitPos]
 		symbolName := query[splitPos+1:]
 
+		// Try exact match first (full import path)
 		for i := range idx.symbols {
 			if idx.symbols[i].Package.Identifier.PkgPath == pkgPath && idx.symbols[i].Name == symbolName {
 				return &idx.symbols[i]
+			}
+		}
+
+		// Try as relative path within module (e.g., "internal/commands/package")
+		if idx.modulePath != "" {
+			fullPath := path.Join(idx.modulePath, pkgPath)
+			for i := range idx.symbols {
+				if idx.symbols[i].Package.Identifier.PkgPath == fullPath && idx.symbols[i].Name == symbolName {
+					return &idx.symbols[i]
+				}
 			}
 		}
 		return nil
@@ -178,14 +191,11 @@ func (idx *SymbolIndex) Lookup(query string) *Symbol {
 
 	case 2:
 		// Could be "pkg.Name" or "Type.Method"
-		// Try pkg.Name first
+		// Try pkg.Name first (using actual Go package name, not directory)
 		var match *Symbol
 		for i := range idx.symbols {
-			shortPkg := idx.symbols[i].Package.Identifier.PkgPath
-			if lastSlash := strings.LastIndex(shortPkg, "/"); lastSlash >= 0 {
-				shortPkg = shortPkg[lastSlash+1:]
-			}
-			if shortPkg == parts[0] && idx.symbols[i].Name == parts[1] {
+			pkgName := idx.symbols[i].Package.Identifier.Name
+			if pkgName == parts[0] && idx.symbols[i].Name == parts[1] {
 				if match != nil {
 					return nil // ambiguous
 				}
@@ -208,15 +218,12 @@ func (idx *SymbolIndex) Lookup(query string) *Symbol {
 		return match
 
 	case 3:
-		// "pkg.Type.Method"
+		// "pkg.Type.Method" (using actual Go package name, not directory)
 		methodName := parts[1] + "." + parts[2]
 		var match *Symbol
 		for i := range idx.symbols {
-			shortPkg := idx.symbols[i].Package.Identifier.PkgPath
-			if lastSlash := strings.LastIndex(shortPkg, "/"); lastSlash >= 0 {
-				shortPkg = shortPkg[lastSlash+1:]
-			}
-			if shortPkg == parts[0] && idx.symbols[i].Name == methodName {
+			pkgName := idx.symbols[i].Package.Identifier.Name
+			if pkgName == parts[0] && idx.symbols[i].Name == methodName {
 				if match != nil {
 					return nil // ambiguous
 				}
@@ -392,10 +399,13 @@ func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult
 func CollectSymbols(pkgs []*Package) *SymbolIndex {
 	idx := &SymbolIndex{}
 
-	for _, pkg := range pkgs {
+	for i, pkg := range pkgs {
 
 		if pkg.Package.TypesInfo == nil {
-			continue
+			panic("? ")
+		}
+		if i == 0 {
+			idx.modulePath = pkg.Identifier.ModulePath
 		}
 
 		for _, f := range pkg.Package.Syntax {
