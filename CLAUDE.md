@@ -8,6 +8,12 @@ A code intelligence CLI for AI agents working on Go codebases. Built with Go's n
 
 **The problem it solves:** AIs need trustworthy answers to questions like "who calls this function?" and "what would break if I changed this?" Traditional tools (grep, go doc) give unstructured output. Wildcat gives structured, complete answers.
 
+## Core Goals
+
+1. **Support AIs in developing Go code**: Every feature should ask: "Does this help an AI make better decisions about code?"
+
+2. **Be a source of truth**: Accurate and complete output. AIs rely on this to reason - incorrect or missing data leads to broken code.
+
 ## North Star
 
 **Be a source of truth that AIs can trust.**
@@ -26,6 +32,14 @@ This matters because AIs make decisions based on wildcat's output. Incomplete in
 - If something fails, include it in output with an error explaining why
 
 An AI that knows it's missing information can adapt. An AI that doesn't know is operating blind.
+
+## Design Principles
+
+- **Composability first**: Use interfaces to decouple components. Design for change.
+- **Simple over clever**: Clear, readable code beats complex abstractions.
+- **Small, focused packages**: Each package should do one thing well.
+- **No global state**: Pass dependencies explicitly.
+- **Wrap errors with context**: `fmt.Errorf("context: %w", err)`
 
 ## Current State
 
@@ -154,6 +168,8 @@ go test ./...                # Run tests
 
 **Testing approach:**
 - Prefer writing `*_test.go` files - they integrate with package context
+- Table-driven tests preferred
+- Test interfaces, not implementations
 - For quick experiments: add print statements, build, run, remove them
 - NEVER use `go run -` or `cat <<EOF | go run` - they don't work and require approval
 
@@ -166,6 +182,8 @@ go test ./...                # Run tests
 ### bd - Issue Tracker
 
 Issues are in `.beads/issues.jsonl`. Use `bd` to manage them.
+
+**Note for future Claudes:** bd is your memory across sessions. Track work, insights, and discoveries here. Your context won't persist, but `.beads/` will.
 
 ```bash
 bd ready                     # What's ready to work on
