@@ -32,20 +32,27 @@ type resolvedPackage struct {
 type Package struct {
 	Identifier *PackageIdentifier
 	Package    *packages.Package
+	Files      []*PackageFile
 	Symbols    []*PackageSymbol
 	Imports    []*FileImports
 }
 
+type PackageFile struct {
+	FilePath  string
+	LineCount int
+	File      *ast.File
+}
+
 type FileImports struct {
-	Filename string
+	FilePath string
 	Imports  []*PackageImport
 }
 
 type PackageImport struct {
-	Path    string          // import path e.g. "github.com/foo/bar"
-	Name    string          // alias if renamed, "" otherwise
-	Pos     token.Position  // file:line
-	Package *Package        // resolved package, nil if external/not loaded
+	Path    string         // import path e.g. "github.com/foo/bar"
+	Name    string         // alias if renamed, "" otherwise
+	Pos     token.Position // file:line
+	Package *Package       // resolved package, nil if external/not loaded
 }
 
 func NewProject(m *packages.Module, ps []*Package) *Project {
@@ -237,7 +244,8 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 		pkgs[i] = &Package{
 			Identifier: newPackageIdentifier(pkg),
 			Package:    pkg,
-			Symbols:    LoadPackageSymbols(pkg),
+			Files:      loadFiles(pkg),
+			Symbols:    loadPackageSymbols(pkg),
 		}
 		pkgMap[pkg.PkgPath] = pkgs[i]
 	}
@@ -248,6 +256,20 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 	}
 
 	return NewProject(mp.Module, pkgs), nil
+}
+
+// loadFiles collects file info for all files in a package.
+func loadFiles(pkg *packages.Package) []*PackageFile {
+	var files []*PackageFile
+	for _, f := range pkg.Syntax {
+		fsetFile := pkg.Fset.File(f.Pos())
+		files = append(files, &PackageFile{
+			FilePath:  fsetFile.Name(),
+			LineCount: fsetFile.LineCount(),
+			File:      f,
+		})
+	}
+	return files
 }
 
 // loadImports collects imports from all files in a package, grouped by file.
@@ -273,7 +295,7 @@ func loadImports(pkg *packages.Package, pkgMap map[string]*Package) []*FileImpor
 
 		if len(imports) > 0 {
 			fileImports = append(fileImports, &FileImports{
-				Filename: filename,
+				FilePath: filename,
 				Imports:  imports,
 			})
 		}

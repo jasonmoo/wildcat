@@ -110,7 +110,7 @@ func TestLoadImports(t *testing.T) {
 	var foundInternal bool
 	var foundExternal bool
 	for _, fi := range golangPkg.Imports {
-		t.Logf("File: %s", fi.Filename)
+		t.Logf("File: %s", fi.FilePath)
 		for _, imp := range fi.Imports {
 			if imp.Package != nil {
 				t.Logf("  import %q -> resolved to %s", imp.Path, imp.Package.Identifier.PkgPath)

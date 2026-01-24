@@ -1,9 +1,11 @@
 package golang
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
+	"path/filepath"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -13,7 +15,7 @@ type PackageSymbol struct {
 	Object       types.Object
 	Package      *packages.Package
 	File         *ast.File
-	Node         ast.Node
+	Node         ast.Node         // FuncDecl or synthetic GenDecl wrapping a single spec
 	Methods      []*PackageSymbol // for types only
 	Constructors []*PackageSymbol // for types only (funcs returning this type)
 }
@@ -22,12 +24,37 @@ func (ps *PackageSymbol) Signature() string {
 	return FormatNode(ps.Node)
 }
 
-func LoadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
+func (ps *PackageSymbol) FileLocation() string {
+	pos := ps.Package.Fset.Position(ps.Object.Pos())
+	return fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line)
+}
+
+func (ps *PackageSymbol) PathLocation() string {
+	pos := ps.Package.Fset.Position(ps.Object.Pos())
+	return fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
+}
+
+func (ps *PackageSymbol) FileDefinition() string {
+	start := ps.Package.Fset.Position(ps.Node.Pos())
+	end := ps.Package.Fset.Position(ps.Node.End())
+	return fmt.Sprintf("%s:%d:%d", filepath.Base(start.Filename), start.Line, end.Line)
+}
+
+func (ps *PackageSymbol) PathDefinition() string {
+	start := ps.Package.Fset.Position(ps.Node.Pos())
+	end := ps.Package.Fset.Position(ps.Node.End())
+	return fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line)
+}
+
+func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 
 	ss := make(map[string]*PackageSymbol)
 
 	// First pass: create all symbols, collect methods for types
 	for _, name := range pkg.Types.Scope().Names() {
+		if name == "_" {
+			continue // skip blank identifier
+		}
 		obj := pkg.Types.Scope().Lookup(name)
 		file, node := findNode(pkg, obj.Pos())
 		sym := &PackageSymbol{
@@ -67,6 +94,9 @@ func LoadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 	var ret []*PackageSymbol
 
 	for _, name := range pkg.Types.Scope().Names() {
+		if name == "_" {
+			continue
+		}
 		ret = append(ret, ss[name])
 	}
 
@@ -74,6 +104,8 @@ func LoadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 }
 
 // findNode locates the AST node for a given position.
+// For specs (TypeSpec, ValueSpec), returns a synthetic GenDecl wrapping just that spec
+// so the node is directly formattable with FormatNode.
 func findNode(pkg *packages.Package, pos token.Pos) (*ast.File, ast.Node) {
 	for _, f := range pkg.Syntax {
 		if pkg.Fset.File(f.Pos()).Name() != pkg.Fset.File(pos).Name() {
@@ -90,12 +122,12 @@ func findNode(pkg *packages.Package, pos token.Pos) (*ast.File, ast.Node) {
 					switch vv := spec.(type) {
 					case *ast.TypeSpec:
 						if vv.Name.Pos() == pos {
-							return f, vv
+							return f, &ast.GenDecl{Tok: v.Tok, Specs: []ast.Spec{vv}}
 						}
 					case *ast.ValueSpec:
 						for _, ident := range vv.Names {
 							if ident.Pos() == pos {
-								return f, vv
+								return f, &ast.GenDecl{Tok: v.Tok, Specs: []ast.Spec{vv}}
 							}
 						}
 					}

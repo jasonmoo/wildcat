@@ -113,12 +113,6 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 		return nil, fmt.Errorf("package_not_found: %w", err)
 	}
 
-	// Short package name for symbol lookups (last segment of import path)
-	pkgShortName := pi.PkgPath
-	if lastSlash := strings.LastIndex(pkgShortName, "/"); lastSlash >= 0 {
-		pkgShortName = pkgShortName[lastSlash+1:]
-	}
-
 	var pkgret struct {
 		Files      []output.FileInfo      // √
 		Embeds     []EmbedInfo            // √
@@ -183,21 +177,44 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 		fs.refs.Packages += refs.Packages
 	}
 
-	for _, f := range pkg.Package.Syntax {
-
-		fsetFile := pkg.Package.Fset.File(f.Pos())
-		fileName := filepath.Base(fsetFile.Name())
-		fileStatsMap[fileName] = &fileStats{
-			lineCount: fsetFile.LineCount(),
-		}
-		fileOrder = append(fileOrder, fileName)
-
-		for _, imp := range f.Imports {
+	// Collect imports from pkg.Imports
+	for _, fi := range pkg.Imports {
+		fileName := filepath.Base(fi.FilePath)
+		for _, imp := range fi.Imports {
 			pkgret.Imports = append(pkgret.Imports, output.DepResult{
-				Package:  strings.Trim(imp.Path.Value, `"`),
-				Location: makeLocation(pkg.Package.Fset, fileName, imp.Pos()),
+				Package:  imp.Path,
+				Location: fmt.Sprintf("%s:%d", fileName, imp.Pos.Line),
 			})
 		}
+	}
+
+	// Collect ImportedBy from all project packages
+	for _, p := range wc.Project.Packages {
+		for _, fi := range p.Imports {
+			for _, imp := range fi.Imports {
+				if imp.Path == pi.PkgPath {
+					pkgret.ImportedBy = append(pkgret.ImportedBy, output.DepResult{
+						Package:  p.Identifier.PkgPath,
+						Location: fmt.Sprintf("%s:%d", fi.FilePath, imp.Pos.Line),
+					})
+				}
+			}
+		}
+	}
+
+	// Collect file stats from pkg.Files
+	for _, pf := range pkg.Files {
+		fileName := filepath.Base(pf.FilePath)
+		fileStatsMap[fileName] = &fileStats{
+			lineCount: pf.LineCount,
+		}
+		fileOrder = append(fileOrder, fileName)
+	}
+
+	// Collect symbols from AST (to be migrated to pkg.Symbols)
+	for _, f := range pkg.Package.Syntax {
+		fsetFile := pkg.Package.Fset.File(f.Pos())
+		fileName := filepath.Base(fsetFile.Name())
 
 		for _, d := range f.Decls {
 
@@ -213,21 +230,21 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 					// Method - attach to receiver type
 					typeName := golang.ReceiverTypeName(v.Recv.List[0].Type)
 					// Symbol key: pkg.Type.Method
-					symbolKey := pkgShortName + "." + typeName + "." + v.Name.Name
+					symbolKey := pi.Name + "." + typeName + "." + v.Name.Name
 					sym.Refs = getSymbolRefs(wc, symbolKey)
 					addFileRefs(fileName, sym.Refs)
 					ensureType(typeName).methods = append(ensureType(typeName).methods, sym)
 				} else if typeName := golang.ConstructorTypeName(v.Type); typeName != "" && pkg.Package.Types.Scope().Lookup(typeName) != nil {
 					// Constructor - attach to returned type (only if type is defined in this package)
 					// Symbol key: pkg.FuncName
-					symbolKey := pkgShortName + "." + v.Name.Name
+					symbolKey := pi.Name + "." + v.Name.Name
 					sym.Refs = getSymbolRefs(wc, symbolKey)
 					addFileRefs(fileName, sym.Refs)
 					ensureType(typeName).functions = append(ensureType(typeName).functions, sym)
 				} else {
 					// Regular function
 					// Symbol key: pkg.FuncName
-					symbolKey := pkgShortName + "." + v.Name.Name
+					symbolKey := pi.Name + "." + v.Name.Name
 					sym.Refs = getSymbolRefs(wc, symbolKey)
 					addFileRefs(fileName, sym.Refs)
 					pkgret.Functions = append(pkgret.Functions, sym)
@@ -243,7 +260,7 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 						tb.location = makeLocation(pkg.Package.Fset, fileName, vv.Pos())
 						_, tb.isInterface = vv.Type.(*ast.InterfaceType)
 						// Symbol key: pkg.TypeName
-						symbolKey := pkgShortName + "." + vv.Name.Name
+						symbolKey := pi.Name + "." + vv.Name.Name
 						tb.refs = getSymbolRefs(wc, symbolKey)
 						addFileRefs(fileName, tb.refs)
 					case *ast.ValueSpec:
@@ -253,8 +270,8 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 							addFileSymbol(fileName, ident.Name)
 						}
 						var refs *output.TargetRefs
-						if len(vv.Names) > 0 {
-							symbolKey := pkgShortName + "." + vv.Names[0].Name
+						if len(vv.Names) > 0 && vv.Names[0].Name != "_" {
+							symbolKey := pi.Name + "." + vv.Names[0].Name
 							refs = getSymbolRefs(wc, symbolKey)
 							addFileRefs(fileName, refs)
 						}
@@ -276,6 +293,11 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 			}
 
 		}
+	}
+
+	// New: Collect symbols from pkg.Symbols
+	for _, sym := range pkg.Symbols {
+		_ = sym // placeholder
 	}
 
 	// Collect all interfaces from project + stdlib
@@ -345,20 +367,6 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 			Satisfies:     tb.satisfies,
 			ImplementedBy: tb.implementedBy,
 		})
-	}
-
-	for _, p := range wc.Project.Packages {
-		for _, f := range p.Package.Syntax {
-			for _, imp := range f.Imports {
-				if strings.Trim(imp.Path.Value, `"`) == pi.PkgPath {
-					fileName := p.Package.Fset.Position(imp.Pos()).Filename
-					pkgret.ImportedBy = append(pkgret.ImportedBy, output.DepResult{
-						Package:  p.Identifier.PkgPath,
-						Location: makeLocation(p.Package.Fset, fileName, imp.Pos()),
-					})
-				}
-			}
-		}
 	}
 
 	// Build Files from tracked stats
@@ -579,12 +587,6 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 	}
 	sort.Strings(elemTypes)
 
-	// Short package name for symbol lookups
-	pkgShortName := pkg.Identifier.PkgPath
-	if lastSlash := strings.LastIndex(pkgShortName, "/"); lastSlash >= 0 {
-		pkgShortName = pkgShortName[lastSlash+1:]
-	}
-
 	// Build groups
 	var groups []ChannelGroup
 	for _, elemType := range elemTypes {
@@ -642,8 +644,7 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 				fn.Definition = fmt.Sprintf("%s:%d:%d", filepath.Base(startPos.Filename), startPos.Line, endPos.Line)
 
 				// Get refs for this function
-				symbolKey := pkgShortName + "." + funcKey
-				fn.Refs = getSymbolRefs(wc, symbolKey)
+				fn.Refs = getSymbolRefs(wc, pkg.Identifier.Name+"."+funcKey)
 			}
 
 			group.Functions = append(group.Functions, fn)
