@@ -32,6 +32,20 @@ type resolvedPackage struct {
 type Package struct {
 	Identifier *PackageIdentifier
 	Package    *packages.Package
+	Symbols    []*PackageSymbol
+	Imports    []*FileImports
+}
+
+type FileImports struct {
+	Filename string
+	Imports  []*PackageImport
+}
+
+type PackageImport struct {
+	Path    string          // import path e.g. "github.com/foo/bar"
+	Name    string          // alias if renamed, "" otherwise
+	Pos     token.Position  // file:line
+	Package *Package        // resolved package, nil if external/not loaded
 }
 
 func NewProject(m *packages.Module, ps []*Package) *Project {
@@ -214,13 +228,56 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 		// // unwanted function bodies can significantly accelerate type checking.
 		// ParseFile func(fset *token.FileSet, filename string, src []byte) (*ast.File, error)
 	}, "./...")
+
+	// First pass: create all packages and build lookup map
 	pkgs := make([]*Package, len(ps))
+	pkgMap := make(map[string]*Package)
 	for i, pkg := range ps {
 		pkg.Module = mp.Module
 		pkgs[i] = &Package{
 			Identifier: newPackageIdentifier(pkg),
 			Package:    pkg,
+			Symbols:    LoadPackageSymbols(pkg),
+		}
+		pkgMap[pkg.PkgPath] = pkgs[i]
+	}
+
+	// Second pass: resolve imports
+	for _, p := range pkgs {
+		p.Imports = loadImports(p.Package, pkgMap)
+	}
+
+	return NewProject(mp.Module, pkgs), nil
+}
+
+// loadImports collects imports from all files in a package, grouped by file.
+func loadImports(pkg *packages.Package, pkgMap map[string]*Package) []*FileImports {
+	var fileImports []*FileImports
+
+	for _, f := range pkg.Syntax {
+		filename := pkg.Fset.Position(f.Pos()).Filename
+
+		var imports []*PackageImport
+		for _, imp := range f.Imports {
+			path := strings.Trim(imp.Path.Value, `"`)
+			pi := &PackageImport{
+				Path:    path,
+				Pos:     pkg.Fset.Position(imp.Pos()),
+				Package: pkgMap[path], // nil if external
+			}
+			if imp.Name != nil {
+				pi.Name = imp.Name.Name
+			}
+			imports = append(imports, pi)
+		}
+
+		if len(imports) > 0 {
+			fileImports = append(fileImports, &FileImports{
+				Filename: filename,
+				Imports:  imports,
+			})
 		}
 	}
-	return NewProject(mp.Module, pkgs), nil
+
+	return fileImports
 }

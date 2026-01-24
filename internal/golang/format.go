@@ -227,4 +227,3 @@ func FindConstructors(pkg *Package, typeName string) []*ast.FuncDecl {
 	}
 	return constructors
 }
-
