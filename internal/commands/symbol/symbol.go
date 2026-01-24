@@ -614,59 +614,50 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 	}
 
 	// Get the types.Object for comparison (to skip the interface itself)
-	obj := golang.GetTypesObject(target)
+	targetObj := golang.GetTypesObject(target)
 
 	// Group implementations by package
 	byPkg := make(map[string]*PackageTypes)
 
 	// Search all packages for types that implement this interface
 	for _, pkg := range wc.Project.Packages {
-		for _, file := range pkg.Package.Syntax {
-			for _, decl := range file.Decls {
-				genDecl, ok := decl.(*ast.GenDecl)
-				if !ok {
-					continue
-				}
-				for _, spec := range genDecl.Specs {
-					ts, ok := spec.(*ast.TypeSpec)
-					if !ok {
-						continue
-					}
+		for ident, obj := range pkg.Package.TypesInfo.Defs {
+			// Only interested in type definitions
+			typeName, ok := obj.(*types.TypeName)
+			if !ok {
+				continue
+			}
 
-					typeObj := pkg.Package.TypesInfo.Defs[ts.Name]
-					if typeObj == nil {
-						continue
-					}
+			// Skip the interface itself
+			if obj == targetObj {
+				continue
+			}
 
-					// Check if this type implements the interface
-					// Use pointer type as well since methods might be on pointer receiver
-					typ := typeObj.Type()
-					ptrTyp := types.NewPointer(typ)
+			// Check if this type implements the interface
+			// Use pointer type as well since methods might be on pointer receiver
+			typ := typeName.Type()
+			ptrTyp := types.NewPointer(typ)
 
-					if types.Implements(typ, iface) || types.Implements(ptrTyp, iface) {
-						// Skip the interface itself
-						if typeObj == obj {
-							continue
-						}
+			if types.Implements(typ, iface) || types.Implements(ptrTyp, iface) {
+				pos := pkg.Package.Fset.Position(ident.Pos())
+				symbolKey := pkg.Identifier.Name + "." + typeName.Name()
 
-						pos := pkg.Package.Fset.Position(ts.Pos())
-						symbolKey := pkg.Identifier.Name + "." + ts.Name.Name
+				// Format signature from type info
+				sig := "type " + typeName.Name() + " " + types.TypeString(typ.Underlying(), nil)
 
-						pkgPath := pkg.Identifier.PkgPath
-						if byPkg[pkgPath] == nil {
-							byPkg[pkgPath] = &PackageTypes{
-								Package: pkgPath,
-								Dir:     pkg.Identifier.PkgDir,
-							}
-						}
-						byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
-							Symbol:     symbolKey,
-							Signature:  golang.FormatTypeSpec(genDecl.Tok, ts),
-							Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
-							Refs:       getSymbolRefs(wc, symbolKey),
-						})
+				pkgPath := pkg.Identifier.PkgPath
+				if byPkg[pkgPath] == nil {
+					byPkg[pkgPath] = &PackageTypes{
+						Package: pkgPath,
+						Dir:     pkg.Identifier.PkgDir,
 					}
 				}
+				byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
+					Symbol:     symbolKey,
+					Signature:  sig,
+					Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
+					Refs:       getSymbolRefs(wc, symbolKey),
+				})
 			}
 		}
 	}
