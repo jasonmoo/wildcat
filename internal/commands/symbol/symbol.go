@@ -696,6 +696,11 @@ func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbo
 	// Get the types.Object for parameter type comparison
 	obj := golang.GetTypesObject(target)
 	if obj == nil {
+		wc.Diagnostics = append(wc.Diagnostics, commands.Diagnostics{
+			Level:   "warning",
+			Package: target.Package.Identifier.PkgPath,
+			Message: fmt.Sprintf("consumers analysis incomplete: type info unavailable for %s", target.Name),
+		})
 		return nil
 	}
 
@@ -1019,6 +1024,11 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 
 	typeObj := target.Package.Package.TypesInfo.Defs[typeSpec.Name]
 	if typeObj == nil {
+		wc.Diagnostics = append(wc.Diagnostics, commands.Diagnostics{
+			Level:   "warning",
+			Package: target.Package.Identifier.PkgPath,
+			Message: fmt.Sprintf("satisfies analysis incomplete: type info unavailable for %s", typeSpec.Name.Name),
+		})
 		return nil
 	}
 
