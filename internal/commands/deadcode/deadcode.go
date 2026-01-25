@@ -220,13 +220,8 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 		// Check if interface has implementations in the project.
 		// Interfaces with implementations are not dead - the implementations depend on the interface definition.
-		if sym.Kind == golang.SymbolKindInterface {
-			if iface := golang.GetInterfaceType(sym); iface != nil {
-				implementors := golang.FindImplementors(iface, sym.PackageIdentifier.PkgPath, sym.Name, wc.Project.Packages)
-				if len(implementors) > 0 {
-					continue
-				}
-			}
+		if sym.Kind == golang.SymbolKindInterface && len(sym.ImplementedBy) > 0 {
+			continue
 		}
 
 		// Check if method implements an interface.

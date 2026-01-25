@@ -391,7 +391,7 @@ func ComputeDescendants(project []*Package) {
 	typeByObj := make(map[types.Object]*Symbol)
 	for _, pkg := range project {
 		for _, sym := range pkg.Symbols {
-			if _, ok := sym.Object.(*types.TypeName); ok {
+			if sym.Kind == SymbolKindType || sym.Kind == SymbolKindInterface {
 				typeByObj[sym.Object] = sym
 			}
 		}

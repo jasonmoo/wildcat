@@ -51,47 +51,6 @@ func CollectInterfaces(project *Project, stdlib []*Package) []InterfaceInfo {
 	return ifaces
 }
 
-// ImplementorInfo holds information about a type that implements an interface.
-type ImplementorInfo struct {
-	Package *Package     // the package containing the type
-	Name    string       // type name
-	Obj     types.Object // the type object (for position info)
-}
-
-// FindImplementors finds all types in packages that implement the given interface.
-// It checks both T and *T for each type.
-func FindImplementors(iface *types.Interface, ifacePkgPath, ifaceName string, packages []*Package) []ImplementorInfo {
-	var implementors []ImplementorInfo
-
-	for _, pkg := range packages {
-		for _, tname := range pkg.Package.Types.Scope().Names() {
-			tobj := pkg.Package.Types.Scope().Lookup(tname)
-			if tobj == nil {
-				continue
-			}
-
-			T := tobj.Type()
-			ptrT := types.NewPointer(T)
-
-			// Check if T or *T implements the interface
-			if types.Implements(T, iface) || types.Implements(ptrT, iface) {
-				// Skip the interface itself
-				if pkg.Identifier.PkgPath == ifacePkgPath && tname == ifaceName {
-					continue
-				}
-
-				implementors = append(implementors, ImplementorInfo{
-					Package: pkg,
-					Name:    tname,
-					Obj:     tobj,
-				})
-			}
-		}
-	}
-
-	return implementors
-}
-
 // IsInterfaceMethod checks if a method is required by an interface that its
 // receiver type implements. This is used for dead code analysis: methods that
 // implement interfaces should not be reported as dead if the type is used.
@@ -101,9 +60,6 @@ func IsInterfaceMethod(sym *Symbol, project *Project, stdlib []*Package) bool {
 	}
 
 	// Get the method's function object
-	if sym.Object == nil {
-		return false
-	}
 	methodFunc, ok := sym.Object.(*types.Func)
 	if !ok {
 		return false
@@ -121,13 +77,10 @@ func IsInterfaceMethod(sym *Symbol, project *Project, stdlib []*Package) bool {
 		recvType = ptr.Elem()
 	}
 
-	// Extract just the method name (sym.Name includes "ReceiverType.MethodName")
 	methodName := methodFunc.Name()
 
-	// Collect all interfaces
+	// Collect all interfaces and check if receiver type implements any with this method
 	ifaces := CollectInterfaces(project, stdlib)
-
-	// Check if receiver type implements any interface with this method
 	ptrRecvType := types.NewPointer(recvType)
 
 	for _, ifaceInfo := range ifaces {
@@ -183,7 +136,7 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 	allPkgs := append(project, stdlib...)
 	for _, pkg := range allPkgs {
 		for _, sym := range pkg.Symbols {
-			if _, ok := sym.Object.(*types.TypeName); !ok {
+			if sym.Kind != SymbolKindType && sym.Kind != SymbolKindInterface {
 				continue
 			}
 			key := pkg.Identifier.PkgPath + "." + sym.Name
@@ -217,18 +170,15 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 
 				for _, otherPkg := range project {
 					for _, otherSym := range otherPkg.Symbols {
-						otherTn, ok := otherSym.Object.(*types.TypeName)
-						if !ok {
+						// Skip non-types and interfaces (only concrete types can implement)
+						if otherSym.Kind != SymbolKindType {
 							continue
 						}
 						// Skip self
 						if otherPkg.Identifier.PkgPath == pkg.Identifier.PkgPath && otherSym.Name == sym.Name {
 							continue
 						}
-						// Skip other interfaces
-						if _, ok := otherTn.Type().Underlying().(*types.Interface); ok {
-							continue
-						}
+						otherTn := otherSym.Object.(*types.TypeName)
 						otherT := otherTn.Type()
 						otherPtrT := types.NewPointer(otherT)
 
@@ -272,13 +222,10 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 
 				for _, otherPkg := range allPkgs {
 					for _, otherSym := range otherPkg.Symbols {
-						if _, ok := otherSym.Object.(*types.TypeName); !ok {
+						if otherSym.Kind != SymbolKindInterface {
 							continue
 						}
-						otherIface, ok := otherSym.Object.Type().Underlying().(*types.Interface)
-						if !ok {
-							continue
-						}
+						otherIface := otherSym.Object.Type().Underlying().(*types.Interface)
 						// Skip empty interfaces
 						if otherIface.NumMethods() == 0 {
 							continue
@@ -322,12 +269,11 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 	// Compute Consumers for interfaces: functions/methods that accept the interface as param
 	for _, pkg := range project {
 		for _, sym := range pkg.Symbols {
-			tn, ok := sym.Object.(*types.TypeName)
-			if !ok {
+			if sym.Kind != SymbolKindInterface {
 				continue
 			}
-			iface, isIface := tn.Type().Underlying().(*types.Interface)
-			if !isIface || iface.NumMethods() == 0 {
+			iface := sym.Object.Type().Underlying().(*types.Interface)
+			if iface.NumMethods() == 0 {
 				continue
 			}
 
@@ -335,21 +281,17 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 			for _, otherPkg := range project {
 				for _, otherSym := range otherPkg.Symbols {
 					// Check top-level functions
-					if fn, ok := otherSym.Object.(*types.Func); ok {
-						if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() == nil {
-							if hasIfaceParam(sig, sym.Object) {
-								sym.Consumers = append(sym.Consumers, otherSym)
-							}
+					if otherSym.Kind == SymbolKindFunc {
+						fn := otherSym.Object.(*types.Func)
+						if hasIfaceParam(fn.Signature(), sym.Object) {
+							sym.Consumers = append(sym.Consumers, otherSym)
 						}
 					}
 					// Check methods on types
 					for _, method := range otherSym.Methods {
-						if fn, ok := method.Object.(*types.Func); ok {
-							if sig, ok := fn.Type().(*types.Signature); ok {
-								if hasIfaceParam(sig, sym.Object) {
-									sym.Consumers = append(sym.Consumers, method)
-								}
-							}
+						fn := method.Object.(*types.Func)
+						if hasIfaceParam(fn.Signature(), sym.Object) {
+							sym.Consumers = append(sym.Consumers, method)
 						}
 					}
 				}
