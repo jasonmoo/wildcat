@@ -448,7 +448,7 @@ func collectFromFuncInfo(info *golang.FuncInfo, collected map[string]*collectedF
 	collected[key] = &collectedFunc{
 		name:       name,
 		pkg:        info.Pkg,
-		signature:  golang.FormatFuncDecl(info.Decl),
+		signature:  golang.FormatNode(info.Decl),
 		definition: fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line),
 	}
 }

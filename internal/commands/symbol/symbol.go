@@ -727,7 +727,7 @@ func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbo
 				}
 				byPkg[pkgPath].Functions = append(byPkg[pkgPath].Functions, FunctionInfo{
 					Symbol:     symbol,
-					Signature:  golang.FormatFuncDecl(fn),
+					Signature:  golang.FormatNode(fn),
 					Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
 					Refs:       getSymbolRefs(wc, symbol),
 				})
@@ -1001,101 +1001,61 @@ func (c *SymbolCommand) nodeReferencesType(pkg *golang.Package, node ast.Node, r
 }
 
 func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbol) []PackageTypes {
-	// Get the type
-	node := target.Node()
-	typeSpec, ok := node.(*ast.TypeSpec)
-	if !ok {
+	// Use precomputed Satisfies from PackageSymbol
+	pkgSym := target.PackageSymbol()
+	if pkgSym == nil {
 		return nil
 	}
-
-	typeObj := target.Package.Package.TypesInfo.Defs[typeSpec.Name]
-	if typeObj == nil {
-		wc.Diagnostics = append(wc.Diagnostics, commands.Diagnostics{
-			Level:   "warning",
-			Package: target.Package.Identifier.PkgPath,
-			Message: fmt.Sprintf("satisfies analysis incomplete: type info unavailable for %s", typeSpec.Name.Name),
-		})
-		return nil
-	}
-
-	typ := typeObj.Type()
-	ptrTyp := types.NewPointer(typ)
 
 	// Group satisfies by package
 	byPkg := make(map[string]*PackageTypes)
 
-	// Search all packages for interfaces this type implements
-	for _, pkg := range wc.Project.Packages {
-		for _, file := range pkg.Package.Syntax {
-			for _, decl := range file.Decls {
-				genDecl, ok := decl.(*ast.GenDecl)
-				if !ok {
-					continue
-				}
-				for _, spec := range genDecl.Specs {
-					ts, ok := spec.(*ast.TypeSpec)
-					if !ok {
-						continue
-					}
+	for _, ifaceSym := range pkgSym.Satisfies {
+		pkgPath := ifaceSym.Package.PkgPath
+		symbolKey := ifaceSym.Package.Name + "." + ifaceSym.Name
 
-					_, isIface := ts.Type.(*ast.InterfaceType)
-					if !isIface {
-						continue
-					}
+		// Count implementations from precomputed ImplementedBy
+		projectCount := len(ifaceSym.ImplementedBy)
+		packageCount := 0
+		for _, impl := range ifaceSym.ImplementedBy {
+			if impl.Package.PkgPath == target.Package.Identifier.PkgPath {
+				packageCount++
+			}
+		}
 
-					ifaceObj := pkg.Package.TypesInfo.Defs[ts.Name]
-					if ifaceObj == nil {
-						continue
-					}
-
-					named, ok := ifaceObj.Type().(*types.Named)
-					if !ok {
-						continue
-					}
-					iface, ok := named.Underlying().(*types.Interface)
-					if !ok {
-						continue
-					}
-
-					// Skip empty interface
-					if iface.NumMethods() == 0 {
-						continue
-					}
-
-					if types.Implements(typ, iface) || types.Implements(ptrTyp, iface) {
-						pos := pkg.Package.Fset.Position(ts.Pos())
-						symbolKey := pkg.Identifier.Name + "." + ts.Name.Name
-
-						// Count implementations of this interface
-						implementors := golang.FindImplementors(iface, pkg.Identifier.PkgPath, ts.Name.Name, wc.Project.Packages)
-						projectCount := len(implementors)
-						packageCount := 0
-						for _, impl := range implementors {
-							if impl.PkgPath() == target.Package.Identifier.PkgPath {
-								packageCount++
-							}
-						}
-
-						pkgPath := pkg.Identifier.PkgPath
-						if byPkg[pkgPath] == nil {
-							byPkg[pkgPath] = &PackageTypes{
-								Package: pkgPath,
-								Dir:     pkg.Identifier.PkgDir,
-							}
-						}
-						byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
-							Symbol:     symbolKey,
-							Signature:  golang.FormatTypeSpec(genDecl.Tok, ts),
-							Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
-							Impls: &ImplCounts{
-								Package: packageCount,
-								Project: projectCount,
-							},
-						})
-					}
+		// Find the Package for directory info
+		var pkgDir string
+		for _, p := range wc.Project.Packages {
+			if p.Identifier.PkgPath == pkgPath {
+				pkgDir = p.Identifier.PkgDir
+				break
+			}
+		}
+		// Check stdlib if not found in project
+		if pkgDir == "" {
+			for _, p := range wc.Stdlib {
+				if p.Identifier.PkgPath == pkgPath {
+					pkgDir = p.Identifier.PkgDir
+					break
 				}
 			}
 		}
+
+		if byPkg[pkgPath] == nil {
+			byPkg[pkgPath] = &PackageTypes{
+				Package: pkgPath,
+				Dir:     pkgDir,
+			}
+		}
+		byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
+			Symbol:     symbolKey,
+			Signature:  ifaceSym.Signature(),
+			Definition: ifaceSym.FileLocation(),
+			Impls: &ImplCounts{
+				Package: packageCount,
+				Project: projectCount,
+			},
+		})
 	}
 
 	// Convert map to sorted slice

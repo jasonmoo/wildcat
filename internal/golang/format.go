@@ -6,97 +6,10 @@ import (
 	"go/format"
 	"go/token"
 	"go/types"
-	"io"
 	"strings"
 )
 
-func FormatFuncDecl(v *ast.FuncDecl) string {
-	var sb strings.Builder
-	if err := formatFuncDecl(&sb, v); err != nil {
-		return fmt.Sprintf("<format error: %v>", err)
-	}
-	return sb.String()
-}
-
-func formatFuncDecl(w io.Writer, v *ast.FuncDecl) error {
-	// Shallow copy to avoid modifying original AST
-	cp := *v
-	cp.Doc = nil
-	cp.Body = nil
-	stripFieldList(cp.Recv)
-	if cp.Type != nil {
-		stripFieldList(cp.Type.Params)
-		stripFieldList(cp.Type.TypeParams)
-		stripFieldList(cp.Type.Results)
-	}
-	return format.Node(w, token.NewFileSet(), &cp)
-}
-
-func FormatTypeSpec(tok token.Token, v *ast.TypeSpec) string {
-	var sb strings.Builder
-	if err := formatTypeSpec(&sb, tok, v); err != nil {
-		return fmt.Sprintf("<format error: %v>", err)
-	}
-	return sb.String()
-}
-
-func formatTypeSpec(w io.Writer, tok token.Token, spec *ast.TypeSpec) error {
-	spec.Doc = nil
-	spec.Comment = nil
-	switch t := spec.Type.(type) {
-	case *ast.StructType:
-		stripFields(t.Fields.List)
-	case *ast.InterfaceType:
-		stripFields(t.Methods.List)
-	}
-	return format.Node(w, token.NewFileSet(), &ast.GenDecl{
-		Tok:   tok,
-		Specs: []ast.Spec{spec},
-	})
-}
-
-func FormatValueSpec(tok token.Token, v *ast.ValueSpec) string {
-	var sb strings.Builder
-	if err := formatValueSpec(&sb, tok, v); err != nil {
-		return fmt.Sprintf("<format error: %v>", err)
-	}
-	return sb.String()
-}
-
-func formatValueSpec(w io.Writer, tok token.Token, spec *ast.ValueSpec) error {
-	spec.Doc = nil
-	spec.Comment = nil
-	for _, v := range spec.Values {
-		if val, ok := v.(*ast.BasicLit); ok && val.Kind == token.STRING {
-			if ct := strings.Count(val.Value, "\n"); ct > 0 {
-				val.Value = fmt.Sprintf("<newline content: %d lines omitted>", ct)
-			}
-		}
-	}
-	return format.Node(w, token.NewFileSet(), &ast.GenDecl{
-		Tok:   tok,
-		Specs: []ast.Spec{spec},
-	})
-}
-
-func stripFieldList(fs *ast.FieldList) {
-	if fs != nil {
-		for _, f := range fs.List {
-			f.Doc = nil
-			f.Comment = nil
-		}
-	}
-}
-
-func stripFields(fs []*ast.Field) {
-	for _, f := range fs {
-		f.Doc = nil
-		f.Comment = nil
-	}
-}
-
 // ReceiverTypeName extracts the type name from a method receiver.
-// Handles both T and *T receivers, including generic types.
 // Returns "<unknown receiver>" if the expression type is unrecognized.
 func ReceiverTypeName(expr ast.Expr) string {
 	switch t := expr.(type) {
@@ -173,6 +86,7 @@ func stripComments(node ast.Node) {
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch v := n.(type) {
 		case *ast.FuncDecl:
+			v.Body = nil
 			v.Doc = nil
 		case *ast.GenDecl:
 			v.Doc = nil

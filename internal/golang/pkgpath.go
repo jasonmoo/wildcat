@@ -156,7 +156,7 @@ func (pi *PackageIdentifier) IsInternal() bool {
 func LoadStdlibPackages(ctx context.Context, goroot string) ([]*Package, error) {
 	pkgs, err := packages.Load(&packages.Config{
 		Context: ctx,
-		Mode:    packages.LoadTypes,
+		Mode:    packages.LoadAllSyntax,
 		Dir:     goroot,
 	}, "std")
 	if err != nil {

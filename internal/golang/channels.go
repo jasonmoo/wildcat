@@ -97,6 +97,9 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 
 		// Track function boundaries
 		if fn, ok := n.(*ast.FuncDecl); ok {
+			if fn.Body == nil {
+				return false // external function, no body to inspect
+			}
 			funcStack = append(funcStack, fn)
 			for _, stmt := range fn.Body.List {
 				ast.Inspect(stmt, inspectSelect)

@@ -564,7 +564,7 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 				fn.Signature = "<package init>"
 				fn.Definition = ""
 			} else if fd := funcDecls[funcKey]; fd != nil {
-				fn.Signature = golang.FormatFuncDecl(fd)
+				fn.Signature = golang.FormatNode(fd)
 
 				startPos := pkg.Package.Fset.Position(fd.Pos())
 				endPos := pkg.Package.Fset.Position(fd.End())

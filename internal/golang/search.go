@@ -80,21 +80,12 @@ type Symbol struct {
 	// For lazy rendering
 	filename string
 	pos      token.Pos
-	node     ast.Node    // *ast.FuncDecl, *ast.TypeSpec, or *ast.ValueSpec
-	tok      token.Token // for GenDecl (CONST, VAR, TYPE)
+	node     ast.Node // *ast.FuncDecl or synthetic *ast.GenDecl wrapping a spec
 }
 
 // Signature renders the symbol's signature on demand
 func (s *Symbol) Signature() string {
-	switch n := s.node.(type) {
-	case *ast.FuncDecl:
-		return FormatFuncDecl(n)
-	case *ast.TypeSpec:
-		return FormatTypeSpec(s.tok, n)
-	case *ast.ValueSpec:
-		return FormatValueSpec(s.tok, n)
-	}
-	return s.Name
+	return FormatNode(s.node)
 }
 
 // Location renders the symbol's line range (start:end)
@@ -487,14 +478,14 @@ func (idx *SymbolIndex) addTypeSpec(pkg *Package, filename string, tok token.Tok
 		kind = SymbolKindInterface
 	}
 
+	// Wrap in synthetic GenDecl so FormatNode outputs "type Name ..."
 	idx.symbols = append(idx.symbols, Symbol{
 		Name:     name,
 		Kind:     kind,
 		Package:  pkg,
 		filename: filename,
 		pos:      sp.Pos(),
-		node:     sp,
-		tok:      tok,
+		node:     &ast.GenDecl{Tok: tok, Specs: []ast.Spec{sp}},
 	})
 }
 
@@ -504,6 +495,9 @@ func (idx *SymbolIndex) addValueSpec(pkg *Package, filename string, tok token.To
 		kind = SymbolKindConst
 	}
 
+	// Wrap in synthetic GenDecl so FormatNode outputs "var/const Name ..."
+	wrappedNode := &ast.GenDecl{Tok: tok, Specs: []ast.Spec{sp}}
+
 	// ValueSpec can have multiple names (e.g., var a, b, c int)
 	for _, ident := range sp.Names {
 		idx.symbols = append(idx.symbols, Symbol{
@@ -512,8 +506,7 @@ func (idx *SymbolIndex) addValueSpec(pkg *Package, filename string, tok token.To
 			Package:  pkg,
 			filename: filename,
 			pos:      ident.Pos(),
-			node:     sp,
-			tok:      tok,
+			node:     wrappedNode,
 		})
 	}
 }
