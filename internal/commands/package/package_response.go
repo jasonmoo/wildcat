@@ -11,12 +11,12 @@ import (
 
 // EmbedInfo describes a //go:embed directive.
 type EmbedInfo struct {
-	Patterns  []string `json:"patterns"`            // embed patterns (e.g., "templates/*", "static/*.css")
-	Variable  string   `json:"variable"`            // variable name and type (e.g., "var templates embed.FS")
-	Location  string   `json:"location"`            // file:line
-	FileCount int      `json:"file_count"`          // number of files matched
-	TotalSize string   `json:"total_size"`          // formatted size (e.g., "1.2KB")
-	Error     string   `json:"error,omitempty"`     // error message if directive couldn't be fully processed
+	Patterns  []string `json:"patterns"`        // embed patterns (e.g., "templates/*", "static/*.css")
+	Variable  string   `json:"variable"`        // variable name and type (e.g., "var templates embed.FS")
+	Location  string   `json:"location"`        // file:line
+	FileCount int      `json:"file_count"`      // number of files matched
+	TotalSize string   `json:"total_size"`      // formatted size (e.g., "1.2KB")
+	Error     string   `json:"error,omitempty"` // error message if directive couldn't be fully processed
 	rawSize   int64    // raw bytes for internal aggregation
 }
 
@@ -29,10 +29,10 @@ type ChannelOp struct {
 
 // ChannelFunc groups channel operations by enclosing function.
 type ChannelFunc struct {
-	Signature  string            `json:"signature"`            // function signature
-	Definition string            `json:"definition"`           // file:line
-	Refs       *output.TargetRefs `json:"refs,omitempty"`       // callers info
-	Operations []ChannelOp       `json:"operations"`           // channel ops in this function
+	Signature  string             `json:"signature"`      // function signature
+	Definition string             `json:"definition"`     // file:line
+	Refs       *output.TargetRefs `json:"refs,omitempty"` // callers info
+	Operations []ChannelOp        `json:"operations"`     // channel ops in this function
 }
 
 // ChannelGroup groups channel operations by element type.
@@ -55,12 +55,12 @@ type PackageCommandResponse struct {
 	Channels    []ChannelGroup         `json:"channels"`
 	Imports     []output.DepResult     `json:"imports"`
 	ImportedBy  []output.DepResult     `json:"imported_by"`
-	Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+	Diagnostics []commands.Diagnostic `json:"diagnostics,omitempty"`
 }
 
 var _ commands.Result = (*PackageCommandResponse)(nil)
 
-func (r *PackageCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+func (r *PackageCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 	r.Diagnostics = ds
 }
 
@@ -68,18 +68,18 @@ func (r *PackageCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
 type MultiPackageResponse struct {
 	Query       output.QueryInfo          `json:"query"`
 	Packages    []*PackageCommandResponse `json:"packages"`
-	Diagnostics []commands.Diagnostics    `json:"diagnostics,omitempty"`
+	Diagnostics []commands.Diagnostic    `json:"diagnostics,omitempty"`
 }
 
 var _ commands.Result = (*MultiPackageResponse)(nil)
 
-func (r *MultiPackageResponse) SetDiagnostics(ds []commands.Diagnostics) {
+func (r *MultiPackageResponse) SetDiagnostics(ds []commands.Diagnostic) {
 	r.Diagnostics = ds
 }
 
 func (resp *MultiPackageResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Diagnostics []commands.Diagnostics    `json:"diagnostics,omitempty"`
+		Diagnostics []commands.Diagnostic    `json:"diagnostics,omitempty"`
 		Query       output.QueryInfo          `json:"query"`
 		Packages    []*PackageCommandResponse `json:"packages"`
 	}{
@@ -103,7 +103,7 @@ func (resp *MultiPackageResponse) MarshalMarkdown() ([]byte, error) {
 
 func (resp *PackageCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Diagnostics []commands.Diagnostic `json:"diagnostics,omitempty"`
 		Query       output.QueryInfo       `json:"query"`
 		Package     output.PackageInfo     `json:"package"`
 		Summary     output.PackageSummary  `json:"summary"`

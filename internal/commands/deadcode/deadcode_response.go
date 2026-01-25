@@ -53,15 +53,15 @@ type DeadMethodGroup struct {
 // PackageDeadCode contains all dead code for a single package
 type PackageDeadCode struct {
 	Package     string              `json:"package"`
-	Dir         string              `json:"dir"`                     // package directory
-	IsDead      bool                `json:"is_dead"`                 // entire package is dead
-	DeadFiles   []string            `json:"dead_files,omitempty"`    // files where all symbols dead
-	FileInfo    map[string]FileInfo `json:"file_info,omitempty"`     // per-file stats
-	Constants   []DeadSymbol        `json:"constants,omitempty"`     // dead constants
-	Variables   []DeadSymbol        `json:"variables,omitempty"`     // dead variables
-	Functions   []DeadSymbol        `json:"functions,omitempty"`     // dead standalone functions
-	Types       []DeadType          `json:"types,omitempty"`         // dead types with their methods/constructors
-	DeadMethods []DeadMethodGroup   `json:"dead_methods,omitempty"`  // methods whose type isn't dead
+	Dir         string              `json:"dir"`                    // package directory
+	IsDead      bool                `json:"is_dead"`                // entire package is dead
+	DeadFiles   []string            `json:"dead_files,omitempty"`   // files where all symbols dead
+	FileInfo    map[string]FileInfo `json:"file_info,omitempty"`    // per-file stats
+	Constants   []DeadSymbol        `json:"constants,omitempty"`    // dead constants
+	Variables   []DeadSymbol        `json:"variables,omitempty"`    // dead variables
+	Functions   []DeadSymbol        `json:"functions,omitempty"`    // dead standalone functions
+	Types       []DeadType          `json:"types,omitempty"`        // dead types with their methods/constructors
+	DeadMethods []DeadMethodGroup   `json:"dead_methods,omitempty"` // methods whose type isn't dead
 }
 
 // DeadcodeCommandResponse is the structured response for deadcode analysis
@@ -70,13 +70,13 @@ type DeadcodeCommandResponse struct {
 	Summary      Summary                `json:"summary"`
 	DeadPackages []string               `json:"dead_packages,omitempty"` // fully dead package paths
 	Packages     []*PackageDeadCode     `json:"packages,omitempty"`
-	Diagnostics  []commands.Diagnostics `json:"diagnostics,omitempty"`
+	Diagnostics  []commands.Diagnostic `json:"diagnostics,omitempty"`
 
 	// Internal fields for building the response
 	totalMethodsByType map[string]int // tracks total methods per type for grouping logic
 }
 
-func (r *DeadcodeCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+func (r *DeadcodeCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 	r.Diagnostics = ds
 }
 
@@ -91,7 +91,7 @@ func (r *DeadcodeCommandResponse) MarshalJSON() ([]byte, error) {
 	})
 
 	return json.Marshal(struct {
-		Diagnostics  []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Diagnostics  []commands.Diagnostic `json:"diagnostics,omitempty"`
 		Query        QueryInfo              `json:"query"`
 		Summary      Summary                `json:"summary"`
 		DeadPackages []string               `json:"dead_packages,omitempty"`

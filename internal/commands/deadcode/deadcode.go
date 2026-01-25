@@ -124,10 +124,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 	// Emit diagnostic if no entry points (library mode)
 	if !analysis.HasEntryPoints {
-		wc.Diagnostics = append(wc.Diagnostics, commands.Diagnostics{
-			Level:   "info",
-			Message: "no main/init entry points found; using exported functions as roots, exported symbols excluded from results",
-		})
+		wc.Diagnostics = append(wc.Diagnostics, commands.NewInfoDiagnostic(nil, "no main/init entry points found; using exported functions as roots, exported symbols excluded from results"))
 	}
 
 	// Track file info per package (total symbols, dead symbols)
@@ -211,11 +208,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		reachable, analyzed := analysis.IsReachable(&sym)
 		if !analyzed {
 			// Couldn't analyze this symbol - add diagnostic and skip
-			wc.Diagnostics = append(wc.Diagnostics, commands.Diagnostics{
-				Level:   "warning",
-				Package: sym.Package.Identifier.PkgPath,
-				Message: fmt.Sprintf("could not analyze reachability for %s (position invalid or analysis incomplete)", sym.Name),
-			})
+			wc.Diagnostics = append(wc.Diagnostics, commands.NewWarningDiagnostic(sym.Package.Identifier, fmt.Sprintf("could not analyze reachability for %s (position invalid or analysis incomplete)", sym.Name)))
 			continue
 		}
 		if reachable {
@@ -315,8 +308,8 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 		// Group symbols
 		var constants, variables, functions []DeadSymbol
-		methodsByType := make(map[string][]DeadSymbol)    // dead type -> methods
-		constructorsByType := make(map[string][]DeadSymbol) // dead type -> constructors
+		methodsByType := make(map[string][]DeadSymbol)           // dead type -> methods
+		constructorsByType := make(map[string][]DeadSymbol)      // dead type -> constructors
 		standaloneMethodsByType := make(map[string][]DeadSymbol) // live type -> dead methods
 
 		for _, tds := range deadSymbols {
@@ -458,4 +451,3 @@ func findReceiverTypeSymbol(wc *commands.Wildcat, methodSym *golang.Symbol) *gol
 	}
 	return matches[0]
 }
-

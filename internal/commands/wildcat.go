@@ -15,7 +15,7 @@ type Wildcat struct {
 	Project     *golang.Project
 	Stdlib      []*golang.Package
 	Index       *golang.SymbolIndex
-	Diagnostics []Diagnostics
+	Diagnostics []Diagnostic
 }
 
 func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
@@ -23,36 +23,21 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	if err != nil {
 		return nil, err
 	}
-	var ds []Diagnostics
+	var ds []Diagnostic
 	for i, p := range p.Packages {
 		if i == 0 {
 			if err := p.Package.Module.Error; err != nil {
-				ds = append(ds, Diagnostics{
-					Level:   "warning",
-					Message: err.Err,
-				})
+				ds = append(ds, NewWarningDiagnostic(nil, err.Err))
 			}
 		}
 		for _, e := range p.Package.Errors {
-			ds = append(ds, Diagnostics{
-				Level:   "warning",
-				Package: p.Identifier.PkgPath,
-				Message: e.Error(),
-			})
+			ds = append(ds, NewWarningDiagnostic(p.Identifier, e.Error()))
 		}
 		// Check for incomplete type info (could cause GetTypesObject to return nil)
 		if p.Package.TypesInfo == nil {
-			ds = append(ds, Diagnostics{
-				Level:   "warning",
-				Package: p.Identifier.PkgPath,
-				Message: "type information unavailable",
-			})
+			ds = append(ds, NewWarningDiagnostic(p.Identifier, "type information unavailable"))
 		} else if p.Package.TypesInfo.Defs == nil {
-			ds = append(ds, Diagnostics{
-				Level:   "warning",
-				Package: p.Identifier.PkgPath,
-				Message: "type definitions unavailable",
-			})
+			ds = append(ds, NewWarningDiagnostic(p.Identifier, "type definitions unavailable"))
 		}
 	}
 	gr, err := goroot()
@@ -186,7 +171,7 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 
 // AddDiagnostic adds a diagnostic message to be shown in output.
 func (wc *Wildcat) AddDiagnostic(level, pkg, format string, args ...any) {
-	wc.Diagnostics = append(wc.Diagnostics, Diagnostics{
+	wc.Diagnostics = append(wc.Diagnostics, Diagnostic{
 		Level:   level,
 		Package: pkg,
 		Message: fmt.Sprintf(format, args...),

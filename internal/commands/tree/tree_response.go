@@ -18,16 +18,16 @@ type TreeCommandResponse struct {
 	Callers     []*output.CallNode     `json:"callers"`
 	Calls       []*output.CallNode     `json:"calls"`
 	Definitions []output.TreePackage   `json:"definitions"`
-	Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+	Diagnostics []commands.Diagnostic `json:"diagnostics,omitempty"`
 }
 
-func (r *TreeCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+func (r *TreeCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 	r.Diagnostics = ds
 }
 
 func (r *TreeCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Diagnostics []commands.Diagnostic `json:"diagnostics,omitempty"`
 		Query       output.TreeQuery       `json:"query"`
 		Target      output.TreeTargetInfo  `json:"target"`
 		Summary     output.TreeSummary     `json:"summary"`

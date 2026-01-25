@@ -19,21 +19,21 @@ type SearchMatch struct {
 }
 
 type SearchCommandResponse struct {
-	Query       output.SearchQuery      `json:"query"`
-	Summary     output.SearchSummary    `json:"summary"`
-	Results     []SearchMatch           `json:"results"`
-	Diagnostics []commands.Diagnostics  `json:"diagnostics,omitempty"`
+	Query       output.SearchQuery     `json:"query"`
+	Summary     output.SearchSummary   `json:"summary"`
+	Results     []SearchMatch          `json:"results"`
+	Diagnostics []commands.Diagnostic `json:"diagnostics,omitempty"`
 }
 
 var _ commands.Result = (*SearchCommandResponse)(nil)
 
-func (r *SearchCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+func (r *SearchCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 	r.Diagnostics = ds
 }
 
 func (r *SearchCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Diagnostics []commands.Diagnostic `json:"diagnostics,omitempty"`
 		Query       output.SearchQuery     `json:"query"`
 		Summary     output.SearchSummary   `json:"summary"`
 		Results     []SearchMatch          `json:"results"`

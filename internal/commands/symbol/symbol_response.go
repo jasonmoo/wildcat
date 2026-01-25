@@ -40,8 +40,8 @@ type DescendantInfo struct {
 type TypeInfo struct {
 	Symbol     string      `json:"symbol"` // qualified: pkg.Type
 	Signature  string      `json:"signature"`
-	Definition string      `json:"definition"` // file:line (short form when in PackageTypes context)
-	Refs       *SymbolRefs `json:"refs,omitempty"`       // for implementations: reference counts
+	Definition string      `json:"definition"`      // file:line (short form when in PackageTypes context)
+	Refs       *SymbolRefs `json:"refs,omitempty"`  // for implementations: reference counts
 	Impls      *ImplCounts `json:"impls,omitempty"` // for satisfies: how many types implement the interface
 }
 
@@ -87,26 +87,26 @@ type SymbolCommandResponse struct {
 	PackageSummary    output.SymbolSummary   `json:"package_summary"`
 	ProjectSummary    output.SymbolSummary   `json:"project_summary"`
 	OtherFuzzyMatches []SuggestionInfo       `json:"other_fuzzy_matches"`
-	Diagnostics       []commands.Diagnostics `json:"diagnostics,omitempty"`
+	Diagnostics       []commands.Diagnostic `json:"diagnostics,omitempty"`
 }
 
-func (r *SymbolCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+func (r *SymbolCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 	r.Diagnostics = ds
 }
 
 // MultiSymbolCommandResponse wraps multiple symbol results.
 type MultiSymbolCommandResponse struct {
 	Symbols     []SymbolCommandResponse `json:"symbols"`
-	Diagnostics []commands.Diagnostics  `json:"diagnostics,omitempty"`
+	Diagnostics []commands.Diagnostic  `json:"diagnostics,omitempty"`
 }
 
-func (r *MultiSymbolCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+func (r *MultiSymbolCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 	r.Diagnostics = ds
 }
 
 func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Diagnostics       []commands.Diagnostics `json:"diagnostics,omitempty"`
+		Diagnostics       []commands.Diagnostic `json:"diagnostics,omitempty"`
 		Query             output.QueryInfo       `json:"query"`
 		Package           output.PackageInfo     `json:"package"`
 		Target            output.TargetInfo      `json:"target"`
@@ -363,7 +363,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 
 func (r *MultiSymbolCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Diagnostics []commands.Diagnostics  `json:"diagnostics,omitempty"`
+		Diagnostics []commands.Diagnostic  `json:"diagnostics,omitempty"`
 		Symbols     []SymbolCommandResponse `json:"symbols"`
 	}{
 		Diagnostics: r.Diagnostics,

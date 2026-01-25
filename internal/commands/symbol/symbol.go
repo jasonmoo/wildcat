@@ -514,11 +514,7 @@ func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol,
 
 	targetObj := target.Package.Package.TypesInfo.Defs[funcDecl.Name]
 	if targetObj == nil {
-		wc.Diagnostics = append(wc.Diagnostics, commands.Diagnostics{
-			Level:   "warning",
-			Package: target.Package.Identifier.PkgPath,
-			Message: fmt.Sprintf("callers analysis incomplete: type info unavailable for %s", funcDecl.Name.Name),
-		})
+		wc.Diagnostics = append(wc.Diagnostics, commands.NewWarningDiagnostic(target.Package.Identifier, fmt.Sprintf("callers analysis incomplete: type info unavailable for %s", funcDecl.Name.Name)))
 		return
 	}
 

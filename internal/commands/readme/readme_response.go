@@ -4,12 +4,12 @@ import "github.com/jasonmoo/wildcat/internal/commands"
 
 type ReadmeCommandResponse struct {
 	Compact     bool                   `json:"compact"`
-	Diagnostics []commands.Diagnostics `json:"diagnostics,omitempty"`
+	Diagnostics []commands.Diagnostic `json:"diagnostics,omitempty"`
 }
 
 var _ commands.Result = (*ReadmeCommandResponse)(nil)
 
-func (r *ReadmeCommandResponse) SetDiagnostics(ds []commands.Diagnostics) {
+func (r *ReadmeCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 	r.Diagnostics = ds
 }
 

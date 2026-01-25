@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/jasonmoo/wildcat/internal/golang"
 	"github.com/spf13/cobra"
 )
 
@@ -19,12 +20,12 @@ type (
 	}
 
 	Result interface {
-		SetDiagnostics([]Diagnostics)
+		SetDiagnostics([]Diagnostic)
 		MarshalMarkdown() ([]byte, error)
 		MarshalJSON() ([]byte, error)
 	}
 
-	Diagnostics struct {
+	Diagnostic struct {
 		Level   string `json:"level"`             // "warning", "info"
 		Package string `json:"package,omitempty"` // package path (if applicable)
 		Message string `json:"message"`
@@ -41,7 +42,7 @@ type (
 		Error       error                  `json:"error"`
 		Suggestions []string               `json:"suggestions"`
 		Context     map[string]interface{} `json:"context"`
-		Diagnostics []Diagnostics          `json:"diagnostics"`
+		Diagnostics []Diagnostic           `json:"diagnostics"`
 	}
 )
 
@@ -78,11 +79,34 @@ func RunCommand[T any](cmd *cobra.Command, c Command[T], opts ...func(T) error) 
 
 }
 
+func NewInfoDiagnostic(pi *golang.PackageIdentifier, msg string) Diagnostic {
+	var pkg string
+	if pi != nil {
+		pkg = pi.PkgPath
+	}
+	return Diagnostic{
+		Level:   "info",
+		Package: pkg,
+		Message: msg,
+	}
+}
+func NewWarningDiagnostic(pi *golang.PackageIdentifier, msg string) Diagnostic {
+	var pkg string
+	if pi != nil {
+		pkg = pi.PkgPath
+	}
+	return Diagnostic{
+		Level:   "warning",
+		Package: pkg,
+		Message: msg,
+	}
+}
+
 var _ Result = (*ErrorResult)(nil)
 
 // FormatDiagnosticsMarkdown renders diagnostics as markdown to w.
 // Does nothing if there are no diagnostics.
-func FormatDiagnosticsMarkdown(w io.Writer, ds []Diagnostics) {
+func FormatDiagnosticsMarkdown(w io.Writer, ds []Diagnostic) {
 	if len(ds) == 0 {
 		return
 	}
@@ -105,7 +129,7 @@ func NewErrorResultf(code, format string, a ...interface{}) *ErrorResult {
 	}
 }
 
-func (e *ErrorResult) SetDiagnostics(ds []Diagnostics) {
+func (e *ErrorResult) SetDiagnostics(ds []Diagnostic) {
 	e.Diagnostics = ds
 }
 
@@ -115,7 +139,7 @@ func (e *ErrorResult) MarshalJSON() ([]byte, error) {
 		Error       string                 `json:"error"`
 		Suggestions []string               `json:"suggestions,omitempty"`
 		Context     map[string]interface{} `json:"context,omitempty"`
-		Diagnostics []Diagnostics          `json:"diagnostics,omitempty"`
+		Diagnostics []Diagnostic           `json:"diagnostics,omitempty"`
 	}{
 		Code:        e.Code,
 		Error:       e.Error.Error(),
