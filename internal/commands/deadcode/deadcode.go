@@ -104,11 +104,6 @@ func (c *DeadcodeCommand) README() string {
 }
 
 func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*DeadcodeCommand) error) (commands.Result, error) {
-	for _, o := range opts {
-		if err := o(c); err != nil {
-			return nil, fmt.Errorf("internal_error: failed to apply opt: %w", err)
-		}
-	}
 
 	// Parse scope filter
 	scopeFilter, err := wc.ParseScope(ctx, c.scope, ".")

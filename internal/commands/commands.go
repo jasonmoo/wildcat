@@ -48,6 +48,12 @@ type (
 
 func RunCommand[T any](cmd *cobra.Command, c Command[T], opts ...func(T) error) error {
 
+	for _, o := range opts {
+		if err := o(c.(T)); err != nil {
+			return fmt.Errorf("internal_error: failed to apply opt: %w", err)
+		}
+	}
+
 	wc, err := LoadWildcat(cmd.Context(), ".")
 	if err != nil {
 		return err

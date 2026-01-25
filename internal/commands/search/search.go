@@ -2,7 +2,6 @@ package search_cmd
 
 import (
 	"context"
-	"fmt"
 	"regexp"
 	"strings"
 
@@ -134,11 +133,6 @@ func (c *SearchCommand) README() string {
 }
 
 func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*SearchCommand) error) (commands.Result, error) {
-	for _, o := range opts {
-		if err := o(c); err != nil {
-			return nil, fmt.Errorf("interal_error: failed to apply opt: %w", err)
-		}
-	}
 
 	if c.query == "" {
 		return commands.NewErrorResultf("invalid_query", "empty search term"), nil

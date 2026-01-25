@@ -65,13 +65,6 @@ func (c *PackageCommand) README() string {
 
 func (c *PackageCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*PackageCommand) error) (commands.Result, error) {
 
-	// handle opts
-	for _, o := range opts {
-		if err := o(c); err != nil {
-			return nil, fmt.Errorf("interal_error: failed to apply opt: %w", err)
-		}
-	}
-
 	// Default to current package if none specified
 	if len(c.pkgPaths) == 0 {
 		c.pkgPaths = []string{"."}

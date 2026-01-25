@@ -55,12 +55,6 @@ func (c *ReadmeCommand) README() string {
 }
 
 func (c *ReadmeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*ReadmeCommand) error) (commands.Result, error) {
-	for _, o := range opts {
-		if err := o(c); err != nil {
-			return nil, err
-		}
-	}
-
 	return &ReadmeCommandResponse{
 		Compact: c.compact,
 	}, nil
