@@ -56,6 +56,54 @@ func (ps *Symbol) PathDefinition() string {
 	return fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line)
 }
 
+// ReceiverTypeName returns the receiver type name for methods, or empty string for non-methods.
+// Uses type info rather than AST inspection.
+func (ps *Symbol) ReceiverTypeName() string {
+	if ps.Kind != SymbolKindMethod {
+		return ""
+	}
+	fn, ok := ps.Object.(*types.Func)
+	if !ok {
+		return ""
+	}
+	sig := fn.Signature()
+	if sig.Recv() == nil {
+		return ""
+	}
+	recvType := sig.Recv().Type()
+	// Strip pointer if present
+	if ptr, ok := recvType.(*types.Pointer); ok {
+		recvType = ptr.Elem()
+	}
+	// Get the type name
+	if named, ok := recvType.(*types.Named); ok {
+		return named.Obj().Name()
+	}
+	return ""
+}
+
+// ConstructedTypeName returns the type name this function constructs, or empty string.
+// A constructor is a function returning a single named type (or pointer to it) from the same package.
+func (ps *Symbol) ConstructedTypeName() string {
+	if ps.Kind != SymbolKindFunc {
+		return ""
+	}
+	node, ok := ps.Node.(*ast.FuncDecl)
+	if !ok {
+		return ""
+	}
+	return ConstructorTypeName(node.Type)
+}
+
+// ParentTypeName returns the associated type name for methods (receiver) or constructors (return type).
+// Returns empty string for non-methods and non-constructors.
+func (ps *Symbol) ParentTypeName() string {
+	if name := ps.ReceiverTypeName(); name != "" {
+		return name
+	}
+	return ps.ConstructedTypeName()
+}
+
 // SearchName returns the fully qualified name for search (PkgPath.Name).
 func (ps *Symbol) SearchName() string {
 	if ps.PackageIdentifier == nil {

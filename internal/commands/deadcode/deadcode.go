@@ -191,13 +191,9 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 		// Count methods by type for grouping
 		var parentType string
-		if sym.Kind == golang.SymbolKindMethod {
-			if node, ok := sym.Node.(*ast.FuncDecl); ok {
-				if node.Recv != nil && len(node.Recv.List) > 0 {
-					parentType = sym.PackageIdentifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
-					totalMethodsByType[parentType]++
-				}
-			}
+		if recvType := sym.ReceiverTypeName(); recvType != "" {
+			parentType = sym.PackageIdentifier.Name + "." + recvType
+			totalMethodsByType[parentType]++
 		}
 
 		// Check if reachable via SSA
@@ -243,16 +239,12 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 			Symbol:     sym.PackageIdentifier.Name + "." + sym.Name,
 			Kind:       string(sym.Kind),
 			Signature:  sym.Signature(),
-			Definition: fmt.Sprintf("%s:%d", filename, pos.Line),
+			Definition: sym.FileDefinition(),
 		}
 
 		// Get parent type for methods and constructors
-		if node, ok := sym.Node.(*ast.FuncDecl); ok {
-			if node.Recv != nil && len(node.Recv.List) > 0 {
-				parentType = sym.PackageIdentifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
-			} else if ctorType := golang.ConstructorTypeName(node.Type); ctorType != "" {
-				parentType = sym.PackageIdentifier.Name + "." + ctorType
-			}
+		if typeName := sym.ParentTypeName(); typeName != "" {
+			parentType = sym.PackageIdentifier.Name + "." + typeName
 		}
 
 		deadByPkg[pkgPath] = append(deadByPkg[pkgPath], tempDeadSymbol{ds: ds, parentType: parentType})
@@ -417,12 +409,7 @@ func isEntryPoint(sym *golang.Symbol) bool {
 
 // findReceiverTypeSymbol finds the type symbol for a method's receiver.
 func findReceiverTypeSymbol(wc *commands.Wildcat, methodSym *golang.Symbol) *golang.Symbol {
-	node, ok := methodSym.Node.(*ast.FuncDecl)
-	if !ok || node.Recv == nil || len(node.Recv.List) == 0 {
-		return nil
-	}
-
-	typeName := golang.ReceiverTypeName(node.Recv.List[0].Type)
+	typeName := methodSym.ReceiverTypeName()
 	if typeName == "" {
 		return nil
 	}
