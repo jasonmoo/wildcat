@@ -16,22 +16,6 @@ func (i *InterfaceInfo) Interface() *types.Interface {
 	return i.Named.Underlying().(*types.Interface)
 }
 
-// PkgPath returns the package import path.
-func (i *InterfaceInfo) PkgPath() string {
-	if i.Package != nil {
-		return i.Package.Identifier.PkgPath
-	}
-	return "" // builtin
-}
-
-// QualifiedName returns the fully qualified name (pkgPath.Name).
-func (i *InterfaceInfo) QualifiedName() string {
-	if path := i.PkgPath(); path != "" {
-		return path + "." + i.Name
-	}
-	return i.Name
-}
-
 // CollectInterfaces gathers all interface types from project packages and stdlib.
 func CollectInterfaces(project *Project, stdlib []*Package) []InterfaceInfo {
 	var ifaces []InterfaceInfo
@@ -72,16 +56,6 @@ type ImplementorInfo struct {
 	Package *Package     // the package containing the type
 	Name    string       // type name
 	Obj     types.Object // the type object (for position info)
-}
-
-// PkgPath returns the package import path.
-func (i *ImplementorInfo) PkgPath() string {
-	return i.Package.Identifier.PkgPath
-}
-
-// QualifiedName returns the fully qualified name (pkgPath.Name).
-func (i *ImplementorInfo) QualifiedName() string {
-	return i.PkgPath() + "." + i.Name
 }
 
 // FindImplementors finds all types in packages that implement the given interface.
@@ -197,70 +171,6 @@ func IsInterfaceMethod(sym *PackageSymbol, project *Project, stdlib []*Package) 
 	}
 
 	return false
-}
-
-// FindSatisfiedInterfaces finds all interfaces that a type satisfies.
-// It handles:
-// - Builtin error interface
-// - Generic interface instantiation
-// - Skips empty interfaces
-func FindSatisfiedInterfaces(T types.Type, tPkgPath, tName string, interfaces []InterfaceInfo) []InterfaceInfo {
-	var satisfies []InterfaceInfo
-	ptrT := types.NewPointer(T)
-
-	// Check builtin error interface
-	errorObj := types.Universe.Lookup("error")
-	if errorObj != nil {
-		errorIface := errorObj.Type().Underlying().(*types.Interface)
-		if types.Implements(T, errorIface) || types.Implements(ptrT, errorIface) {
-			satisfies = append(satisfies, InterfaceInfo{
-				Package: nil,
-				Name:    "error",
-				Named:   nil, // builtin, no Named type
-			})
-		}
-	}
-
-	for _, i := range interfaces {
-		// Skip self
-		if i.PkgPath() == tPkgPath && i.Name == tName {
-			continue
-		}
-
-		iface := i.Interface()
-
-		// Skip empty interface
-		if iface.NumMethods() == 0 {
-			continue
-		}
-
-		var implements bool
-
-		if i.Named.TypeParams().Len() > 0 {
-			// Generic interface - try instantiating with T and *T
-			if inst, err := types.Instantiate(nil, i.Named, []types.Type{T}, false); err == nil {
-				if instIface, ok := inst.Underlying().(*types.Interface); ok {
-					implements = types.Implements(T, instIface) || types.Implements(ptrT, instIface)
-				}
-			}
-			if !implements {
-				if inst, err := types.Instantiate(nil, i.Named, []types.Type{ptrT}, false); err == nil {
-					if instIface, ok := inst.Underlying().(*types.Interface); ok {
-						implements = types.Implements(T, instIface) || types.Implements(ptrT, instIface)
-					}
-				}
-			}
-		} else {
-			// Non-generic interface
-			implements = types.Implements(T, iface) || types.Implements(ptrT, iface)
-		}
-
-		if implements {
-			satisfies = append(satisfies, i)
-		}
-	}
-
-	return satisfies
 }
 
 // ComputeInterfaceRelations populates Satisfies and ImplementedBy on all type symbols
