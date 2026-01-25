@@ -301,6 +301,11 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 				if iface.NumMethods() == 0 {
 					continue // skip empty interfaces
 				}
+
+				// Check if this is a generic interface
+				named, _ := T.(*types.Named)
+				isGenericIface := named != nil && named.TypeParams().Len() > 0
+
 				for _, otherPkg := range project {
 					for _, otherSym := range otherPkg.Symbols {
 						otherTn, ok := otherSym.Object.(*types.TypeName)
@@ -317,7 +322,28 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 						}
 						otherT := otherTn.Type()
 						otherPtrT := types.NewPointer(otherT)
-						if types.Implements(otherT, iface) || types.Implements(otherPtrT, iface) {
+
+						var implements bool
+						if isGenericIface {
+							// For generic interfaces like Command[T], try instantiating with the candidate type
+							// e.g., check if *SymbolCommand implements Command[SymbolCommandResponse]
+							if inst, err := types.Instantiate(nil, named, []types.Type{otherT}, false); err == nil {
+								if instIface, ok := inst.Underlying().(*types.Interface); ok {
+									implements = types.Implements(otherT, instIface) || types.Implements(otherPtrT, instIface)
+								}
+							}
+							if !implements {
+								if inst, err := types.Instantiate(nil, named, []types.Type{otherPtrT}, false); err == nil {
+									if instIface, ok := inst.Underlying().(*types.Interface); ok {
+										implements = types.Implements(otherT, instIface) || types.Implements(otherPtrT, instIface)
+									}
+								}
+							}
+						} else {
+							implements = types.Implements(otherT, iface) || types.Implements(otherPtrT, iface)
+						}
+
+						if implements {
 							sym.ImplementedBy = append(sym.ImplementedBy, otherSym)
 						}
 					}
@@ -383,4 +409,65 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 			}
 		}
 	}
+
+	// Compute Consumers for interfaces: functions/methods that accept the interface as param
+	for _, pkg := range project {
+		for _, sym := range pkg.Symbols {
+			tn, ok := sym.Object.(*types.TypeName)
+			if !ok {
+				continue
+			}
+			iface, isIface := tn.Type().Underlying().(*types.Interface)
+			if !isIface || iface.NumMethods() == 0 {
+				continue
+			}
+
+			// Find consumer functions across all project packages
+			for _, otherPkg := range project {
+				for _, otherSym := range otherPkg.Symbols {
+					// Check top-level functions
+					if fn, ok := otherSym.Object.(*types.Func); ok {
+						if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() == nil {
+							if hasIfaceParam(sig, sym.Object) {
+								sym.Consumers = append(sym.Consumers, otherSym)
+							}
+						}
+					}
+					// Check methods on types
+					for _, method := range otherSym.Methods {
+						if fn, ok := method.Object.(*types.Func); ok {
+							if sig, ok := fn.Type().(*types.Signature); ok {
+								if hasIfaceParam(sig, sym.Object) {
+									sym.Consumers = append(sym.Consumers, method)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// hasIfaceParam checks if a function signature has a parameter of the target interface type.
+func hasIfaceParam(sig *types.Signature, targetObj types.Object) bool {
+	params := sig.Params()
+	for i := 0; i < params.Len(); i++ {
+		paramType := params.At(i).Type()
+		// Check direct interface type
+		if named, ok := paramType.(*types.Named); ok {
+			if named.Obj() == targetObj {
+				return true
+			}
+		}
+		// Check pointer to interface
+		if ptr, ok := paramType.(*types.Pointer); ok {
+			if named, ok := ptr.Elem().(*types.Named); ok {
+				if named.Obj() == targetObj {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

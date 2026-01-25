@@ -602,59 +602,47 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symb
 }
 
 func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang.Symbol) []PackageTypes {
-	// Get the interface type using shared helper
-	iface := golang.GetInterfaceType(target)
-	if iface == nil {
+	// Verify it's an interface
+	if golang.GetInterfaceType(target) == nil {
 		return nil
 	}
 
-	// Get the types.Object for comparison (to skip the interface itself)
-	targetObj := golang.GetTypesObject(target)
+	// Get precomputed implementors from PackageSymbol
+	pkgSym := target.PackageSymbol()
+	if pkgSym == nil || len(pkgSym.ImplementedBy) == 0 {
+		return nil
+	}
 
 	// Group implementations by package
 	byPkg := make(map[string]*PackageTypes)
 
-	// Search all packages for types that implement this interface
-	for _, pkg := range wc.Project.Packages {
-		for ident, obj := range pkg.Package.TypesInfo.Defs {
-			// Only interested in type definitions
-			typeName, ok := obj.(*types.TypeName)
-			if !ok {
-				continue
-			}
+	for _, impl := range pkgSym.ImplementedBy {
+		pkgPath := impl.Package.PkgPath
 
-			// Skip the interface itself
-			if obj == targetObj {
-				continue
-			}
-
-			// Check if this type implements the interface
-			// Use pointer type as well since methods might be on pointer receiver
-			typ := typeName.Type()
-			ptrTyp := types.NewPointer(typ)
-
-			if types.Implements(typ, iface) || types.Implements(ptrTyp, iface) {
-				pos := pkg.Package.Fset.Position(ident.Pos())
-				symbolKey := pkg.Identifier.Name + "." + typeName.Name()
-
-				// Format signature from type info
-				sig := "type " + typeName.Name() + " " + types.TypeString(typ.Underlying(), nil)
-
-				pkgPath := pkg.Identifier.PkgPath
-				if byPkg[pkgPath] == nil {
-					byPkg[pkgPath] = &PackageTypes{
-						Package: pkgPath,
-						Dir:     pkg.Identifier.PkgDir,
-					}
-				}
-				byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
-					Symbol:     symbolKey,
-					Signature:  sig,
-					Definition: fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line),
-					Refs:       getSymbolRefs(wc, symbolKey),
-				})
+		// Find the Package for directory info
+		var pkgDir string
+		for _, pkg := range wc.Project.Packages {
+			if pkg.Identifier.PkgPath == pkgPath {
+				pkgDir = pkg.Identifier.PkgDir
+				break
 			}
 		}
+
+		if byPkg[pkgPath] == nil {
+			byPkg[pkgPath] = &PackageTypes{
+				Package: pkgPath,
+				Dir:     pkgDir,
+			}
+		}
+
+		symbolKey := impl.Package.Name + "." + impl.Name
+
+		byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
+			Symbol:     symbolKey,
+			Signature:  impl.Signature(),
+			Definition: impl.FileDefinition(),
+			Refs:       getSymbolRefs(wc, symbolKey),
+		})
 	}
 
 	// Convert map to sorted slice
@@ -674,65 +662,48 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 // findConsumers finds functions and methods that accept the interface as a parameter.
 // This helps distinguish consumers (who depend on the contract) from implementers (who fulfill it).
 func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbol) []PackageFunctions {
-	// Verify it's an interface using shared helper
+	// Verify it's an interface
 	if golang.GetInterfaceType(target) == nil {
 		return nil
 	}
 
-	// Get the types.Object for parameter type comparison
-	obj := golang.GetTypesObject(target)
-	if obj == nil {
-		wc.Diagnostics = append(wc.Diagnostics, commands.Diagnostics{
-			Level:   "warning",
-			Package: target.Package.Identifier.PkgPath,
-			Message: fmt.Sprintf("consumers analysis incomplete: type info unavailable for %s", target.Name),
-		})
+	// Get precomputed consumers from PackageSymbol
+	pkgSym := target.PackageSymbol()
+	if pkgSym == nil || len(pkgSym.Consumers) == 0 {
 		return nil
 	}
 
 	// Group consumers by package
 	byPkg := make(map[string]*PackageFunctions)
 
-	// Search all packages for functions that accept this interface
-	for _, pkg := range wc.Project.Packages {
-		for _, file := range pkg.Package.Syntax {
-			for _, decl := range file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Type == nil || fn.Type.Params == nil {
-					continue
-				}
+	for _, consumer := range pkgSym.Consumers {
+		pkgPath := consumer.Package.PkgPath
 
-				// Check if any parameter is the target interface
-				if !c.hasInterfaceParam(pkg, fn, obj) {
-					continue
-				}
-
-				// Build function info
-				pos := pkg.Package.Fset.Position(fn.Pos())
-				endPos := pkg.Package.Fset.Position(fn.End())
-
-				// Build qualified symbol
-				symbol := pkg.Identifier.Name + "."
-				if fn.Recv != nil && len(fn.Recv.List) > 0 {
-					symbol += golang.ReceiverTypeName(fn.Recv.List[0].Type) + "."
-				}
-				symbol += fn.Name.Name
-
-				pkgPath := pkg.Identifier.PkgPath
-				if byPkg[pkgPath] == nil {
-					byPkg[pkgPath] = &PackageFunctions{
-						Package: pkgPath,
-						Dir:     pkg.Identifier.PkgDir,
-					}
-				}
-				byPkg[pkgPath].Functions = append(byPkg[pkgPath].Functions, FunctionInfo{
-					Symbol:     symbol,
-					Signature:  golang.FormatNode(fn),
-					Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
-					Refs:       getSymbolRefs(wc, symbol),
-				})
+		// Find the Package for directory info
+		var pkgDir string
+		for _, pkg := range wc.Project.Packages {
+			if pkg.Identifier.PkgPath == pkgPath {
+				pkgDir = pkg.Identifier.PkgDir
+				break
 			}
 		}
+
+		if byPkg[pkgPath] == nil {
+			byPkg[pkgPath] = &PackageFunctions{
+				Package: pkgPath,
+				Dir:     pkgDir,
+			}
+		}
+
+		// Build qualified symbol name
+		symbol := consumer.Package.Name + "." + consumer.Name
+
+		byPkg[pkgPath].Functions = append(byPkg[pkgPath].Functions, FunctionInfo{
+			Symbol:     symbol,
+			Signature:  consumer.Signature(),
+			Definition: consumer.FileDefinition(),
+			Refs:       getSymbolRefs(wc, symbol),
+		})
 	}
 
 	// Convert map to sorted slice
@@ -747,33 +718,6 @@ func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbo
 	}
 
 	return result
-}
-
-// hasInterfaceParam checks if a function has a parameter of the target interface type.
-func (c *SymbolCommand) hasInterfaceParam(pkg *golang.Package, fn *ast.FuncDecl, targetObj types.Object) bool {
-	for _, field := range fn.Type.Params.List {
-		// Resolve the type of the parameter
-		paramType := pkg.Package.TypesInfo.TypeOf(field.Type)
-		if paramType == nil {
-			continue
-		}
-
-		// Check if it's the target interface (or a pointer to it)
-		if named, ok := paramType.(*types.Named); ok {
-			if named.Obj() == targetObj {
-				return true
-			}
-		}
-		// Check pointer to interface
-		if ptr, ok := paramType.(*types.Pointer); ok {
-			if named, ok := ptr.Elem().(*types.Named); ok {
-				if named.Obj() == targetObj {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
 
 // findDescendants finds types that would be orphaned if the target type is removed.

@@ -22,6 +22,7 @@ type PackageSymbol struct {
 	// Interface relationships (only for types)
 	Satisfies     []*PackageSymbol // interfaces this type implements
 	ImplementedBy []*PackageSymbol // types implementing this interface (for interfaces only)
+	Consumers     []*PackageSymbol // functions/methods accepting this interface as param (for interfaces only)
 }
 
 func (ps *PackageSymbol) Signature() string {
@@ -126,12 +127,13 @@ func findNode(pkg *packages.Package, pos token.Pos) (*ast.File, ast.Node) {
 					switch vv := spec.(type) {
 					case *ast.TypeSpec:
 						if vv.Name.Pos() == pos {
-							return f, &ast.GenDecl{Tok: v.Tok, Specs: []ast.Spec{vv}}
+							// Preserve position from the spec for FileDefinition
+							return f, &ast.GenDecl{TokPos: vv.Pos(), Tok: v.Tok, Specs: []ast.Spec{vv}}
 						}
 					case *ast.ValueSpec:
 						for _, ident := range vv.Names {
 							if ident.Pos() == pos {
-								return f, &ast.GenDecl{Tok: v.Tok, Specs: []ast.Spec{vv}}
+								return f, &ast.GenDecl{TokPos: vv.Pos(), Tok: v.Tok, Specs: []ast.Spec{vv}}
 							}
 						}
 					}

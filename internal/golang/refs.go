@@ -203,9 +203,15 @@ func GetInterfaceType(sym *Symbol) *types.Interface {
 		return nil
 	}
 
+	// Handle both direct TypeSpec and GenDecl wrapper
 	node := sym.Node()
-	typeSpec, ok := node.(*ast.TypeSpec)
-	if !ok {
+	var typeSpec *ast.TypeSpec
+	if ts, ok := node.(*ast.TypeSpec); ok {
+		typeSpec = ts
+	} else if gd, ok := node.(*ast.GenDecl); ok && len(gd.Specs) > 0 {
+		typeSpec, _ = gd.Specs[0].(*ast.TypeSpec)
+	}
+	if typeSpec == nil {
 		return nil
 	}
 
