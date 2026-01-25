@@ -219,33 +219,28 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	var methods, constructors []FunctionInfo
 	excludeFromRefs := make(map[string]bool) // file:line keys to exclude from references
 	if target.Kind == golang.SymbolKindType || target.Kind == golang.SymbolKindInterface {
-		foundMethods := golang.FindMethods(target.Package, target.Name)
-		foundConstructors := golang.FindConstructors(target.Package, target.Name)
-		for _, fn := range foundMethods {
-			pos := target.Package.Package.Fset.Position(fn.Pos())
-			endPos := target.Package.Package.Fset.Position(fn.End())
-			// Build qualified symbol: pkg.Type.Method
-			methodSymbol := target.Package.Identifier.Name + "." + target.Name + "." + fn.Name.Name
-			methods = append(methods, FunctionInfo{
-				Symbol:     methodSymbol,
-				Signature:  golang.FormatFuncDecl(fn),
-				Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
-				Refs:       getSymbolRefs(wc, methodSymbol),
-			})
-			excludeFromRefs[fmt.Sprintf("%s:%d", pos.Filename, pos.Line)] = true
-		}
-		for _, fn := range foundConstructors {
-			pos := target.Package.Package.Fset.Position(fn.Pos())
-			endPos := target.Package.Package.Fset.Position(fn.End())
-			// Build qualified symbol: pkg.FuncName
-			constructorSymbol := target.Package.Identifier.Name + "." + fn.Name.Name
-			constructors = append(constructors, FunctionInfo{
-				Symbol:     constructorSymbol,
-				Signature:  golang.FormatFuncDecl(fn),
-				Definition: fmt.Sprintf("%s:%d:%d", filepath.Base(pos.Filename), pos.Line, endPos.Line),
-				Refs:       getSymbolRefs(wc, constructorSymbol),
-			})
-			excludeFromRefs[fmt.Sprintf("%s:%d", pos.Filename, pos.Line)] = true
+		// Use precomputed methods/constructors from PackageSymbol
+		if pkgSym := target.PackageSymbol(); pkgSym != nil {
+			for _, m := range pkgSym.Methods {
+				methodSymbol := target.Package.Identifier.Name + "." + target.Name + "." + m.Name
+				methods = append(methods, FunctionInfo{
+					Symbol:     methodSymbol,
+					Signature:  m.Signature(),
+					Definition: m.FileDefinition(),
+					Refs:       getSymbolRefs(wc, methodSymbol),
+				})
+				excludeFromRefs[m.PathLocation()] = true
+			}
+			for _, c := range pkgSym.Constructors {
+				constructorSymbol := target.Package.Identifier.Name + "." + c.Name
+				constructors = append(constructors, FunctionInfo{
+					Symbol:     constructorSymbol,
+					Signature:  c.Signature(),
+					Definition: c.FileDefinition(),
+					Refs:       getSymbolRefs(wc, constructorSymbol),
+				})
+				excludeFromRefs[c.PathLocation()] = true
+			}
 		}
 	}
 

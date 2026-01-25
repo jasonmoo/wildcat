@@ -125,6 +125,26 @@ func (s *Symbol) SearchName() string {
 	return s.Package.Identifier.PkgPath + "." + s.Name
 }
 
+// PackageSymbol returns the corresponding PackageSymbol for this Symbol.
+// For methods, looks up the receiver type's symbol.
+// Returns nil if not found.
+func (s *Symbol) PackageSymbol() *PackageSymbol {
+	// For methods, the name is "ReceiverType.MethodName" - look up the type
+	baseName := s.Name
+	if s.Kind == SymbolKindMethod {
+		if dotIdx := strings.Index(s.Name, "."); dotIdx > 0 {
+			baseName = s.Name[:dotIdx] // get the receiver type name
+		}
+	}
+
+	for _, sym := range s.Package.Symbols {
+		if sym.Name == baseName {
+			return sym
+		}
+	}
+	return nil
+}
+
 // SymbolIndex holds symbols for fuzzy searching
 type SymbolIndex struct {
 	symbols    []Symbol
