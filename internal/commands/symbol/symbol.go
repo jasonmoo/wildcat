@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
-	"go/types"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -262,7 +261,19 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	}
 
 	// Find descendants (types that would be orphaned if target removed)
-	descendants := c.findDescendants(wc, target)
+	var descendants []DescendantInfo
+	if pkgSym := target.PackageSymbol(); pkgSym != nil {
+		for _, desc := range pkgSym.Descendants {
+			symbolKey := desc.Package.Name + "." + desc.Name
+			descendants = append(descendants, DescendantInfo{
+				Symbol:     symbolKey,
+				Signature:  desc.Signature(),
+				Definition: desc.FileDefinition(),
+				Reason:     fmt.Sprintf("only referenced by %s", target.Name),
+				Refs:       getSymbolRefs(wc, symbolKey),
+			})
+		}
+	}
 
 	// Build output packages list
 	var packageUsages []output.PackageUsage
@@ -394,6 +405,11 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	}
 	for _, desc := range descendants {
 		excludeSymbols = append(excludeSymbols, desc.Symbol)
+	}
+	for _, pkg := range consumers {
+		for _, fn := range pkg.Functions {
+			excludeSymbols = append(excludeSymbols, fn.Symbol)
+		}
 	}
 
 	// Count total implementations and satisfies across all packages
@@ -718,230 +734,6 @@ func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbo
 	}
 
 	return result
-}
-
-// findDescendants finds types that would be orphaned if the target type is removed.
-// A descendant is a type that is only referenced by the target.
-func (c *SymbolCommand) findDescendants(wc *commands.Wildcat, target *golang.Symbol) []DescendantInfo {
-	// Only applies to types
-	if target.Kind != golang.SymbolKindType && target.Kind != golang.SymbolKindInterface {
-		return nil
-	}
-
-	node := target.Node()
-	typeSpec, ok := node.(*ast.TypeSpec)
-	if !ok {
-		return nil
-	}
-
-	// Find all types referenced by the target's definition
-	referencedTypes := c.findReferencedTypes(wc, target.Package, typeSpec)
-	if len(referencedTypes) == 0 {
-		return nil
-	}
-
-	// Build set of symbols that are "part of" the target (target + its methods)
-	targetSymbols := make(map[string]bool)
-	targetSymbolName := target.Package.Identifier.Name + "." + target.Name
-	targetSymbols[targetSymbolName] = true
-
-	// Add target's methods
-	for _, fn := range golang.FindMethods(target.Package, target.Name) {
-		methodName := target.Package.Identifier.Name + "." + target.Name + "." + fn.Name.Name
-		targetSymbols[methodName] = true
-	}
-
-	// For each referenced type, find all symbols that reference it
-	var descendants []DescendantInfo
-	for _, refType := range referencedTypes {
-		// Skip if not in our project
-		if refType.pkg == nil {
-			continue
-		}
-
-		// Get all symbols that reference this type
-		referrers := c.countTypeReferencingSymbols(wc, refType)
-
-		// Check if all referrers are part of the target
-		allInTarget := true
-		for referrer := range referrers {
-			if !targetSymbols[referrer] {
-				allInTarget = false
-				break
-			}
-		}
-
-		// If all referrers are within target's scope, it's a descendant
-		if allInTarget && len(referrers) > 0 {
-			// Use last segment of import path for symbol key (matches how Lookup parses short names)
-			pkgShortName := refType.pkg.Identifier.PkgPath
-			if lastSlash := strings.LastIndex(pkgShortName, "/"); lastSlash >= 0 {
-				pkgShortName = pkgShortName[lastSlash+1:]
-			}
-			symbolKey := pkgShortName + "." + refType.name
-			descendants = append(descendants, DescendantInfo{
-				Symbol:     symbolKey,
-				Signature:  refType.signature,
-				Definition: refType.definition,
-				Reason:     fmt.Sprintf("only referenced by %s", target.Name),
-				Refs:       getSymbolRefs(wc, symbolKey),
-			})
-		}
-	}
-
-	return descendants
-}
-
-type referencedType struct {
-	name       string
-	pkg        *golang.Package
-	obj        types.Object
-	signature  string
-	definition string
-}
-
-// findReferencedTypes extracts all types referenced in a type's definition.
-func (c *SymbolCommand) findReferencedTypes(wc *commands.Wildcat, pkg *golang.Package, typeSpec *ast.TypeSpec) []referencedType {
-	var refs []referencedType
-	seen := make(map[types.Object]bool)
-
-	ast.Inspect(typeSpec.Type, func(n ast.Node) bool {
-		ident, ok := n.(*ast.Ident)
-		if !ok {
-			return true
-		}
-
-		obj := pkg.Package.TypesInfo.Uses[ident]
-		if obj == nil {
-			return true
-		}
-
-		// Only interested in type names
-		_, isTypeName := obj.(*types.TypeName)
-		if !isTypeName {
-			return true
-		}
-
-		// Skip if already seen
-		if seen[obj] {
-			return true
-		}
-		seen[obj] = true
-
-		// Skip builtin types
-		if obj.Pkg() == nil {
-			return true
-		}
-
-		// Find the package in our project
-		var refPkg *golang.Package
-		for _, p := range wc.Project.Packages {
-			if p.Package.Types.Path() == obj.Pkg().Path() {
-				refPkg = p
-				break
-			}
-		}
-
-		// Skip types not in our project (stdlib, external deps)
-		if refPkg == nil {
-			return true
-		}
-
-		// Get signature and definition
-		// Use last segment of import path for lookup (matches how Lookup parses short names)
-		pkgShortName := refPkg.Identifier.PkgPath
-		if lastSlash := strings.LastIndex(pkgShortName, "/"); lastSlash >= 0 {
-			pkgShortName = pkgShortName[lastSlash+1:]
-		}
-		symbolKey := pkgShortName + "." + obj.Name()
-		matches := wc.Index.Lookup(symbolKey)
-		if len(matches) != 1 {
-			// Can't resolve this type (e.g., type parameter like T in generics) - skip it
-			return true
-		}
-		refs = append(refs, referencedType{
-			name:       obj.Name(),
-			pkg:        refPkg,
-			obj:        obj,
-			signature:  matches[0].Signature(),
-			definition: fmt.Sprintf("%s:%s", matches[0].Filename(), matches[0].Location()),
-		})
-
-		return true
-	})
-
-	return refs
-}
-
-// countTypeReferencingSymbols counts unique symbols that reference a type.
-// Returns the set of symbol names (pkg.Type or pkg.Func) that reference this type.
-func (c *SymbolCommand) countTypeReferencingSymbols(wc *commands.Wildcat, refType referencedType) map[string]bool {
-	referrers := make(map[string]bool)
-
-	for _, pkg := range wc.Project.Packages {
-		for _, file := range pkg.Package.Syntax {
-			for _, decl := range file.Decls {
-				switch d := decl.(type) {
-				case *ast.FuncDecl:
-					symbolName := pkg.Identifier.Name + "."
-					if d.Recv != nil && len(d.Recv.List) > 0 {
-						symbolName += golang.ReceiverTypeName(d.Recv.List[0].Type) + "."
-					}
-					symbolName += d.Name.Name
-
-					if c.nodeReferencesType(pkg, d, refType) {
-						referrers[symbolName] = true
-					}
-
-				case *ast.GenDecl:
-					for _, spec := range d.Specs {
-						switch s := spec.(type) {
-						case *ast.TypeSpec:
-							symbolName := pkg.Identifier.Name + "." + s.Name.Name
-							if c.nodeReferencesType(pkg, s, refType) {
-								referrers[symbolName] = true
-							}
-						case *ast.ValueSpec:
-							for _, name := range s.Names {
-								symbolName := pkg.Identifier.Name + "." + name.Name
-								if c.nodeReferencesType(pkg, s, refType) {
-									referrers[symbolName] = true
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return referrers
-}
-
-// nodeReferencesType checks if an AST node references the given type.
-func (c *SymbolCommand) nodeReferencesType(pkg *golang.Package, node ast.Node, refType referencedType) bool {
-	found := false
-	ast.Inspect(node, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		ident, ok := n.(*ast.Ident)
-		if !ok {
-			return true
-		}
-
-		obj := pkg.Package.TypesInfo.Uses[ident]
-		if obj == nil {
-			return true
-		}
-
-		if obj == refType.obj || golang.SameObject(obj, refType.obj) {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
 }
 
 func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbol) []PackageTypes {

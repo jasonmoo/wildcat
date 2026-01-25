@@ -77,7 +77,7 @@ type SymbolCommandResponse struct {
 	Target            output.TargetInfo      `json:"target"`
 	Methods           []FunctionInfo         `json:"methods,omitempty"`
 	Constructors      []FunctionInfo         `json:"constructors,omitempty"`
-	Descendants       []DescendantInfo       `json:"descendants,omitempty"` // types orphaned if target removed
+	Descendants       []DescendantInfo       `json:"direct_descendants,omitempty"` // direct descendants: types orphaned if target removed
 	ImportedBy        []output.DepResult     `json:"imported_by"`
 	References        []output.PackageUsage  `json:"references"`
 	Implementations   []PackageTypes         `json:"implementations,omitempty"`
@@ -115,7 +115,7 @@ func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 		ProjectSummary    output.SymbolSummary   `json:"project_summary"`
 		Methods           []FunctionInfo         `json:"methods,omitempty"`
 		Constructors      []FunctionInfo         `json:"constructors,omitempty"`
-		Descendants       []DescendantInfo       `json:"descendants,omitempty"`
+		Descendants       []DescendantInfo       `json:"direct_descendants,omitempty"`
 		ImportedBy        []output.DepResult     `json:"imported_by"`
 		References        []output.PackageUsage  `json:"references"`
 		Implementations   []PackageTypes         `json:"implementations,omitempty"`
@@ -200,9 +200,9 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		}
 	}
 
-	// Descendants (show for types, even if empty)
+	// Direct Descendants (show for types, even if empty)
 	if isType || len(r.Descendants) > 0 {
-		fmt.Fprintf(&sb, "## Descendants (%d)\n\n", len(r.Descendants))
+		fmt.Fprintf(&sb, "## Direct Descendants (%d)\n\n", len(r.Descendants))
 		for _, d := range r.Descendants {
 			fmt.Fprintf(&sb, "%s // %s", d.Signature, d.Definition)
 			if d.Refs != nil {

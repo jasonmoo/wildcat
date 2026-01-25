@@ -427,3 +427,168 @@ func CountNonCallReferences(pkgs []*Package, sym *Symbol) int {
 	})
 	return count
 }
+
+// ComputeDescendants populates Descendants on all struct PackageSymbols.
+// A direct descendant is a type that is only referenced by the parent type (and its methods).
+// If the parent type were removed, the descendant would be orphaned.
+// Note: This only computes direct descendants, not transitive ones.
+// This should be called after loading packages.
+func ComputeDescendants(project []*Package) {
+	// Build a map of types by their Object for quick lookup
+	typeByObj := make(map[types.Object]*PackageSymbol)
+	for _, pkg := range project {
+		for _, sym := range pkg.Symbols {
+			if _, ok := sym.Object.(*types.TypeName); ok {
+				typeByObj[sym.Object] = sym
+			}
+		}
+	}
+
+	// Build referrers map: for each type, which symbols reference it
+	// key: type's Object, value: set of referrer symbol names (pkg.Name or pkg.Type.Method)
+	referrers := make(map[types.Object]map[string]bool)
+
+	for _, pkg := range project {
+		for _, file := range pkg.Package.Syntax {
+			for _, decl := range file.Decls {
+				switch d := decl.(type) {
+				case *ast.FuncDecl:
+					symbolName := pkg.Identifier.Name + "."
+					if d.Recv != nil && len(d.Recv.List) > 0 {
+						symbolName += ReceiverTypeName(d.Recv.List[0].Type) + "."
+					}
+					symbolName += d.Name.Name
+					collectTypeReferrers(pkg, d, symbolName, referrers)
+
+				case *ast.GenDecl:
+					for _, spec := range d.Specs {
+						switch s := spec.(type) {
+						case *ast.TypeSpec:
+							symbolName := pkg.Identifier.Name + "." + s.Name.Name
+							collectTypeReferrers(pkg, s.Type, symbolName, referrers)
+						case *ast.ValueSpec:
+							for _, name := range s.Names {
+								symbolName := pkg.Identifier.Name + "." + name.Name
+								collectTypeReferrers(pkg, s, symbolName, referrers)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// For each struct type, find descendants
+	for _, pkg := range project {
+		for _, sym := range pkg.Symbols {
+			tn, ok := sym.Object.(*types.TypeName)
+			if !ok {
+				continue
+			}
+			// Only struct types can have descendants (not interfaces, aliases, etc.)
+			if _, isStruct := tn.Type().Underlying().(*types.Struct); !isStruct {
+				continue
+			}
+
+			// Build the scope: this type + its methods
+			scope := make(map[string]bool)
+			scope[pkg.Identifier.Name+"."+sym.Name] = true
+			for _, m := range sym.Methods {
+				scope[pkg.Identifier.Name+"."+sym.Name+"."+m.Name] = true
+			}
+
+			// Find types referenced in this type's definition
+			referencedTypes := findReferencedTypesInNode(pkg, sym.Node, typeByObj)
+
+			// Check each referenced type
+			for _, refType := range referencedTypes {
+				refs := referrers[refType.Object]
+				if len(refs) == 0 {
+					continue
+				}
+
+				// Check if all referrers are within our scope
+				allInScope := true
+				for referrer := range refs {
+					if !scope[referrer] {
+						allInScope = false
+						break
+					}
+				}
+
+				if allInScope {
+					sym.Descendants = append(sym.Descendants, refType)
+				}
+			}
+		}
+	}
+}
+
+// findReferencedTypesInNode extracts all project types referenced in an AST node.
+func findReferencedTypesInNode(pkg *Package, node ast.Node, typeByObj map[types.Object]*PackageSymbol) []*PackageSymbol {
+	var result []*PackageSymbol
+	seen := make(map[types.Object]bool)
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		ident, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		obj := pkg.Package.TypesInfo.Uses[ident]
+		if obj == nil {
+			return true
+		}
+
+		// Only interested in type names
+		if _, ok := obj.(*types.TypeName); !ok {
+			return true
+		}
+
+		// Skip if already seen or not in project
+		if seen[obj] {
+			return true
+		}
+		seen[obj] = true
+
+		if typeSym := typeByObj[obj]; typeSym != nil {
+			result = append(result, typeSym)
+		}
+
+		return true
+	})
+
+	return result
+}
+
+// collectTypeReferrers adds type references from a node to the referrers map.
+func collectTypeReferrers(pkg *Package, node ast.Node, symbolName string, referrers map[types.Object]map[string]bool) {
+	ast.Inspect(node, func(n ast.Node) bool {
+		ident, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		obj := pkg.Package.TypesInfo.Uses[ident]
+		if obj == nil {
+			return true
+		}
+
+		// Only interested in type names
+		if _, ok := obj.(*types.TypeName); !ok {
+			return true
+		}
+
+		// Skip builtin types
+		if obj.Pkg() == nil {
+			return true
+		}
+
+		if referrers[obj] == nil {
+			referrers[obj] = make(map[string]bool)
+		}
+		referrers[obj][symbolName] = true
+
+		return true
+	})
+}

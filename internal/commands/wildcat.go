@@ -70,6 +70,9 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	// Compute interface relationships (Satisfies/ImplementedBy) on all type symbols
 	golang.ComputeInterfaceRelations(p.Packages, stdps)
 
+	// Compute descendants (types only referenced by their parent type)
+	golang.ComputeDescendants(p.Packages)
+
 	return &Wildcat{
 		Project:     p,
 		Stdlib:      stdps,
@@ -137,7 +140,7 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 		}
 	}
 
-	// First pass: identify all types in the results
+	// First pass: identify all types in the results and in the exclude list
 	typeSet := make(map[string]bool) // "pkg.TypeName" -> true
 	for _, res := range results {
 		if res.Symbol.Kind == golang.SymbolKindType || res.Symbol.Kind == golang.SymbolKindInterface {
@@ -145,20 +148,26 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 			typeSet[key] = true
 		}
 	}
+	// Also add types from the exclude list (so their methods get filtered)
+	if opt != nil {
+		for _, ex := range opt.Exclude {
+			typeSet[ex] = true
+		}
+	}
 
-	// Second pass: filter out methods whose receiver type is already in results
+	// Second pass: filter out methods whose receiver type is already in results or excluded
 	var ret []Suggestion
 	for _, res := range results {
 		fullName := res.Symbol.Package.Identifier.Name + "." + res.Symbol.Name
 
-		// If it's a method, check if its receiver type is in the results
+		// If it's a method, check if its receiver type is in the results or excluded
 		if res.Symbol.Kind == golang.SymbolKindMethod {
 			// Method names are "ReceiverType.MethodName", extract the type
 			if dotIdx := strings.Index(res.Symbol.Name, "."); dotIdx > 0 {
 				receiverType := res.Symbol.Name[:dotIdx]
 				typeKey := res.Symbol.Package.Identifier.Name + "." + receiverType
 				if typeSet[typeKey] {
-					continue // skip this method, its type is already suggested
+					continue // skip this method, its type is already in results or excluded
 				}
 			}
 		}

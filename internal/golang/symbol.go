@@ -23,6 +23,9 @@ type PackageSymbol struct {
 	Satisfies     []*PackageSymbol // interfaces this type implements
 	ImplementedBy []*PackageSymbol // types implementing this interface (for interfaces only)
 	Consumers     []*PackageSymbol // functions/methods accepting this interface as param (for interfaces only)
+
+	// Dependency relationships (only for struct types)
+	Descendants []*PackageSymbol // direct descendants: types only referenced by this type (would be orphaned if removed)
 }
 
 func (ps *PackageSymbol) Signature() string {
