@@ -2,18 +2,13 @@ package golang
 
 import (
 	"go/types"
-
-	"golang.org/x/tools/go/packages"
 )
 
 // InterfaceInfo holds information about an interface type.
 type InterfaceInfo struct {
-	Package *Package     // the package containing the interface (nil for stdlib/builtins)
+	Package *Package     // the package containing the interface (nil only for builtins like error)
 	Name    string       // interface name
 	Named   *types.Named // the named type (may be generic, nil for builtins like error)
-	// For stdlib/builtins where Package is nil:
-	pkgPath string
-	pkgName string
 }
 
 // Interface returns the underlying *types.Interface.
@@ -26,7 +21,7 @@ func (i *InterfaceInfo) PkgPath() string {
 	if i.Package != nil {
 		return i.Package.Identifier.PkgPath
 	}
-	return i.pkgPath
+	return "" // builtin
 }
 
 // QualifiedName returns the fully qualified name (pkgPath.Name).
@@ -38,11 +33,14 @@ func (i *InterfaceInfo) QualifiedName() string {
 }
 
 // CollectInterfaces gathers all interface types from project packages and stdlib.
-func CollectInterfaces(project *Project, stdlib []*packages.Package) []InterfaceInfo {
+func CollectInterfaces(project *Project, stdlib []*Package) []InterfaceInfo {
 	var ifaces []InterfaceInfo
 
-	// From project packages
-	for _, p := range project.Packages {
+	// Collect from all packages (project + stdlib)
+	allPackages := project.Packages
+	allPackages = append(allPackages, stdlib...)
+
+	for _, p := range allPackages {
 		for _, name := range p.Package.Types.Scope().Names() {
 			obj := p.Package.Types.Scope().Lookup(name)
 			if obj == nil {
@@ -61,32 +59,6 @@ func CollectInterfaces(project *Project, stdlib []*packages.Package) []Interface
 					Package: p,
 					Name:    name,
 					Named:   named,
-				})
-			}
-		}
-	}
-
-	// From stdlib
-	for _, p := range stdlib {
-		for _, name := range p.Types.Scope().Names() {
-			obj := p.Types.Scope().Lookup(name)
-			if obj == nil {
-				continue
-			}
-			if _, ok := obj.(*types.TypeName); !ok {
-				continue
-			}
-			named, ok := obj.Type().(*types.Named)
-			if !ok {
-				continue
-			}
-			if _, ok := named.Underlying().(*types.Interface); ok {
-				ifaces = append(ifaces, InterfaceInfo{
-					Package: nil,
-					Name:    name,
-					Named:   named,
-					pkgPath: p.PkgPath,
-					pkgName: p.Name,
 				})
 			}
 		}
@@ -149,7 +121,7 @@ func FindImplementors(iface *types.Interface, ifacePkgPath, ifaceName string, pa
 // IsInterfaceMethod checks if a method is required by an interface that its
 // receiver type implements. This is used for dead code analysis: methods that
 // implement interfaces should not be reported as dead if the type is used.
-func IsInterfaceMethod(sym *Symbol, project *Project, stdlib []*packages.Package) bool {
+func IsInterfaceMethod(sym *Symbol, project *Project, stdlib []*Package) bool {
 	if sym.Kind != SymbolKindMethod {
 		return false
 	}
@@ -290,4 +262,125 @@ func FindSatisfiedInterfaces(T types.Type, tPkgPath, tName string, interfaces []
 	}
 
 	return satisfies
+}
+
+// ComputeInterfaceRelations populates Satisfies and ImplementedBy on all type symbols
+// in project packages. This should be called after loading all packages.
+func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
+	// Build a map of all type symbols for quick lookup
+	// key: pkgPath + "." + name -> *PackageSymbol
+	typeSymbols := make(map[string]*PackageSymbol)
+
+	allPkgs := append(project, stdlib...)
+	for _, pkg := range allPkgs {
+		for _, sym := range pkg.Symbols {
+			if _, ok := sym.Object.(*types.TypeName); !ok {
+				continue
+			}
+			key := pkg.Identifier.PkgPath + "." + sym.Name
+			typeSymbols[key] = sym
+		}
+	}
+
+	// For each type in project packages, compute relationships
+	for _, pkg := range project {
+		for _, sym := range pkg.Symbols {
+			tn, ok := sym.Object.(*types.TypeName)
+			if !ok {
+				continue
+			}
+
+			T := tn.Type()
+			ptrT := types.NewPointer(T)
+
+			// Check if this is an interface
+			iface, isIface := T.Underlying().(*types.Interface)
+
+			if isIface {
+				// Find implementors across all project packages
+				if iface.NumMethods() == 0 {
+					continue // skip empty interfaces
+				}
+				for _, otherPkg := range project {
+					for _, otherSym := range otherPkg.Symbols {
+						otherTn, ok := otherSym.Object.(*types.TypeName)
+						if !ok {
+							continue
+						}
+						// Skip self
+						if otherPkg.Identifier.PkgPath == pkg.Identifier.PkgPath && otherSym.Name == sym.Name {
+							continue
+						}
+						// Skip other interfaces
+						if _, ok := otherTn.Type().Underlying().(*types.Interface); ok {
+							continue
+						}
+						otherT := otherTn.Type()
+						otherPtrT := types.NewPointer(otherT)
+						if types.Implements(otherT, iface) || types.Implements(otherPtrT, iface) {
+							sym.ImplementedBy = append(sym.ImplementedBy, otherSym)
+						}
+					}
+				}
+			} else {
+				// Find satisfied interfaces across all packages (project + stdlib)
+				// Check builtin error interface first
+				errorObj := types.Universe.Lookup("error")
+				if errorObj != nil {
+					errorIface := errorObj.Type().Underlying().(*types.Interface)
+					if types.Implements(T, errorIface) || types.Implements(ptrT, errorIface) {
+						// Create a synthetic PackageSymbol for builtin error
+						// We'll handle this specially - for now skip it since there's no Package
+						// TODO: consider creating a synthetic "builtin" package
+					}
+				}
+
+				for _, otherPkg := range allPkgs {
+					for _, otherSym := range otherPkg.Symbols {
+						if _, ok := otherSym.Object.(*types.TypeName); !ok {
+							continue
+						}
+						otherIface, ok := otherSym.Object.Type().Underlying().(*types.Interface)
+						if !ok {
+							continue
+						}
+						// Skip empty interfaces
+						if otherIface.NumMethods() == 0 {
+							continue
+						}
+						// Skip self
+						if otherPkg.Identifier.PkgPath == pkg.Identifier.PkgPath && otherSym.Name == sym.Name {
+							continue
+						}
+
+						var implements bool
+
+						// Handle generic interfaces
+						if named, ok := otherSym.Object.Type().(*types.Named); ok && named.TypeParams().Len() > 0 {
+							// Try instantiating with T and *T
+							if inst, err := types.Instantiate(nil, named, []types.Type{T}, false); err == nil {
+								if instIface, ok := inst.Underlying().(*types.Interface); ok {
+									implements = types.Implements(T, instIface) || types.Implements(ptrT, instIface)
+								}
+							}
+							if !implements {
+								if inst, err := types.Instantiate(nil, named, []types.Type{ptrT}, false); err == nil {
+									if instIface, ok := inst.Underlying().(*types.Interface); ok {
+										implements = types.Implements(T, instIface) || types.Implements(ptrT, instIface)
+									}
+								}
+							}
+						} else {
+							// Non-generic interface
+							implements = types.Implements(T, otherIface) || types.Implements(ptrT, otherIface)
+						}
+
+						if implements {
+							sym.Satisfies = append(sym.Satisfies, otherSym)
+						}
+					}
+				}
+			}
+		}
+	}
 }

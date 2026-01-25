@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
-	"go/token"
 	gotypes "go/types"
 	"io/fs"
 	"os"
@@ -114,14 +113,14 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 	}
 
 	var pkgret struct {
-		Files      []output.FileInfo      // √
-		Embeds     []EmbedInfo            // √
-		Constants  []output.PackageSymbol // √
-		Variables  []output.PackageSymbol // √
-		Functions  []output.PackageSymbol // √
-		Types      []output.PackageType   // √
-		Imports    []output.DepResult     // √
-		ImportedBy []output.DepResult     // √
+		Files      []output.FileInfo
+		Embeds     []EmbedInfo
+		Constants  []output.PackageSymbol
+		Variables  []output.PackageSymbol
+		Functions  []output.PackageSymbol
+		Types      []output.PackageType
+		Imports    []output.DepResult
+		ImportedBy []output.DepResult
 	}
 
 	// Track types: map for accumulation, slice for source order
@@ -158,25 +157,6 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 	fileStatsMap := make(map[string]*fileStats)
 	var fileOrder []string
 
-	addFileSymbol := func(fileName string, name string) {
-		fs := fileStatsMap[fileName]
-		if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
-			fs.exported++
-		} else {
-			fs.unexported++
-		}
-	}
-
-	addFileRefs := func(fileName string, refs *output.TargetRefs) {
-		if refs == nil {
-			return
-		}
-		fs := fileStatsMap[fileName]
-		fs.refs.Internal += refs.Internal
-		fs.refs.External += refs.External
-		fs.refs.Packages += refs.Packages
-	}
-
 	// Collect imports from pkg.Imports
 	for _, fi := range pkg.Imports {
 		fileName := filepath.Base(fi.FilePath)
@@ -206,142 +186,96 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 	for _, pf := range pkg.Files {
 		fileName := filepath.Base(pf.FilePath)
 		fileStatsMap[fileName] = &fileStats{
-			lineCount: pf.LineCount,
+			lineCount:  pf.LineCount,
+			exported:   pf.Exported,
+			unexported: pf.Unexported,
 		}
 		fileOrder = append(fileOrder, fileName)
 	}
 
-	// Collect symbols from AST (to be migrated to pkg.Symbols)
-	for _, f := range pkg.Package.Syntax {
-		fsetFile := pkg.Package.Fset.File(f.Pos())
-		fileName := filepath.Base(fsetFile.Name())
+	// Collect symbols from pkg.Symbols
+	for _, sym := range pkg.Symbols {
+		switch sym.Object.(type) {
+		case *gotypes.Const:
+			symbolKey := pi.Name + "." + sym.Name
+			refs := getSymbolRefs(wc, symbolKey)
+			pkgret.Constants = append(pkgret.Constants, output.PackageSymbol{
+				Signature: sym.Signature(),
+				Location:  sym.FileLocation(),
+				Refs:      refs,
+			})
+		case *gotypes.Var:
+			symbolKey := pi.Name + "." + sym.Name
+			refs := getSymbolRefs(wc, symbolKey)
+			pkgret.Variables = append(pkgret.Variables, output.PackageSymbol{
+				Signature: sym.Signature(),
+				Location:  sym.FileLocation(),
+				Refs:      refs,
+			})
+		case *gotypes.TypeName:
+			tb := ensureType(sym.Name)
+			tb.signature = sym.Signature()
+			tb.location = sym.FileLocation()
+			_, tb.isInterface = sym.Object.Type().Underlying().(*gotypes.Interface)
+			symbolKey := pi.Name + "." + sym.Name
+			tb.refs = getSymbolRefs(wc, symbolKey)
 
-		for _, d := range f.Decls {
+			// Add methods
+			for _, m := range sym.Methods {
+				mSymbolKey := pi.Name + "." + sym.Name + "." + m.Name
+				mRefs := getSymbolRefs(wc, mSymbolKey)
+				tb.methods = append(tb.methods, output.PackageSymbol{
+					Signature: m.Signature(),
+					Location:  m.FileLocation(),
+					Refs:      mRefs,
+				})
+			}
 
-			switch v := d.(type) {
+			// Add constructors
+			for _, c := range sym.Constructors {
+				cSymbolKey := pi.Name + "." + c.Name
+				cRefs := getSymbolRefs(wc, cSymbolKey)
+				tb.functions = append(tb.functions, output.PackageSymbol{
+					Signature: c.Signature(),
+					Location:  c.FileLocation(),
+					Refs:      cRefs,
+				})
+			}
 
-			case *ast.FuncDecl:
-				sym := output.PackageSymbol{
-					Signature: golang.FormatFuncDecl(v),
-					Location:  makeLocation(pkg.Package.Fset, fileName, v.Pos()),
+			// Use precomputed interface relationships
+			for _, s := range sym.Satisfies {
+				qualified := s.Package.PkgPath + "." + s.Name
+				if s.Package.PkgPath == pkg.Identifier.PkgPath {
+					qualified = s.Name
 				}
-				addFileSymbol(fileName, v.Name.Name)
-				if v.Recv != nil && len(v.Recv.List) > 0 {
-					// Method - attach to receiver type
-					typeName := golang.ReceiverTypeName(v.Recv.List[0].Type)
-					// Symbol key: pkg.Type.Method
-					symbolKey := pi.Name + "." + typeName + "." + v.Name.Name
-					sym.Refs = getSymbolRefs(wc, symbolKey)
-					addFileRefs(fileName, sym.Refs)
-					ensureType(typeName).methods = append(ensureType(typeName).methods, sym)
-				} else if typeName := golang.ConstructorTypeName(v.Type); typeName != "" && pkg.Package.Types.Scope().Lookup(typeName) != nil {
-					// Constructor - attach to returned type (only if type is defined in this package)
-					// Symbol key: pkg.FuncName
-					symbolKey := pi.Name + "." + v.Name.Name
-					sym.Refs = getSymbolRefs(wc, symbolKey)
-					addFileRefs(fileName, sym.Refs)
-					ensureType(typeName).functions = append(ensureType(typeName).functions, sym)
-				} else {
-					// Regular function
-					// Symbol key: pkg.FuncName
-					symbolKey := pi.Name + "." + v.Name.Name
-					sym.Refs = getSymbolRefs(wc, symbolKey)
-					addFileRefs(fileName, sym.Refs)
-					pkgret.Functions = append(pkgret.Functions, sym)
+				tb.satisfies = append(tb.satisfies, qualified)
+			}
+			for _, impl := range sym.ImplementedBy {
+				qualified := impl.Package.PkgPath + "." + impl.Name
+				if impl.Package.PkgPath == pkg.Identifier.PkgPath {
+					qualified = impl.Name
 				}
-
-			case *ast.GenDecl:
-				for _, spec := range v.Specs {
-					switch vv := spec.(type) {
-					case *ast.TypeSpec:
-						addFileSymbol(fileName, vv.Name.Name)
-						tb := ensureType(vv.Name.Name)
-						tb.signature = golang.FormatTypeSpec(v.Tok, vv)
-						tb.location = makeLocation(pkg.Package.Fset, fileName, vv.Pos())
-						_, tb.isInterface = vv.Type.(*ast.InterfaceType)
-						// Symbol key: pkg.TypeName
-						symbolKey := pi.Name + "." + vv.Name.Name
-						tb.refs = getSymbolRefs(wc, symbolKey)
-						addFileRefs(fileName, tb.refs)
-					case *ast.ValueSpec:
-						// ValueSpec can have multiple names (e.g., var a, b, c int)
-						// but signature covers all, so use first name for refs lookup
-						for _, ident := range vv.Names {
-							addFileSymbol(fileName, ident.Name)
-						}
-						var refs *output.TargetRefs
-						if len(vv.Names) > 0 && vv.Names[0].Name != "_" {
-							symbolKey := pi.Name + "." + vv.Names[0].Name
-							refs = getSymbolRefs(wc, symbolKey)
-							addFileRefs(fileName, refs)
-						}
-						sym := output.PackageSymbol{
-							Signature: golang.FormatValueSpec(v.Tok, vv),
-							Location:  makeLocation(pkg.Package.Fset, fileName, vv.Pos()),
-							Refs:      refs,
-						}
-						switch v.Tok {
-						case token.CONST:
-							pkgret.Constants = append(pkgret.Constants, sym)
-						case token.VAR:
-							pkgret.Variables = append(pkgret.Variables, sym)
-						default:
-							fmt.Println("unknown value spec", sym)
-						}
+				tb.implementedBy = append(tb.implementedBy, qualified)
+			}
+		case *gotypes.Func:
+			// Check if this function is a constructor for some type
+			isConstructor := false
+			if fd, ok := sym.Node.(*ast.FuncDecl); ok {
+				if typeName := golang.ConstructorTypeName(fd.Type); typeName != "" {
+					if pkg.Package.Types.Scope().Lookup(typeName) != nil {
+						isConstructor = true
 					}
 				}
 			}
-
-		}
-	}
-
-	// New: Collect symbols from pkg.Symbols
-	for _, sym := range pkg.Symbols {
-		_ = sym // placeholder
-	}
-
-	// Collect all interfaces from project + stdlib
-	ifaces := golang.CollectInterfaces(wc.Project, wc.Stdlib)
-
-	// ImplementedBy: for each interface in this package, find types that implement it
-	for name, tb := range types {
-		if !tb.isInterface {
-			continue
-		}
-		obj := pkg.Package.Types.Scope().Lookup(name)
-		if obj == nil {
-			continue
-		}
-		iface, ok := obj.Type().Underlying().(*gotypes.Interface)
-		if !ok {
-			continue
-		}
-		implementors := golang.FindImplementors(iface, pkg.Identifier.PkgPath, name, wc.Project.Packages)
-		for _, impl := range implementors {
-			qualified := impl.QualifiedName()
-			if impl.PkgPath() == pkg.Identifier.PkgPath {
-				qualified = impl.Name // same package, just use name
+			if !isConstructor {
+				symbolKey := pi.Name + "." + sym.Name
+				refs := getSymbolRefs(wc, symbolKey)
+				pkgret.Functions = append(pkgret.Functions, output.PackageSymbol{
+					Signature: sym.Signature(),
+					Location:  sym.FileLocation(),
+					Refs:      refs,
+				})
 			}
-			tb.implementedBy = append(tb.implementedBy, qualified)
-		}
-	}
-
-	// Satisfies: for each concrete type, find interfaces it implements
-	for name, tb := range types {
-		if tb.isInterface {
-			continue
-		}
-		obj := pkg.Package.Types.Scope().Lookup(name)
-		if obj == nil {
-			continue
-		}
-		satisfied := golang.FindSatisfiedInterfaces(obj.Type(), pkg.Identifier.PkgPath, name, ifaces)
-		for _, iface := range satisfied {
-			qualified := iface.QualifiedName()
-			if iface.PkgPath() == pkg.Identifier.PkgPath {
-				qualified = iface.Name // same package, just use name
-			}
-			tb.satisfies = append(tb.satisfies, qualified)
 		}
 	}
 
@@ -372,20 +306,17 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 	// Build Files from tracked stats
 	for _, fileName := range fileOrder {
 		fs := fileStatsMap[fileName]
-		fi := output.FileInfo{
+		pkgret.Files = append(pkgret.Files, output.FileInfo{
 			Name:       fileName,
 			LineCount:  fs.lineCount,
 			Exported:   fs.exported,
 			Unexported: fs.unexported,
-		}
-		if fs.refs.Internal > 0 || fs.refs.External > 0 || fs.refs.Packages > 0 {
-			fi.Refs = &output.TargetRefs{
+			Refs: &output.TargetRefs{
 				Internal: fs.refs.Internal,
 				External: fs.refs.External,
 				Packages: fs.refs.Packages,
-			}
-		}
-		pkgret.Files = append(pkgret.Files, fi)
+			},
+		})
 	}
 
 	// Count methods for summary
@@ -458,10 +389,6 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 		Imports:    pkgret.Imports,
 		ImportedBy: pkgret.ImportedBy,
 	}, nil
-}
-
-func makeLocation(fset *token.FileSet, fileName string, pos token.Pos) string {
-	return fmt.Sprintf("%s:%d", fileName, fset.Position(pos).Line)
 }
 
 // getSymbolRefs looks up a symbol and returns its reference counts.

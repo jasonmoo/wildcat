@@ -18,6 +18,10 @@ type PackageSymbol struct {
 	Node         ast.Node         // FuncDecl or synthetic GenDecl wrapping a single spec
 	Methods      []*PackageSymbol // for types only
 	Constructors []*PackageSymbol // for types only (funcs returning this type)
+
+	// Interface relationships (only for types)
+	Satisfies     []*PackageSymbol // interfaces this type implements
+	ImplementedBy []*PackageSymbol // types implementing this interface (for interfaces only)
 }
 
 func (ps *PackageSymbol) Signature() string {

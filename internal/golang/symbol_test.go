@@ -69,18 +69,18 @@ func TestLoadPackageSymbols(t *testing.T) {
 	}
 	t.Logf("PackageSymbol signature: %s", sig)
 
-	// Find LoadPackageSymbols func and check it has a constructor relationship
+	// Find LoadModulePackages func (an exported function)
 	var loadFunc *PackageSymbol
 	for _, sym := range golangPkg.Symbols {
-		if sym.Name == "LoadPackageSymbols" {
+		if sym.Name == "LoadModulePackages" {
 			loadFunc = sym
 			break
 		}
 	}
 	if loadFunc == nil {
-		t.Fatal("couldn't find LoadPackageSymbols func")
+		t.Fatal("couldn't find LoadModulePackages func")
 	}
-	t.Logf("LoadPackageSymbols signature: %s", loadFunc.Signature())
+	t.Logf("LoadModulePackages signature: %s", loadFunc.Signature())
 }
 
 func TestLoadImports(t *testing.T) {

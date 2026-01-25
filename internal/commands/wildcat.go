@@ -9,12 +9,11 @@ import (
 	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/golang"
-	"golang.org/x/tools/go/packages"
 )
 
 type Wildcat struct {
 	Project     *golang.Project
-	Stdlib      []*packages.Package
+	Stdlib      []*golang.Package
 	Index       *golang.SymbolIndex
 	Diagnostics []Diagnostics
 }
@@ -67,6 +66,10 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Compute interface relationships (Satisfies/ImplementedBy) on all type symbols
+	golang.ComputeInterfaceRelations(p.Packages, stdps)
+
 	return &Wildcat{
 		Project:     p,
 		Stdlib:      stdps,

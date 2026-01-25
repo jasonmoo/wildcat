@@ -38,9 +38,11 @@ type Package struct {
 }
 
 type PackageFile struct {
-	FilePath  string
-	LineCount int
-	File      *ast.File
+	FilePath   string
+	LineCount  int
+	Exported   int
+	Unexported int
+	File       *ast.File
 }
 
 type FileImports struct {
@@ -151,12 +153,28 @@ func (pi *PackageIdentifier) IsInternal() bool {
 		strings.HasSuffix(pi.PkgPath, "/internal")
 }
 
-func LoadStdlibPackages(ctx context.Context, goroot string) ([]*packages.Package, error) {
-	return packages.Load(&packages.Config{
+func LoadStdlibPackages(ctx context.Context, goroot string) ([]*Package, error) {
+	pkgs, err := packages.Load(&packages.Config{
 		Context: ctx,
 		Mode:    packages.LoadTypes,
 		Dir:     goroot,
 	}, "std")
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*Package, len(pkgs))
+	for i, pkg := range pkgs {
+		symbols := loadPackageSymbols(pkg)
+		result[i] = &Package{
+			Identifier: newPackageIdentifier(pkg),
+			Package:    pkg,
+			Files:      loadFiles(pkg, symbols),
+			Symbols:    symbols,
+			// Imports not needed for stdlib
+		}
+	}
+	return result, nil
 }
 
 type LoadPackagesOpt func(*packages.Config) error
@@ -241,11 +259,12 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 	pkgMap := make(map[string]*Package)
 	for i, pkg := range ps {
 		pkg.Module = mp.Module
+		symbols := loadPackageSymbols(pkg)
 		pkgs[i] = &Package{
 			Identifier: newPackageIdentifier(pkg),
 			Package:    pkg,
-			Files:      loadFiles(pkg),
-			Symbols:    loadPackageSymbols(pkg),
+			Files:      loadFiles(pkg, symbols),
+			Symbols:    symbols,
 		}
 		pkgMap[pkg.PkgPath] = pkgs[i]
 	}
@@ -259,15 +278,25 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 }
 
 // loadFiles collects file info for all files in a package.
-func loadFiles(pkg *packages.Package) []*PackageFile {
+func loadFiles(pkg *packages.Package, ss []*PackageSymbol) []*PackageFile {
 	var files []*PackageFile
 	for _, f := range pkg.Syntax {
 		fsetFile := pkg.Fset.File(f.Pos())
-		files = append(files, &PackageFile{
+		pf := &PackageFile{
 			FilePath:  fsetFile.Name(),
 			LineCount: fsetFile.LineCount(),
 			File:      f,
-		})
+		}
+		for _, s := range ss {
+			if pkg.Fset.Position(s.Object.Pos()).Filename == pf.FilePath {
+				if ast.IsExported(s.Name) {
+					pf.Exported++
+				} else {
+					pf.Unexported++
+				}
+			}
+		}
+		files = append(files, pf)
 	}
 	return files
 }
