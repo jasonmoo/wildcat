@@ -8,11 +8,11 @@ import (
 
 // Reference represents a single reference to a symbol.
 type Reference struct {
-	Package    *Package  // package containing the reference
-	File       string    // file path
-	Line       int       // line number
+	Package    *Package   // package containing the reference
+	File       string     // file path
+	Line       int        // line number
 	Ident      *ast.Ident // the identifier node
-	Containing string    // containing symbol (e.g., "pkg.Func" or "pkg.Type.Method")
+	Containing string     // containing symbol (e.g., "pkg.Func" or "pkg.Type.Method")
 }
 
 // IsInternal returns true if this reference is from the same package as the target.
@@ -25,14 +25,13 @@ type RefVisitor func(ref Reference) bool
 
 // WalkReferences walks all references to a symbol in the given packages.
 // Pass project.Packages for all packages, or a subset for filtering.
-func WalkReferences(pkgs []*Package, sym *Symbol, visitor RefVisitor) {
-	targetObj := GetTypesObject(sym)
-	if targetObj == nil {
+func WalkReferences(pkgs []*Package, sym *PackageSymbol, visitor RefVisitor) {
+	if sym.Object == nil {
 		return
 	}
 
 	for _, pkg := range pkgs {
-		if !walkPackageRefs(pkg, targetObj, visitor) {
+		if !walkPackageRefs(pkg, sym.Object, visitor) {
 			return
 		}
 	}
@@ -149,10 +148,10 @@ func (r *RefCounts) PackageCount() int {
 
 // CountReferences counts all references to a symbol in the given packages.
 // Pass project.Packages for all packages, or a subset for filtering.
-func CountReferences(pkgs []*Package, sym *Symbol) *RefCounts {
+func CountReferences(pkgs []*Package, sym *PackageSymbol) *RefCounts {
 	counts := &RefCounts{}
 	pkgSet := make(map[string]bool)
-	targetPkgPath := sym.Package.Identifier.PkgPath
+	targetPkgPath := sym.PackageIdentifier.PkgPath
 
 	WalkReferences(pkgs, sym, func(ref Reference) bool {
 		if ref.IsInternal(targetPkgPath) {
@@ -171,75 +170,16 @@ func CountReferences(pkgs []*Package, sym *Symbol) *RefCounts {
 	return counts
 }
 
-// GetTypesObject returns the types.Object for a symbol.
-func GetTypesObject(sym *Symbol) types.Object {
-	node := sym.Node()
-
-	switch n := node.(type) {
-	case *ast.FuncDecl:
-		return sym.Package.Package.TypesInfo.Defs[n.Name]
-	case *ast.TypeSpec:
-		return sym.Package.Package.TypesInfo.Defs[n.Name]
-	case *ast.GenDecl:
-		// Symbol wraps TypeSpec/ValueSpec in synthetic GenDecl for formatting
-		if len(n.Specs) > 0 {
-			switch spec := n.Specs[0].(type) {
-			case *ast.TypeSpec:
-				return sym.Package.Package.TypesInfo.Defs[spec.Name]
-			case *ast.ValueSpec:
-				for _, name := range spec.Names {
-					if name.Name == sym.Name {
-						return sym.Package.Package.TypesInfo.Defs[name]
-					}
-				}
-			}
-		}
-	case *ast.ValueSpec:
-		for _, name := range n.Names {
-			if name.Name == sym.Name {
-				return sym.Package.Package.TypesInfo.Defs[name]
-			}
-		}
-	case *ast.Field:
-		for _, name := range n.Names {
-			if name.Name == sym.Name {
-				return sym.Package.Package.TypesInfo.Defs[name]
-			}
-		}
-	}
-	return nil
-}
-
 // GetInterfaceType extracts the types.Interface from an interface symbol.
 // Returns nil if the symbol is not an interface.
-func GetInterfaceType(sym *Symbol) *types.Interface {
+func GetInterfaceType(sym *PackageSymbol) *types.Interface {
 	if sym.Kind != SymbolKindInterface {
 		return nil
 	}
-
-	// Handle both direct TypeSpec and GenDecl wrapper
-	node := sym.Node()
-	var typeSpec *ast.TypeSpec
-	if ts, ok := node.(*ast.TypeSpec); ok {
-		typeSpec = ts
-	} else if gd, ok := node.(*ast.GenDecl); ok && len(gd.Specs) > 0 {
-		typeSpec, _ = gd.Specs[0].(*ast.TypeSpec)
-	}
-	if typeSpec == nil {
+	if sym.Object == nil {
 		return nil
 	}
-
-	// Verify it's an interface type in the AST
-	if _, ok := typeSpec.Type.(*ast.InterfaceType); !ok {
-		return nil
-	}
-
-	// Get the types.Interface from type info
-	obj := sym.Package.Package.TypesInfo.Defs[typeSpec.Name]
-	if obj == nil {
-		return nil
-	}
-	named, ok := obj.Type().(*types.Named)
+	named, ok := sym.Object.Type().(*types.Named)
 	if !ok {
 		return nil
 	}
@@ -278,14 +218,13 @@ func SameObject(obj, target types.Object) bool {
 //   - Direct call: foo()
 //   - Method call: x.Method()
 //   - Qualified call: pkg.Func()
-func WalkNonCallReferences(pkgs []*Package, sym *Symbol, visitor RefVisitor) {
-	targetObj := GetTypesObject(sym)
-	if targetObj == nil {
+func WalkNonCallReferences(pkgs []*Package, sym *PackageSymbol, visitor RefVisitor) {
+	if sym.Object == nil {
 		return
 	}
 
 	for _, pkg := range pkgs {
-		if !walkPackageNonCallRefs(pkg, targetObj, visitor) {
+		if !walkPackageNonCallRefs(pkg, sym.Object, visitor) {
 			return
 		}
 	}
@@ -433,7 +372,7 @@ func collectCallPositions(node ast.Node) map[token.Pos]bool {
 // CountNonCallReferences counts references to a symbol that are not direct calls.
 // This is useful for dead code analysis: a function with non-call references
 // may be called from external code (e.g., passed to cobra, http handlers).
-func CountNonCallReferences(pkgs []*Package, sym *Symbol) int {
+func CountNonCallReferences(pkgs []*Package, sym *PackageSymbol) int {
 	count := 0
 	WalkNonCallReferences(pkgs, sym, func(ref Reference) bool {
 		count++

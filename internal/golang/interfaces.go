@@ -121,17 +121,16 @@ func FindImplementors(iface *types.Interface, ifacePkgPath, ifaceName string, pa
 // IsInterfaceMethod checks if a method is required by an interface that its
 // receiver type implements. This is used for dead code analysis: methods that
 // implement interfaces should not be reported as dead if the type is used.
-func IsInterfaceMethod(sym *Symbol, project *Project, stdlib []*Package) bool {
+func IsInterfaceMethod(sym *PackageSymbol, project *Project, stdlib []*Package) bool {
 	if sym.Kind != SymbolKindMethod {
 		return false
 	}
 
 	// Get the method's function object
-	methodObj := GetTypesObject(sym)
-	if methodObj == nil {
+	if sym.Object == nil {
 		return false
 	}
-	methodFunc, ok := methodObj.(*types.Func)
+	methodFunc, ok := sym.Object.(*types.Func)
 	if !ok {
 		return false
 	}

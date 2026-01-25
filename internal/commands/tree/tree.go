@@ -144,21 +144,21 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	}
 
 	// Parse scope filter (target package always included)
-	scopeFilter, err := wc.ParseScope(ctx, c.scope, target.Package.Identifier.PkgPath)
+	scopeFilter, err := wc.ParseScope(ctx, c.scope, target.PackageIdentifier.PkgPath)
 	if err != nil {
 		return commands.NewErrorResultf("invalid_scope", "invalid scope: %s", err), nil
 	}
 	c.scopeFilter = scopeFilter
 
-	funcDecl, ok := target.Node().(*ast.FuncDecl)
+	funcDecl, ok := target.Node.(*ast.FuncDecl)
 	if !ok || funcDecl.Body == nil {
 		return commands.NewErrorResultf("invalid_symbol", "cannot analyze %q: no function body", c.symbol), nil
 	}
 
 	// Build target info
 	sig := target.Signature()
-	definition := fmt.Sprintf("%s:%s", target.Filename(), target.Location())
-	qualifiedSymbol := target.Package.Identifier.Name + "." + target.Name
+	definition := target.PathDefinition()
+	qualifiedSymbol := target.PackageIdentifier.Name + "." + target.Name
 
 	// Track all functions for definitions section
 	collected := make(map[string]*collectedFunc)
@@ -166,7 +166,13 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 
 	// Map symbol names to full package paths for scope filtering
 	symbolPkgPaths := make(map[string]string)
-	symbolPkgPaths[qualifiedSymbol] = target.Package.Identifier.PkgPath
+	symbolPkgPaths[qualifiedSymbol] = target.PackageIdentifier.PkgPath
+
+	// Look up the golang.Package for the target
+	targetPkg, err := wc.Package(target.PackageIdentifier)
+	if err != nil {
+		return commands.NewErrorResultf("package_not_found", "package not found: %s", err), nil
+	}
 
 	var callers, callees []*output.CallNode
 	var maxUpDepth, maxDownDepth int
@@ -175,14 +181,14 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	// Build callers (--up)
 	if c.upDepth > 0 {
 		visited := make(map[string]bool)
-		callersBottomUp := c.buildCallersTree(wc, target.Package, funcDecl, 0, visited, collected, symbolPkgPaths, &maxUpDepth, &totalCallers)
+		callersBottomUp := c.buildCallersTree(wc, targetPkg, funcDecl, 0, visited, collected, symbolPkgPaths, &maxUpDepth, &totalCallers)
 		callers = invertCallersTree(callersBottomUp, qualifiedSymbol)
 	}
 
 	// Build callees (--down)
 	if c.downDepth > 0 {
 		visited := make(map[string]bool)
-		callees = c.buildCalleesTree(wc, target.Package, funcDecl, 0, visited, collected, symbolPkgPaths, &maxDownDepth, &totalCallees)
+		callees = c.buildCalleesTree(wc, targetPkg, funcDecl, 0, visited, collected, symbolPkgPaths, &maxDownDepth, &totalCallees)
 	}
 
 	// Apply scope filtering with elision
@@ -414,21 +420,21 @@ func (c *TreeCommand) findInScopeDescendants(nodes []*output.CallNode, pkgPaths 
 // collectedFunc holds function data for definitions section
 type collectedFunc struct {
 	name       string
-	pkg        *golang.Package
+	pkgIdent   *golang.PackageIdentifier
 	signature  string
 	definition string
 }
 
-func collectFromSymbol(sym *golang.Symbol, collected map[string]*collectedFunc) {
-	key := sym.Package.Identifier.PkgPath + "." + sym.Name
+func collectFromSymbol(sym *golang.PackageSymbol, collected map[string]*collectedFunc) {
+	key := sym.PackageIdentifier.PkgPath + "." + sym.Name
 	if _, ok := collected[key]; ok {
 		return
 	}
 	collected[key] = &collectedFunc{
 		name:       sym.Name,
-		pkg:        sym.Package,
+		pkgIdent:   sym.PackageIdentifier,
 		signature:  sym.Signature(),
-		definition: fmt.Sprintf("%s:%s", sym.Filename(), sym.Location()),
+		definition: sym.PathDefinition(),
 	}
 }
 
@@ -447,7 +453,7 @@ func collectFromFuncInfo(info *golang.FuncInfo, collected map[string]*collectedF
 
 	collected[key] = &collectedFunc{
 		name:       name,
-		pkg:        info.Pkg,
+		pkgIdent:   info.Pkg.Identifier,
 		signature:  golang.FormatNode(info.Decl),
 		definition: fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line),
 	}
@@ -461,18 +467,18 @@ func groupByPackage(collected map[string]*collectedFunc) []output.TreePackage {
 	pkgMap := make(map[string]*pkgData)
 
 	for _, cf := range collected {
-		sym := cf.pkg.Identifier.Name + "." + cf.name
+		sym := cf.pkgIdent.Name + "." + cf.name
 		fn := output.TreeFunction{
 			Symbol:     sym,
 			Signature:  cf.signature,
 			Definition: cf.definition,
 		}
 
-		if pd, ok := pkgMap[cf.pkg.Identifier.PkgPath]; ok {
+		if pd, ok := pkgMap[cf.pkgIdent.PkgPath]; ok {
 			pd.symbols = append(pd.symbols, fn)
 		} else {
-			pkgMap[cf.pkg.Identifier.PkgPath] = &pkgData{
-				dir:     cf.pkg.Identifier.PkgDir,
+			pkgMap[cf.pkgIdent.PkgPath] = &pkgData{
+				dir:     cf.pkgIdent.PkgDir,
 				symbols: []output.TreeFunction{fn},
 			}
 		}

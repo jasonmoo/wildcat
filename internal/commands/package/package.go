@@ -401,7 +401,7 @@ func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *output.TargetRefs {
 	if len(matches) > 1 {
 		var candidates []string
 		for _, m := range matches {
-			candidates = append(candidates, m.Package.Identifier.PkgPath+"."+m.Name)
+			candidates = append(candidates, m.PackageIdentifier.PkgPath+"."+m.Name)
 		}
 		wc.AddDiagnostic("warning", "", "ambiguous symbol %q matches %v; refs unavailable", symbolKey, candidates)
 		return nil

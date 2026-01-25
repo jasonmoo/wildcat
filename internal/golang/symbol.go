@@ -11,13 +11,15 @@ import (
 )
 
 type PackageSymbol struct {
-	Name         string
-	Object       types.Object
-	Package      *packages.Package
-	File         *ast.File
-	Node         ast.Node         // FuncDecl or synthetic GenDecl wrapping a single spec
-	Methods      []*PackageSymbol // for types only
-	Constructors []*PackageSymbol // for types only (funcs returning this type)
+	Kind              SymbolKind
+	Name              string
+	Object            types.Object
+	Package           *packages.Package
+	PackageIdentifier *PackageIdentifier // package metadata for search
+	File              *ast.File
+	Node              ast.Node         // FuncDecl or synthetic GenDecl wrapping a single spec
+	Methods           []*PackageSymbol // for types only
+	Constructors      []*PackageSymbol // for types only (funcs returning this type)
 
 	// Interface relationships (only for types)
 	Satisfies     []*PackageSymbol // interfaces this type implements
@@ -54,6 +56,14 @@ func (ps *PackageSymbol) PathDefinition() string {
 	return fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line)
 }
 
+// SearchName returns the fully qualified name for search (PkgPath.Name).
+func (ps *PackageSymbol) SearchName() string {
+	if ps.PackageIdentifier == nil {
+		return ps.Name
+	}
+	return ps.PackageIdentifier.PkgPath + "." + ps.Name
+}
+
 func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 
 	ss := make(map[string]*PackageSymbol)
@@ -66,6 +76,7 @@ func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 		obj := pkg.Types.Scope().Lookup(name)
 		file, node := findNode(pkg, obj.Pos())
 		sym := &PackageSymbol{
+			Kind:    kindFromObject(obj),
 			Name:    name,
 			Object:  obj,
 			Package: pkg,
@@ -77,6 +88,7 @@ func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 				for m := range named.Methods() {
 					mFile, mNode := findNode(pkg, m.Pos())
 					sym.Methods = append(sym.Methods, &PackageSymbol{
+						Kind:    SymbolKindMethod,
 						Name:    m.Name(),
 						Object:  m,
 						Package: pkg,
@@ -109,6 +121,46 @@ func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 	}
 
 	return ret
+}
+
+// setSymbolIdentifiers sets the PackageIdentifier on all symbols and their nested methods.
+func setSymbolIdentifiers(symbols []*PackageSymbol, ident *PackageIdentifier) {
+	for _, sym := range symbols {
+		sym.PackageIdentifier = ident
+		for _, m := range sym.Methods {
+			m.PackageIdentifier = ident
+		}
+	}
+}
+
+// kindFromObject determines the SymbolKind for a types.Object.
+func kindFromObject(obj types.Object) SymbolKind {
+	switch o := obj.(type) {
+	case *types.Func:
+		if o.Signature().Recv() != nil {
+			return SymbolKindMethod
+		}
+		return SymbolKindFunc
+	case *types.TypeName:
+		if _, ok := o.Type().Underlying().(*types.Interface); ok {
+			return SymbolKindInterface
+		}
+		return SymbolKindType
+	case *types.Const:
+		return SymbolKindConst
+	case *types.Var:
+		return SymbolKindVar
+	case *types.PkgName:
+		return SymbolKindPkgName
+	case *types.Label:
+		return SymbolKindLabel
+	case *types.Builtin:
+		return SymbolKindBuiltin
+	case *types.Nil:
+		return SymbolKindNil
+	default:
+		return SymbolKindUnknown
+	}
 }
 
 // findNode locates the AST node for a given position.

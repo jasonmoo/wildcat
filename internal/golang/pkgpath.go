@@ -165,9 +165,11 @@ func LoadStdlibPackages(ctx context.Context, goroot string) ([]*Package, error) 
 
 	result := make([]*Package, len(pkgs))
 	for i, pkg := range pkgs {
+		ident := newPackageIdentifier(pkg)
 		symbols := loadPackageSymbols(pkg)
+		setSymbolIdentifiers(symbols, ident)
 		result[i] = &Package{
-			Identifier: newPackageIdentifier(pkg),
+			Identifier: ident,
 			Package:    pkg,
 			Files:      loadFiles(pkg, symbols),
 			Symbols:    symbols,
@@ -259,9 +261,11 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 	pkgMap := make(map[string]*Package)
 	for i, pkg := range ps {
 		pkg.Module = mp.Module
+		ident := newPackageIdentifier(pkg)
 		symbols := loadPackageSymbols(pkg)
+		setSymbolIdentifiers(symbols, ident)
 		pkgs[i] = &Package{
-			Identifier: newPackageIdentifier(pkg),
+			Identifier: ident,
 			Package:    pkg,
 			Files:      loadFiles(pkg, symbols),
 			Symbols:    symbols,

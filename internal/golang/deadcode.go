@@ -149,13 +149,13 @@ We apologize for the inconvenience. This will work automatically once the fix is
 // Returns (reachable, analyzed) where analyzed indicates if the symbol
 // could actually be checked. When analyzed is false, reachable defaults
 // to true (conservative: assume used when uncertain).
-func (r *DeadCodeResult) IsReachable(sym *Symbol) (reachable, analyzed bool) {
+func (r *DeadCodeResult) IsReachable(sym *PackageSymbol) (reachable, analyzed bool) {
 	if r == nil || r.Program == nil {
 		return true, false // assume reachable if no analysis
 	}
 
 	// Use the symbol's own package Fset to get position
-	pos := sym.Package.Package.Fset.Position(sym.Node().Pos())
+	pos := sym.Package.Fset.Position(sym.Node.Pos())
 	if !pos.IsValid() {
 		return true, false // assume reachable if position unknown
 	}

@@ -25,7 +25,7 @@ func TestSymbolSearch(t *testing.T) {
 		wantMin int    // minimum expected results
 		wantTop string // expected top result name (empty = any)
 	}{
-		{"Symbol", 1, "Symbol"},
+		{"Symbol", 1, ""},       // Multiple symbols contain "Symbol" (SymbolKind, SymbolRefs, etc.)
 		{"Format", 1, ""},
 		{"Package", 1, "Package"},
 		{"Resolve", 1, ""},
@@ -47,7 +47,7 @@ func TestSymbolSearch(t *testing.T) {
 			}
 			// Lazy render signature and location only for results we display
 			t.Logf("  %d. [score=%d] %s [%s] %s // %s",
-				i+1, r.Score, r.Symbol.Name, r.Symbol.Kind, r.Symbol.Package.Identifier.PkgPath, r.Symbol.Location())
+				i+1, r.Score, r.Symbol.Name, r.Symbol.Kind, r.Symbol.PackageIdentifier.PkgPath, r.Symbol.FileLocation())
 			t.Logf("      sig: %s", r.Symbol.Signature())
 		}
 

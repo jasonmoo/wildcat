@@ -103,13 +103,13 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 			// Merge results, keeping best score for each symbol
 			resultMap := make(map[string]golang.SearchResult)
 			for _, r := range results {
-				key := r.Symbol.Package.Identifier.PkgPath + "." + r.Symbol.Name
+				key := r.Symbol.PackageIdentifier.PkgPath + "." + r.Name
 				if existing, ok := resultMap[key]; !ok || r.Score > existing.Score {
 					resultMap[key] = r
 				}
 			}
 			for _, r := range baseResults {
-				key := r.Symbol.Package.Identifier.PkgPath + "." + r.Symbol.Name
+				key := r.Symbol.PackageIdentifier.PkgPath + "." + r.Name
 				if existing, ok := resultMap[key]; !ok || r.Score > existing.Score {
 					resultMap[key] = r
 				}
@@ -129,7 +129,7 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 	typeSet := make(map[string]bool) // "pkg.TypeName" -> true
 	for _, res := range results {
 		if res.Symbol.Kind == golang.SymbolKindType || res.Symbol.Kind == golang.SymbolKindInterface {
-			key := res.Symbol.Package.Identifier.Name + "." + res.Symbol.Name
+			key := res.Symbol.PackageIdentifier.Name + "." + res.Name
 			typeSet[key] = true
 		}
 	}
@@ -143,14 +143,14 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 	// Second pass: filter out methods whose receiver type is already in results or excluded
 	var ret []Suggestion
 	for _, res := range results {
-		fullName := res.Symbol.Package.Identifier.Name + "." + res.Symbol.Name
+		fullName := res.Symbol.PackageIdentifier.Name + "." + res.Name
 
 		// If it's a method, check if its receiver type is in the results or excluded
 		if res.Symbol.Kind == golang.SymbolKindMethod {
 			// Method names are "ReceiverType.MethodName", extract the type
-			if dotIdx := strings.Index(res.Symbol.Name, "."); dotIdx > 0 {
-				receiverType := res.Symbol.Name[:dotIdx]
-				typeKey := res.Symbol.Package.Identifier.Name + "." + receiverType
+			if dotIdx := strings.Index(res.Name, "."); dotIdx > 0 {
+				receiverType := res.Name[:dotIdx]
+				typeKey := res.Symbol.PackageIdentifier.Name + "." + receiverType
 				if typeSet[typeKey] {
 					continue // skip this method, its type is already in results or excluded
 				}
@@ -198,17 +198,17 @@ func (wc *Wildcat) NewFuncNotFoundErrorResponse(symbol string) *ErrorResult {
 	return e
 }
 
-func (wc *Wildcat) NewSymbolAmbiguousErrorResponse(symbol string, candidates []*golang.Symbol) *ErrorResult {
+func (wc *Wildcat) NewSymbolAmbiguousErrorResponse(symbol string, candidates []*golang.PackageSymbol) *ErrorResult {
 	e := NewErrorResultf("symbol_ambiguous", "%q matches multiple symbols; qualify with package name", symbol)
 	for _, c := range candidates {
-		e.Suggestions = append(e.Suggestions, c.Package.Identifier.Name+"."+c.Name)
+		e.Suggestions = append(e.Suggestions, c.PackageIdentifier.Name+"."+c.Name)
 	}
 	return e
 }
 
 // LookupSymbol looks up a symbol and returns an appropriate error response if not found or ambiguous.
 // Returns (symbol, nil) on success, or (nil, error response) on failure.
-func (wc *Wildcat) LookupSymbol(query string) (*golang.Symbol, *ErrorResult) {
+func (wc *Wildcat) LookupSymbol(query string) (*golang.PackageSymbol, *ErrorResult) {
 	matches := wc.Index.Lookup(query)
 	switch len(matches) {
 	case 0:

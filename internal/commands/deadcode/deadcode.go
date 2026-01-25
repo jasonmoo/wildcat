@@ -155,12 +155,12 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 	for _, sym := range wc.Index.Symbols() {
 		// Filter by scope
-		if !scopeFilter.InScope(sym.Package.Identifier.PkgPath) {
+		if !scopeFilter.InScope(sym.PackageIdentifier.PkgPath) {
 			continue
 		}
 
 		// Skip exported symbols we can't reason about (internal/ exports are always included)
-		if ast.IsExported(sym.Name) && !sym.Package.Identifier.IsInternal() {
+		if ast.IsExported(sym.Name) && !sym.PackageIdentifier.IsInternal() {
 			// In library mode: always skip exported (can't reason about external callers)
 			// In executable mode: skip unless --include-exported
 			if !analysis.HasEntryPoints || !c.includeExported {
@@ -179,12 +179,13 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		}
 
 		// Track file stats
-		pkgPath := sym.Package.Identifier.PkgPath
-		filename := filepath.Base(sym.Filename())
+		pkgPath := sym.PackageIdentifier.PkgPath
+		pos := sym.Package.Fset.Position(sym.Node.Pos())
+		filename := filepath.Base(pos.Filename)
 
 		if stats[pkgPath] == nil {
 			stats[pkgPath] = &pkgStats{
-				dir:   sym.Package.Identifier.PkgDir,
+				dir:   sym.PackageIdentifier.PkgDir,
 				files: make(map[string]*fileStats),
 			}
 		}
@@ -196,19 +197,19 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		// Count methods by type for grouping
 		var parentType string
 		if sym.Kind == golang.SymbolKindMethod {
-			if node, ok := sym.Node().(*ast.FuncDecl); ok {
+			if node, ok := sym.Node.(*ast.FuncDecl); ok {
 				if node.Recv != nil && len(node.Recv.List) > 0 {
-					parentType = sym.Package.Identifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
+					parentType = sym.PackageIdentifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
 					totalMethodsByType[parentType]++
 				}
 			}
 		}
 
 		// Check if reachable via SSA
-		reachable, analyzed := analysis.IsReachable(&sym)
+		reachable, analyzed := analysis.IsReachable(sym)
 		if !analyzed {
 			// Couldn't analyze this symbol - add diagnostic and skip
-			wc.Diagnostics = append(wc.Diagnostics, commands.NewWarningDiagnostic(sym.Package.Identifier, fmt.Sprintf("could not analyze reachability for %s (position invalid or analysis incomplete)", sym.Name)))
+			wc.Diagnostics = append(wc.Diagnostics, commands.NewWarningDiagnostic(sym.PackageIdentifier, fmt.Sprintf("could not analyze reachability for %s (position invalid or analysis incomplete)", sym.Name)))
 			continue
 		}
 		if reachable {
@@ -218,15 +219,15 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		// Check if has non-call references (escaping function value).
 		// Functions passed to external code (e.g., cobra handlers) may not be
 		// traceable via SSA but are still used.
-		if golang.CountNonCallReferences(wc.Project.Packages, &sym) > 0 {
+		if golang.CountNonCallReferences(wc.Project.Packages, sym) > 0 {
 			continue
 		}
 
 		// Check if interface has implementations in the project.
 		// Interfaces with implementations are not dead - the implementations depend on the interface definition.
 		if sym.Kind == golang.SymbolKindInterface {
-			if iface := golang.GetInterfaceType(&sym); iface != nil {
-				implementors := golang.FindImplementors(iface, sym.Package.Identifier.PkgPath, sym.Name, wc.Project.Packages)
+			if iface := golang.GetInterfaceType(sym); iface != nil {
+				implementors := golang.FindImplementors(iface, sym.PackageIdentifier.PkgPath, sym.Name, wc.Project.Packages)
 				if len(implementors) > 0 {
 					continue
 				}
@@ -235,9 +236,9 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 		// Check if method implements an interface.
 		// Interface methods are required if the type is used, even if never called directly.
-		if sym.Kind == golang.SymbolKindMethod && golang.IsInterfaceMethod(&sym, wc.Project, wc.Stdlib) {
+		if sym.Kind == golang.SymbolKindMethod && golang.IsInterfaceMethod(sym, wc.Project, wc.Stdlib) {
 			// Check if the receiver type is used (has any references)
-			typeSym := findReceiverTypeSymbol(wc, &sym)
+			typeSym := findReceiverTypeSymbol(wc, sym)
 			if typeSym != nil && golang.CountReferences(wc.Project.Packages, typeSym).Total() > 0 {
 				continue
 			}
@@ -249,18 +250,18 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 		// Build dead symbol info
 		ds := DeadSymbol{
-			Symbol:     sym.Package.Identifier.Name + "." + sym.Name,
+			Symbol:     sym.PackageIdentifier.Name + "." + sym.Name,
 			Kind:       string(sym.Kind),
 			Signature:  sym.Signature(),
-			Definition: filename + ":" + sym.Location(),
+			Definition: fmt.Sprintf("%s:%d", filename, pos.Line),
 		}
 
 		// Get parent type for methods and constructors
-		if node, ok := sym.Node().(*ast.FuncDecl); ok {
+		if node, ok := sym.Node.(*ast.FuncDecl); ok {
 			if node.Recv != nil && len(node.Recv.List) > 0 {
-				parentType = sym.Package.Identifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
+				parentType = sym.PackageIdentifier.Name + "." + golang.ReceiverTypeName(node.Recv.List[0].Type)
 			} else if ctorType := golang.ConstructorTypeName(node.Type); ctorType != "" {
-				parentType = sym.Package.Identifier.Name + "." + ctorType
+				parentType = sym.PackageIdentifier.Name + "." + ctorType
 			}
 		}
 
@@ -404,7 +405,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 }
 
 // isEntryPoint returns true for main, init, and test functions
-func isEntryPoint(sym golang.Symbol) bool {
+func isEntryPoint(sym *golang.PackageSymbol) bool {
 	name := sym.Name
 
 	if sym.Kind == golang.SymbolKindFunc {
@@ -425,8 +426,8 @@ func isEntryPoint(sym golang.Symbol) bool {
 }
 
 // findReceiverTypeSymbol finds the type symbol for a method's receiver.
-func findReceiverTypeSymbol(wc *commands.Wildcat, methodSym *golang.Symbol) *golang.Symbol {
-	node, ok := methodSym.Node().(*ast.FuncDecl)
+func findReceiverTypeSymbol(wc *commands.Wildcat, methodSym *golang.PackageSymbol) *golang.PackageSymbol {
+	node, ok := methodSym.Node.(*ast.FuncDecl)
 	if !ok || node.Recv == nil || len(node.Recv.List) == 0 {
 		return nil
 	}
@@ -444,7 +445,7 @@ func findReceiverTypeSymbol(wc *commands.Wildcat, methodSym *golang.Symbol) *gol
 	if len(matches) > 1 {
 		var candidates []string
 		for _, m := range matches {
-			candidates = append(candidates, m.Package.Identifier.PkgPath+"."+m.Name)
+			candidates = append(candidates, m.PackageIdentifier.PkgPath+"."+m.Name)
 		}
 		wc.AddDiagnostic("warning", "", "ambiguous type %q for method %s; matches %v", typeName, methodSym.Name, candidates)
 		return nil

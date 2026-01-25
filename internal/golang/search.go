@@ -2,8 +2,6 @@ package golang
 
 import (
 	"fmt"
-	"go/ast"
-	"go/token"
 	"path"
 	"regexp"
 	"slices"
@@ -22,13 +20,18 @@ const (
 	SymbolKindInterface SymbolKind = "interface"
 	SymbolKindConst     SymbolKind = "const"
 	SymbolKindVar       SymbolKind = "var"
+	SymbolKindPkgName   SymbolKind = "package" // imported package name
+	SymbolKindLabel     SymbolKind = "label"   // goto label
+	SymbolKindBuiltin   SymbolKind = "builtin" // builtin function
+	SymbolKindNil       SymbolKind = "nil"     // predeclared nil
+	SymbolKindUnknown   SymbolKind = "unknown" // unrecognized types.Object
 )
 
 // KindAliases maps accepted kind names to their SymbolKind.
 var KindAliases = map[string]SymbolKind{
 	"func": SymbolKindFunc, "function": SymbolKindFunc,
 	"method": SymbolKindMethod,
-	"type": SymbolKindType, "struct": SymbolKindType,
+	"type":   SymbolKindType, "struct": SymbolKindType,
 	"interface": SymbolKindInterface, "iface": SymbolKindInterface,
 	"const": SymbolKindConst, "constant": SymbolKindConst,
 	"var": SymbolKindVar, "variable": SymbolKindVar,
@@ -70,81 +73,26 @@ func ParseKinds(s string) ([]SymbolKind, error) {
 	return kinds, nil
 }
 
-// Symbol represents a searchable symbol from the AST
-// Stores pointers to AST nodes for lazy rendering
-type Symbol struct {
-	Name    string     // symbol name (for matching)
-	Kind    SymbolKind // func, method, type, const, var
-	Package *Package
-
-	// For lazy rendering
-	filename string
-	pos      token.Pos
-	node     ast.Node // *ast.FuncDecl or synthetic *ast.GenDecl wrapping a spec
-}
-
-// Signature renders the symbol's signature on demand
-func (s *Symbol) Signature() string {
-	return FormatNode(s.node)
-}
-
-// Location renders the symbol's line range (start:end)
-func (s *Symbol) Location() string {
-	start := s.Package.Package.Fset.Position(s.pos)
-	end := s.Package.Package.Fset.Position(s.node.End())
-	return fmt.Sprintf("%d:%d", start.Line, end.Line)
-}
-
-// Filename returns the absolute path to the file containing this symbol
-func (s *Symbol) Filename() string {
-	return s.filename
-}
-
-// Pos returns the token.Pos of the symbol
-func (s *Symbol) Pos() token.Pos {
-	return s.pos
-}
-
-// Node returns the underlying AST node (*ast.FuncDecl, *ast.TypeSpec, or *ast.ValueSpec)
-func (s *Symbol) Node() ast.Node {
-	return s.node
-}
-
-// SearchName returns the fully qualified searchable name (PkgPath.Name)
-// This allows fuzzy matching like "lsp.Client" or "wildcatlspclient"
-func (s *Symbol) SearchName() string {
-	return s.Package.Identifier.PkgPath + "." + s.Name
-}
-
-// PackageSymbol returns the corresponding PackageSymbol for this Symbol.
-// For methods, looks up the receiver type's symbol.
-// Returns nil if not found.
-func (s *Symbol) PackageSymbol() *PackageSymbol {
-	// For methods, the name is "ReceiverType.MethodName" - look up the type
-	baseName := s.Name
-	if s.Kind == SymbolKindMethod {
-		if dotIdx := strings.Index(s.Name, "."); dotIdx > 0 {
-			baseName = s.Name[:dotIdx] // get the receiver type name
-		}
-	}
-
-	for _, sym := range s.Package.Symbols {
-		if sym.Name == baseName {
-			return sym
-		}
-	}
-	return nil
+// indexedSymbol holds a symbol entry in the search index.
+// Name may differ from Symbol.Name for methods (e.g., "Type.Method" vs "Method").
+type indexedSymbol struct {
+	Name   string
+	Symbol *PackageSymbol
 }
 
 // SymbolIndex holds symbols for fuzzy searching
 type SymbolIndex struct {
-	symbols    []Symbol
+	symbols    []indexedSymbol
 	modulePath string
 }
 
-// Symbols returns all collected symbols
-func (idx *SymbolIndex) Symbols() []Symbol {
-	return idx.symbols
+// Symbols returns all indexed PackageSymbols
+func (idx *SymbolIndex) Symbols() []*PackageSymbol {
+	result := make([]*PackageSymbol, len(idx.symbols))
+	for i := range idx.symbols {
+		result[i] = idx.symbols[i].Symbol
+	}
+	return result
 }
 
 func (idx *SymbolIndex) Len() int {
@@ -162,7 +110,7 @@ func (idx *SymbolIndex) Len() int {
 //   - Empty slice: symbol not found
 //   - Single element: exact match
 //   - Multiple elements: ambiguous query, returns all candidates
-func (idx *SymbolIndex) Lookup(query string) []*Symbol {
+func (idx *SymbolIndex) Lookup(query string) []*PackageSymbol {
 	// Check if query contains a path (has slashes)
 	if strings.Count(query, "/") > 0 {
 		// Path-based lookup: full path or relative path
@@ -177,18 +125,18 @@ func (idx *SymbolIndex) Lookup(query string) []*Symbol {
 		symbolName := query[splitPos+1:]
 
 		// Try exact match first (full import path)
-		for i := range idx.symbols {
-			if idx.symbols[i].Package.Identifier.PkgPath == pkgPath && idx.symbols[i].Name == symbolName {
-				return []*Symbol{&idx.symbols[i]}
+		for _, entry := range idx.symbols {
+			if entry.Symbol.PackageIdentifier.PkgPath == pkgPath && entry.Name == symbolName {
+				return []*PackageSymbol{entry.Symbol}
 			}
 		}
 
 		// Try as relative path within module (e.g., "internal/commands/package")
 		if idx.modulePath != "" {
 			fullPath := path.Join(idx.modulePath, pkgPath)
-			for i := range idx.symbols {
-				if idx.symbols[i].Package.Identifier.PkgPath == fullPath && idx.symbols[i].Name == symbolName {
-					return []*Symbol{&idx.symbols[i]}
+			for _, entry := range idx.symbols {
+				if entry.Symbol.PackageIdentifier.PkgPath == fullPath && entry.Name == symbolName {
+					return []*PackageSymbol{entry.Symbol}
 				}
 			}
 		}
@@ -201,10 +149,10 @@ func (idx *SymbolIndex) Lookup(query string) []*Symbol {
 	switch len(parts) {
 	case 1:
 		// Just "Name" - find all matches
-		var matches []*Symbol
-		for i := range idx.symbols {
-			if idx.symbols[i].Name == parts[0] {
-				matches = append(matches, &idx.symbols[i])
+		var matches []*PackageSymbol
+		for _, entry := range idx.symbols {
+			if entry.Name == parts[0] {
+				matches = append(matches, entry.Symbol)
 			}
 		}
 		return matches
@@ -212,11 +160,11 @@ func (idx *SymbolIndex) Lookup(query string) []*Symbol {
 	case 2:
 		// Could be "pkg.Name" or "Type.Method"
 		// Try pkg.Name first (using actual Go package name, not directory)
-		var matches []*Symbol
-		for i := range idx.symbols {
-			pkgName := idx.symbols[i].Package.Identifier.Name
-			if pkgName == parts[0] && idx.symbols[i].Name == parts[1] {
-				matches = append(matches, &idx.symbols[i])
+		var matches []*PackageSymbol
+		for _, entry := range idx.symbols {
+			pkgName := entry.Symbol.PackageIdentifier.Name
+			if pkgName == parts[0] && entry.Name == parts[1] {
+				matches = append(matches, entry.Symbol)
 			}
 		}
 		if len(matches) > 0 {
@@ -224,9 +172,9 @@ func (idx *SymbolIndex) Lookup(query string) []*Symbol {
 		}
 		// Try Type.Method (symbol name includes receiver)
 		methodName := parts[0] + "." + parts[1]
-		for i := range idx.symbols {
-			if idx.symbols[i].Name == methodName {
-				matches = append(matches, &idx.symbols[i])
+		for _, entry := range idx.symbols {
+			if entry.Name == methodName {
+				matches = append(matches, entry.Symbol)
 			}
 		}
 		return matches
@@ -234,11 +182,11 @@ func (idx *SymbolIndex) Lookup(query string) []*Symbol {
 	case 3:
 		// "pkg.Type.Method" (using actual Go package name, not directory)
 		methodName := parts[1] + "." + parts[2]
-		var matches []*Symbol
-		for i := range idx.symbols {
-			pkgName := idx.symbols[i].Package.Identifier.Name
-			if pkgName == parts[0] && idx.symbols[i].Name == methodName {
-				matches = append(matches, &idx.symbols[i])
+		var matches []*PackageSymbol
+		for _, entry := range idx.symbols {
+			pkgName := entry.Symbol.PackageIdentifier.Name
+			if pkgName == parts[0] && entry.Name == methodName {
+				matches = append(matches, entry.Symbol)
 			}
 		}
 		return matches
@@ -256,12 +204,19 @@ func (s nameSource) Len() int            { return s.idx.Len() }
 // fullSource adapts SymbolIndex to match against PkgPath.Name
 type fullSource struct{ idx *SymbolIndex }
 
-func (s fullSource) String(i int) string { return s.idx.symbols[i].SearchName() }
-func (s fullSource) Len() int            { return s.idx.Len() }
+func (s fullSource) String(i int) string {
+	entry := s.idx.symbols[i]
+	if entry.Symbol.PackageIdentifier == nil {
+		return entry.Name
+	}
+	return entry.Symbol.PackageIdentifier.PkgPath + "." + entry.Name
+}
+func (s fullSource) Len() int { return s.idx.Len() }
 
 // SearchResult pairs a match with its symbol
 type SearchResult struct {
-	Symbol         *Symbol
+	Symbol         *PackageSymbol
+	Name           string // search name (may differ from Symbol.Name for methods)
 	Score          int
 	MatchedIndexes []int
 }
@@ -376,23 +331,24 @@ func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult
 	// Apply filters and limit
 	results := make([]SearchResult, 0, len(sorted))
 	for _, s := range sorted {
-		sym := &idx.symbols[s.index]
+		entry := idx.symbols[s.index]
 
 		// Filter by kind
-		if opts != nil && len(opts.Kinds) > 0 && !slices.Contains(opts.Kinds, sym.Kind) {
+		if opts != nil && len(opts.Kinds) > 0 && !slices.Contains(opts.Kinds, entry.Symbol.Kind) {
 			continue
 		}
 
 		// Exclude specific symbols
 		if opts != nil && len(opts.Exclude) > 0 {
-			fullName := sym.Package.Identifier.Name + "." + sym.Name
+			fullName := entry.Symbol.PackageIdentifier.Name + "." + entry.Name
 			if slices.Contains(opts.Exclude, fullName) {
 				continue
 			}
 		}
 
 		results = append(results, SearchResult{
-			Symbol:         sym,
+			Symbol:         entry.Symbol,
+			Name:           entry.Name,
 			Score:          s.score,
 			MatchedIndexes: matched[s.index],
 		})
@@ -406,7 +362,8 @@ func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult
 	return results
 }
 
-// CollectSymbols builds a SymbolIndex from loaded packages
+// CollectSymbols builds a SymbolIndex from loaded packages.
+// Uses precomputed Package.Symbols instead of walking AST.
 func CollectSymbols(pkgs []*Package) *SymbolIndex {
 	idx := &SymbolIndex{}
 
@@ -419,96 +376,24 @@ func CollectSymbols(pkgs []*Package) *SymbolIndex {
 			idx.modulePath = pkg.Identifier.ModulePath
 		}
 
-		for _, f := range pkg.Package.Syntax {
-			filename := pkg.Package.Fset.Position(f.Pos()).Filename
+		for _, sym := range pkg.Symbols {
+			// Add the symbol itself
+			idx.symbols = append(idx.symbols, indexedSymbol{
+				Name:   sym.Name,
+				Symbol: sym,
+			})
 
-			for _, decl := range f.Decls {
-				switch d := decl.(type) {
-				case *ast.FuncDecl:
-					idx.addFunc(pkg, filename, d)
-				case *ast.GenDecl:
-					idx.addGenDecl(pkg, filename, d)
-				}
+			// For types, also add methods with qualified names
+			for _, m := range sym.Methods {
+				idx.symbols = append(idx.symbols, indexedSymbol{
+					Name:   sym.Name + "." + m.Name, // "Type.Method"
+					Symbol: m,
+				})
 			}
 		}
 	}
 
 	return idx
-}
-
-func (idx *SymbolIndex) addFunc(pkg *Package, filename string, d *ast.FuncDecl) {
-	name := d.Name.Name
-	kind := SymbolKindFunc
-
-	// Method
-	if d.Recv != nil && len(d.Recv.List) > 0 {
-		kind = SymbolKindMethod
-		recvType := ReceiverTypeName(d.Recv.List[0].Type)
-		if recvType != "" {
-			name = recvType + "." + name
-		}
-	}
-
-	idx.symbols = append(idx.symbols, Symbol{
-		Name:     name,
-		Kind:     kind,
-		Package:  pkg,
-		filename: filename,
-		pos:      d.Pos(),
-		node:     d,
-	})
-}
-
-func (idx *SymbolIndex) addGenDecl(pkg *Package, filename string, d *ast.GenDecl) {
-	for _, spec := range d.Specs {
-		switch sp := spec.(type) {
-		case *ast.TypeSpec:
-			idx.addTypeSpec(pkg, filename, d.Tok, sp)
-		case *ast.ValueSpec:
-			idx.addValueSpec(pkg, filename, d.Tok, sp)
-		}
-	}
-}
-
-func (idx *SymbolIndex) addTypeSpec(pkg *Package, filename string, tok token.Token, sp *ast.TypeSpec) {
-	name := sp.Name.Name
-	kind := SymbolKindType
-
-	if _, ok := sp.Type.(*ast.InterfaceType); ok {
-		kind = SymbolKindInterface
-	}
-
-	// Wrap in synthetic GenDecl so FormatNode outputs "type Name ..."
-	idx.symbols = append(idx.symbols, Symbol{
-		Name:     name,
-		Kind:     kind,
-		Package:  pkg,
-		filename: filename,
-		pos:      sp.Pos(),
-		node:     &ast.GenDecl{Tok: tok, Specs: []ast.Spec{sp}},
-	})
-}
-
-func (idx *SymbolIndex) addValueSpec(pkg *Package, filename string, tok token.Token, sp *ast.ValueSpec) {
-	kind := SymbolKindVar
-	if tok == token.CONST {
-		kind = SymbolKindConst
-	}
-
-	// Wrap in synthetic GenDecl so FormatNode outputs "var/const Name ..."
-	wrappedNode := &ast.GenDecl{Tok: tok, Specs: []ast.Spec{sp}}
-
-	// ValueSpec can have multiple names (e.g., var a, b, c int)
-	for _, ident := range sp.Names {
-		idx.symbols = append(idx.symbols, Symbol{
-			Name:     ident.Name,
-			Kind:     kind,
-			Package:  pkg,
-			filename: filename,
-			pos:      ident.Pos(),
-			node:     wrappedNode,
-		})
-	}
 }
 
 // IsRegexPattern detects if a query contains regex metacharacters.
@@ -531,27 +416,26 @@ func IsRegexPattern(query string) bool {
 func (idx *SymbolIndex) RegexSearch(pattern *regexp.Regexp, opts *SearchOptions) []SearchResult {
 	var results []SearchResult
 
-	for i := range idx.symbols {
-		sym := &idx.symbols[i]
-
+	for _, entry := range idx.symbols {
 		// Filter by kind if specified
-		if opts != nil && len(opts.Kinds) > 0 && !slices.Contains(opts.Kinds, sym.Kind) {
+		if opts != nil && len(opts.Kinds) > 0 && !slices.Contains(opts.Kinds, entry.Symbol.Kind) {
 			continue
 		}
 
 		// Exclude specific symbols
 		if opts != nil && len(opts.Exclude) > 0 {
-			fullName := sym.Package.Identifier.Name + "." + sym.Name
+			fullName := entry.Symbol.PackageIdentifier.Name + "." + entry.Name
 			if slices.Contains(opts.Exclude, fullName) {
 				continue
 			}
 		}
 
 		// Match against symbol name only
-		if pattern.MatchString(sym.Name) {
+		if pattern.MatchString(entry.Name) {
 			results = append(results, SearchResult{
-				Symbol: sym,
-				Score:  len(sym.Name), // Use length for sorting (shorter = better)
+				Symbol: entry.Symbol,
+				Name:   entry.Name,
+				Score:  len(entry.Name), // Use length for sorting (shorter = better)
 			})
 		}
 	}
@@ -561,7 +445,7 @@ func (idx *SymbolIndex) RegexSearch(pattern *regexp.Regexp, opts *SearchOptions)
 		if a.Score != b.Score {
 			return a.Score - b.Score // ascending (shorter first)
 		}
-		return strings.Compare(a.Symbol.Name, b.Symbol.Name)
+		return strings.Compare(a.Name, b.Name)
 	})
 
 	// Apply limit

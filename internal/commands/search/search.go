@@ -175,7 +175,7 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 
 	filtered := make([]golang.SearchResult, 0, len(results))
 	for _, r := range results {
-		if scopeFilter.InScope(r.Symbol.Package.Identifier.PkgPath) {
+		if scopeFilter.InScope(r.Symbol.PackageIdentifier.PkgPath) {
 			filtered = append(filtered, r)
 		}
 	}
@@ -188,11 +188,11 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	for _, r := range results {
 		kindCounts[string(r.Symbol.Kind)]++
 		matches = append(matches, SearchMatch{
-			Symbol:     r.Symbol.Package.Identifier.Name + "." + r.Symbol.Name,
+			Symbol:     r.Symbol.PackageIdentifier.Name + "." + r.Name,
 			Kind:       string(r.Symbol.Kind),
-			Package:    r.Symbol.Package.Identifier.PkgPath,
+			Package:    r.Symbol.PackageIdentifier.PkgPath,
 			Signature:  r.Symbol.Signature(),
-			Definition: fmt.Sprintf("%s:%s", r.Symbol.Filename(), r.Symbol.Location()),
+			Definition: r.Symbol.PathDefinition(),
 		})
 	}
 

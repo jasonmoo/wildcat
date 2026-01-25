@@ -33,11 +33,11 @@ import (
 //
 // 3. Glob pattern with wildcards - uses doublestar matching (gitignore-style)
 //
-//	*                   → matches a single path segment (not crossing /)
-//	**                  → matches zero or more path segments (crosses /)
-//	?                   → matches a single character
-//	[abc]               → matches one character in the set
-//	[!abc]              → matches one character not in the set
+//   - → matches a single path segment (not crossing /)
+//     **                  → matches zero or more path segments (crosses /)
+//     ?                   → matches a single character
+//     [abc]               → matches one character in the set
+//     [!abc]              → matches one character not in the set
 //
 // Glob examples:
 //
