@@ -77,7 +77,7 @@ func ParseKinds(s string) ([]SymbolKind, error) {
 // Name may differ from Symbol.Name for methods (e.g., "Type.Method" vs "Method").
 type indexedSymbol struct {
 	Name   string
-	Symbol *PackageSymbol
+	Symbol *Symbol
 }
 
 // SymbolIndex holds symbols for fuzzy searching
@@ -86,9 +86,9 @@ type SymbolIndex struct {
 	modulePath string
 }
 
-// Symbols returns all indexed PackageSymbols
-func (idx *SymbolIndex) Symbols() []*PackageSymbol {
-	result := make([]*PackageSymbol, len(idx.symbols))
+// Symbols returns all indexed Symbols
+func (idx *SymbolIndex) Symbols() []*Symbol {
+	result := make([]*Symbol, len(idx.symbols))
 	for i := range idx.symbols {
 		result[i] = idx.symbols[i].Symbol
 	}
@@ -110,7 +110,7 @@ func (idx *SymbolIndex) Len() int {
 //   - Empty slice: symbol not found
 //   - Single element: exact match
 //   - Multiple elements: ambiguous query, returns all candidates
-func (idx *SymbolIndex) Lookup(query string) []*PackageSymbol {
+func (idx *SymbolIndex) Lookup(query string) []*Symbol {
 	// Check if query contains a path (has slashes)
 	if strings.Count(query, "/") > 0 {
 		// Path-based lookup: full path or relative path
@@ -127,7 +127,7 @@ func (idx *SymbolIndex) Lookup(query string) []*PackageSymbol {
 		// Try exact match first (full import path)
 		for _, entry := range idx.symbols {
 			if entry.Symbol.PackageIdentifier.PkgPath == pkgPath && entry.Name == symbolName {
-				return []*PackageSymbol{entry.Symbol}
+				return []*Symbol{entry.Symbol}
 			}
 		}
 
@@ -136,7 +136,7 @@ func (idx *SymbolIndex) Lookup(query string) []*PackageSymbol {
 			fullPath := path.Join(idx.modulePath, pkgPath)
 			for _, entry := range idx.symbols {
 				if entry.Symbol.PackageIdentifier.PkgPath == fullPath && entry.Name == symbolName {
-					return []*PackageSymbol{entry.Symbol}
+					return []*Symbol{entry.Symbol}
 				}
 			}
 		}
@@ -149,7 +149,7 @@ func (idx *SymbolIndex) Lookup(query string) []*PackageSymbol {
 	switch len(parts) {
 	case 1:
 		// Just "Name" - find all matches
-		var matches []*PackageSymbol
+		var matches []*Symbol
 		for _, entry := range idx.symbols {
 			if entry.Name == parts[0] {
 				matches = append(matches, entry.Symbol)
@@ -160,7 +160,7 @@ func (idx *SymbolIndex) Lookup(query string) []*PackageSymbol {
 	case 2:
 		// Could be "pkg.Name" or "Type.Method"
 		// Try pkg.Name first (using actual Go package name, not directory)
-		var matches []*PackageSymbol
+		var matches []*Symbol
 		for _, entry := range idx.symbols {
 			pkgName := entry.Symbol.PackageIdentifier.Name
 			if pkgName == parts[0] && entry.Name == parts[1] {
@@ -182,7 +182,7 @@ func (idx *SymbolIndex) Lookup(query string) []*PackageSymbol {
 	case 3:
 		// "pkg.Type.Method" (using actual Go package name, not directory)
 		methodName := parts[1] + "." + parts[2]
-		var matches []*PackageSymbol
+		var matches []*Symbol
 		for _, entry := range idx.symbols {
 			pkgName := entry.Symbol.PackageIdentifier.Name
 			if pkgName == parts[0] && entry.Name == methodName {
@@ -215,7 +215,7 @@ func (s fullSource) Len() int { return s.idx.Len() }
 
 // SearchResult pairs a match with its symbol
 type SearchResult struct {
-	Symbol         *PackageSymbol
+	Symbol         *Symbol
 	Name           string // search name (may differ from Symbol.Name for methods)
 	Score          int
 	MatchedIndexes []int

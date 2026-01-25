@@ -149,7 +149,7 @@ We apologize for the inconvenience. This will work automatically once the fix is
 // Returns (reachable, analyzed) where analyzed indicates if the symbol
 // could actually be checked. When analyzed is false, reachable defaults
 // to true (conservative: assume used when uncertain).
-func (r *DeadCodeResult) IsReachable(sym *PackageSymbol) (reachable, analyzed bool) {
+func (r *DeadCodeResult) IsReachable(sym *Symbol) (reachable, analyzed bool) {
 	if r == nil || r.Program == nil {
 		return true, false // assume reachable if no analysis
 	}
@@ -164,4 +164,3 @@ func (r *DeadCodeResult) IsReachable(sym *PackageSymbol) (reachable, analyzed bo
 	key := posKey(pos.Filename, pos.Line)
 	return r.ReachablePos[key], true
 }
-

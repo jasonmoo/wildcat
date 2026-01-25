@@ -10,63 +10,63 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-type PackageSymbol struct {
+type Symbol struct {
 	Kind              SymbolKind
 	Name              string
 	Object            types.Object
 	Package           *packages.Package
 	PackageIdentifier *PackageIdentifier // package metadata for search
 	File              *ast.File
-	Node              ast.Node         // FuncDecl or synthetic GenDecl wrapping a single spec
-	Methods           []*PackageSymbol // for types only
-	Constructors      []*PackageSymbol // for types only (funcs returning this type)
+	Node              ast.Node  // FuncDecl or synthetic GenDecl wrapping a single spec
+	Methods           []*Symbol // for types only
+	Constructors      []*Symbol // for types only (funcs returning this type)
 
 	// Interface relationships (only for types)
-	Satisfies     []*PackageSymbol // interfaces this type implements
-	ImplementedBy []*PackageSymbol // types implementing this interface (for interfaces only)
-	Consumers     []*PackageSymbol // functions/methods accepting this interface as param (for interfaces only)
+	Satisfies     []*Symbol // interfaces this type implements
+	ImplementedBy []*Symbol // types implementing this interface (for interfaces only)
+	Consumers     []*Symbol // functions/methods accepting this interface as param (for interfaces only)
 
 	// Dependency relationships (only for struct types)
-	Descendants []*PackageSymbol // direct descendants: types only referenced by this type (would be orphaned if removed)
+	Descendants []*Symbol // direct descendants: types only referenced by this type (would be orphaned if removed)
 }
 
-func (ps *PackageSymbol) Signature() string {
+func (ps *Symbol) Signature() string {
 	return FormatNode(ps.Node)
 }
 
-func (ps *PackageSymbol) FileLocation() string {
+func (ps *Symbol) FileLocation() string {
 	pos := ps.Package.Fset.Position(ps.Object.Pos())
 	return fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line)
 }
 
-func (ps *PackageSymbol) PathLocation() string {
+func (ps *Symbol) PathLocation() string {
 	pos := ps.Package.Fset.Position(ps.Object.Pos())
 	return fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
 }
 
-func (ps *PackageSymbol) FileDefinition() string {
+func (ps *Symbol) FileDefinition() string {
 	start := ps.Package.Fset.Position(ps.Node.Pos())
 	end := ps.Package.Fset.Position(ps.Node.End())
 	return fmt.Sprintf("%s:%d:%d", filepath.Base(start.Filename), start.Line, end.Line)
 }
 
-func (ps *PackageSymbol) PathDefinition() string {
+func (ps *Symbol) PathDefinition() string {
 	start := ps.Package.Fset.Position(ps.Node.Pos())
 	end := ps.Package.Fset.Position(ps.Node.End())
 	return fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line)
 }
 
 // SearchName returns the fully qualified name for search (PkgPath.Name).
-func (ps *PackageSymbol) SearchName() string {
+func (ps *Symbol) SearchName() string {
 	if ps.PackageIdentifier == nil {
 		return ps.Name
 	}
 	return ps.PackageIdentifier.PkgPath + "." + ps.Name
 }
 
-func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
+func loadSymbols(pkg *packages.Package) []*Symbol {
 
-	ss := make(map[string]*PackageSymbol)
+	ss := make(map[string]*Symbol)
 
 	// First pass: create all symbols, collect methods for types
 	for _, name := range pkg.Types.Scope().Names() {
@@ -75,7 +75,7 @@ func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 		}
 		obj := pkg.Types.Scope().Lookup(name)
 		file, node := findNode(pkg, obj.Pos())
-		sym := &PackageSymbol{
+		sym := &Symbol{
 			Kind:    kindFromObject(obj),
 			Name:    name,
 			Object:  obj,
@@ -87,7 +87,7 @@ func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 			if named, ok := tn.Type().(*types.Named); ok {
 				for m := range named.Methods() {
 					mFile, mNode := findNode(pkg, m.Pos())
-					sym.Methods = append(sym.Methods, &PackageSymbol{
+					sym.Methods = append(sym.Methods, &Symbol{
 						Kind:    SymbolKindMethod,
 						Name:    m.Name(),
 						Object:  m,
@@ -111,7 +111,7 @@ func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 		}
 	}
 
-	var ret []*PackageSymbol
+	var ret []*Symbol
 
 	for _, name := range pkg.Types.Scope().Names() {
 		if name == "_" {
@@ -124,7 +124,7 @@ func loadPackageSymbols(pkg *packages.Package) []*PackageSymbol {
 }
 
 // setSymbolIdentifiers sets the PackageIdentifier on all symbols and their nested methods.
-func setSymbolIdentifiers(symbols []*PackageSymbol, ident *PackageIdentifier) {
+func setSymbolIdentifiers(symbols []*Symbol, ident *PackageIdentifier) {
 	for _, sym := range symbols {
 		sym.PackageIdentifier = ident
 		for _, m := range sym.Methods {

@@ -425,7 +425,7 @@ type collectedFunc struct {
 	definition string
 }
 
-func collectFromSymbol(sym *golang.PackageSymbol, collected map[string]*collectedFunc) {
+func collectFromSymbol(sym *golang.Symbol, collected map[string]*collectedFunc) {
 	key := sym.PackageIdentifier.PkgPath + "." + sym.Name
 	if _, ok := collected[key]; ok {
 		return

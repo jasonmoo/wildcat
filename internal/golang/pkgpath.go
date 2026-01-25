@@ -33,7 +33,7 @@ type Package struct {
 	Identifier *PackageIdentifier
 	Package    *packages.Package
 	Files      []*PackageFile
-	Symbols    []*PackageSymbol
+	Symbols    []*Symbol
 	Imports    []*FileImports
 }
 
@@ -166,7 +166,7 @@ func LoadStdlibPackages(ctx context.Context, goroot string) ([]*Package, error) 
 	result := make([]*Package, len(pkgs))
 	for i, pkg := range pkgs {
 		ident := newPackageIdentifier(pkg)
-		symbols := loadPackageSymbols(pkg)
+		symbols := loadSymbols(pkg)
 		setSymbolIdentifiers(symbols, ident)
 		result[i] = &Package{
 			Identifier: ident,
@@ -262,7 +262,7 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 	for i, pkg := range ps {
 		pkg.Module = mp.Module
 		ident := newPackageIdentifier(pkg)
-		symbols := loadPackageSymbols(pkg)
+		symbols := loadSymbols(pkg)
 		setSymbolIdentifiers(symbols, ident)
 		pkgs[i] = &Package{
 			Identifier: ident,
@@ -282,7 +282,7 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 }
 
 // loadFiles collects file info for all files in a package.
-func loadFiles(pkg *packages.Package, ss []*PackageSymbol) []*PackageFile {
+func loadFiles(pkg *packages.Package, ss []*Symbol) []*PackageFile {
 	var files []*PackageFile
 	for _, f := range pkg.Syntax {
 		fsetFile := pkg.Fset.File(f.Pos())

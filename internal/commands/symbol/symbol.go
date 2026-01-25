@@ -218,7 +218,7 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	var methods, constructors []FunctionInfo
 	excludeFromRefs := make(map[string]bool) // file:line keys to exclude from references
 	if target.Kind == golang.SymbolKindType || target.Kind == golang.SymbolKindInterface {
-		// Use precomputed methods/constructors from PackageSymbol
+		// Use precomputed methods/constructors from Symbol
 		for _, m := range target.Methods {
 			methodSymbol := target.PackageIdentifier.Name + "." + target.Name + "." + m.Name
 			methods = append(methods, FunctionInfo{
@@ -500,7 +500,7 @@ type referenceInfo struct {
 	symbol string
 }
 
-func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.PackageSymbol, usageByPkg map[string]*pkgUsage) {
+func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Symbol, usageByPkg map[string]*pkgUsage) {
 	// Get the target's types.Object for comparison
 	funcDecl, ok := target.Node.(*ast.FuncDecl)
 	if !ok || funcDecl.Body == nil {
@@ -563,7 +563,7 @@ func (c *SymbolCommand) findCallers(wc *commands.Wildcat, target *golang.Package
 	}
 }
 
-func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.PackageSymbol, usageByPkg map[string]*pkgUsage) {
+func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Symbol, usageByPkg map[string]*pkgUsage) {
 	// Track caller locations to avoid duplicates
 	callerLocs := make(map[string]bool)
 	for _, usage := range usageByPkg {
@@ -609,13 +609,13 @@ func (c *SymbolCommand) findReferences(wc *commands.Wildcat, target *golang.Pack
 	})
 }
 
-func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang.PackageSymbol) []PackageTypes {
+func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang.Symbol) []PackageTypes {
 	// Verify it's an interface
 	if golang.GetInterfaceType(target) == nil {
 		return nil
 	}
 
-	// Get precomputed implementors from PackageSymbol
+	// Get precomputed implementors from Symbol
 	if len(target.ImplementedBy) == 0 {
 		return nil
 	}
@@ -668,13 +668,13 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 
 // findConsumers finds functions and methods that accept the interface as a parameter.
 // This helps distinguish consumers (who depend on the contract) from implementers (who fulfill it).
-func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.PackageSymbol) []PackageFunctions {
+func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbol) []PackageFunctions {
 	// Verify it's an interface
 	if golang.GetInterfaceType(target) == nil {
 		return nil
 	}
 
-	// Get precomputed consumers from PackageSymbol
+	// Get precomputed consumers from Symbol
 	if len(target.Consumers) == 0 {
 		return nil
 	}
@@ -726,8 +726,8 @@ func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Packa
 	return result
 }
 
-func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.PackageSymbol) []PackageTypes {
-	// Use precomputed Satisfies from PackageSymbol
+func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbol) []PackageTypes {
+	// Use precomputed Satisfies from Symbol
 	if len(target.Satisfies) == 0 {
 		return nil
 	}

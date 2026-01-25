@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestLoadPackageSymbols(t *testing.T) {
+func TestLoadSymbols(t *testing.T) {
 	// Load this package itself
 	proj, err := LoadModulePackages(t.Context(), ".", nil)
 	if err != nil {
@@ -29,48 +29,48 @@ func TestLoadPackageSymbols(t *testing.T) {
 		t.Fatal("no symbols loaded")
 	}
 
-	// Find PackageSymbol type
-	var pkgSymbolType *PackageSymbol
+	// Find Symbol type
+	var symbolType *Symbol
 	for _, sym := range golangPkg.Symbols {
-		if sym.Name == "PackageSymbol" {
-			pkgSymbolType = sym
+		if sym.Name == "Symbol" {
+			symbolType = sym
 			break
 		}
 	}
-	if pkgSymbolType == nil {
-		t.Fatal("couldn't find PackageSymbol type")
+	if symbolType == nil {
+		t.Fatal("couldn't find Symbol type")
 	}
 
 	// Check it's a TypeName
-	if _, ok := pkgSymbolType.Object.(*types.TypeName); !ok {
-		t.Errorf("PackageSymbol.Object is %T, want *types.TypeName", pkgSymbolType.Object)
+	if _, ok := symbolType.Object.(*types.TypeName); !ok {
+		t.Errorf("Symbol.Object is %T, want *types.TypeName", symbolType.Object)
 	}
 
 	// Check it has methods (Signature)
-	if len(pkgSymbolType.Methods) == 0 {
-		t.Error("PackageSymbol has no methods, expected at least Signature()")
+	if len(symbolType.Methods) == 0 {
+		t.Error("Symbol has no methods, expected at least Signature()")
 	}
 
 	var hasSignatureMethod bool
-	for _, m := range pkgSymbolType.Methods {
+	for _, m := range symbolType.Methods {
 		if m.Name == "Signature" {
 			hasSignatureMethod = true
 			t.Logf("Found method: %s", m.Signature())
 		}
 	}
 	if !hasSignatureMethod {
-		t.Error("PackageSymbol missing Signature method")
+		t.Error("Symbol missing Signature method")
 	}
 
 	// Check signature formatting works
-	sig := pkgSymbolType.Signature()
+	sig := symbolType.Signature()
 	if sig == "" {
 		t.Error("Signature() returned empty string")
 	}
-	t.Logf("PackageSymbol signature: %s", sig)
+	t.Logf("Symbol signature: %s", sig)
 
 	// Find LoadModulePackages func (an exported function)
-	var loadFunc *PackageSymbol
+	var loadFunc *Symbol
 	for _, sym := range golangPkg.Symbols {
 		if sym.Name == "LoadModulePackages" {
 			loadFunc = sym

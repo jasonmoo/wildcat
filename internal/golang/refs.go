@@ -25,7 +25,7 @@ type RefVisitor func(ref Reference) bool
 
 // WalkReferences walks all references to a symbol in the given packages.
 // Pass project.Packages for all packages, or a subset for filtering.
-func WalkReferences(pkgs []*Package, sym *PackageSymbol, visitor RefVisitor) {
+func WalkReferences(pkgs []*Package, sym *Symbol, visitor RefVisitor) {
 	if sym.Object == nil {
 		return
 	}
@@ -148,7 +148,7 @@ func (r *RefCounts) PackageCount() int {
 
 // CountReferences counts all references to a symbol in the given packages.
 // Pass project.Packages for all packages, or a subset for filtering.
-func CountReferences(pkgs []*Package, sym *PackageSymbol) *RefCounts {
+func CountReferences(pkgs []*Package, sym *Symbol) *RefCounts {
 	counts := &RefCounts{}
 	pkgSet := make(map[string]bool)
 	targetPkgPath := sym.PackageIdentifier.PkgPath
@@ -172,7 +172,7 @@ func CountReferences(pkgs []*Package, sym *PackageSymbol) *RefCounts {
 
 // GetInterfaceType extracts the types.Interface from an interface symbol.
 // Returns nil if the symbol is not an interface.
-func GetInterfaceType(sym *PackageSymbol) *types.Interface {
+func GetInterfaceType(sym *Symbol) *types.Interface {
 	if sym.Kind != SymbolKindInterface {
 		return nil
 	}
@@ -218,7 +218,7 @@ func SameObject(obj, target types.Object) bool {
 //   - Direct call: foo()
 //   - Method call: x.Method()
 //   - Qualified call: pkg.Func()
-func WalkNonCallReferences(pkgs []*Package, sym *PackageSymbol, visitor RefVisitor) {
+func WalkNonCallReferences(pkgs []*Package, sym *Symbol, visitor RefVisitor) {
 	if sym.Object == nil {
 		return
 	}
@@ -372,7 +372,7 @@ func collectCallPositions(node ast.Node) map[token.Pos]bool {
 // CountNonCallReferences counts references to a symbol that are not direct calls.
 // This is useful for dead code analysis: a function with non-call references
 // may be called from external code (e.g., passed to cobra, http handlers).
-func CountNonCallReferences(pkgs []*Package, sym *PackageSymbol) int {
+func CountNonCallReferences(pkgs []*Package, sym *Symbol) int {
 	count := 0
 	WalkNonCallReferences(pkgs, sym, func(ref Reference) bool {
 		count++
@@ -381,14 +381,14 @@ func CountNonCallReferences(pkgs []*Package, sym *PackageSymbol) int {
 	return count
 }
 
-// ComputeDescendants populates Descendants on all struct PackageSymbols.
+// ComputeDescendants populates Descendants on all struct Symbols.
 // A direct descendant is a type that is only referenced by the parent type (and its methods).
 // If the parent type were removed, the descendant would be orphaned.
 // Note: This only computes direct descendants, not transitive ones.
 // This should be called after loading packages.
 func ComputeDescendants(project []*Package) {
 	// Build a map of types by their Object for quick lookup
-	typeByObj := make(map[types.Object]*PackageSymbol)
+	typeByObj := make(map[types.Object]*Symbol)
 	for _, pkg := range project {
 		for _, sym := range pkg.Symbols {
 			if _, ok := sym.Object.(*types.TypeName); ok {
@@ -478,8 +478,8 @@ func ComputeDescendants(project []*Package) {
 }
 
 // findReferencedTypesInNode extracts all project types referenced in an AST node.
-func findReferencedTypesInNode(pkg *Package, node ast.Node, typeByObj map[types.Object]*PackageSymbol) []*PackageSymbol {
-	var result []*PackageSymbol
+func findReferencedTypesInNode(pkg *Package, node ast.Node, typeByObj map[types.Object]*Symbol) []*Symbol {
+	var result []*Symbol
 	seen := make(map[types.Object]bool)
 
 	ast.Inspect(node, func(n ast.Node) bool {

@@ -405,7 +405,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 }
 
 // isEntryPoint returns true for main, init, and test functions
-func isEntryPoint(sym *golang.PackageSymbol) bool {
+func isEntryPoint(sym *golang.Symbol) bool {
 	name := sym.Name
 
 	if sym.Kind == golang.SymbolKindFunc {
@@ -426,7 +426,7 @@ func isEntryPoint(sym *golang.PackageSymbol) bool {
 }
 
 // findReceiverTypeSymbol finds the type symbol for a method's receiver.
-func findReceiverTypeSymbol(wc *commands.Wildcat, methodSym *golang.PackageSymbol) *golang.PackageSymbol {
+func findReceiverTypeSymbol(wc *commands.Wildcat, methodSym *golang.Symbol) *golang.Symbol {
 	node, ok := methodSym.Node.(*ast.FuncDecl)
 	if !ok || node.Recv == nil || len(node.Recv.List) == 0 {
 		return nil

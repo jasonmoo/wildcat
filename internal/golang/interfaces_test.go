@@ -42,7 +42,7 @@ func TestIsInterfaceMethod(t *testing.T) {
 					sym.PackageIdentifier.Name + "." + typeName,
 					typeName,
 				}
-				var typeSym *PackageSymbol
+				var typeSym *Symbol
 				var foundKey string
 				for _, key := range lookups {
 					matches := idx.Lookup(key)

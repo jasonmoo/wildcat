@@ -198,7 +198,7 @@ func (wc *Wildcat) NewFuncNotFoundErrorResponse(symbol string) *ErrorResult {
 	return e
 }
 
-func (wc *Wildcat) NewSymbolAmbiguousErrorResponse(symbol string, candidates []*golang.PackageSymbol) *ErrorResult {
+func (wc *Wildcat) NewSymbolAmbiguousErrorResponse(symbol string, candidates []*golang.Symbol) *ErrorResult {
 	e := NewErrorResultf("symbol_ambiguous", "%q matches multiple symbols; qualify with package name", symbol)
 	for _, c := range candidates {
 		e.Suggestions = append(e.Suggestions, c.PackageIdentifier.Name+"."+c.Name)
@@ -208,7 +208,7 @@ func (wc *Wildcat) NewSymbolAmbiguousErrorResponse(symbol string, candidates []*
 
 // LookupSymbol looks up a symbol and returns an appropriate error response if not found or ambiguous.
 // Returns (symbol, nil) on success, or (nil, error response) on failure.
-func (wc *Wildcat) LookupSymbol(query string) (*golang.PackageSymbol, *ErrorResult) {
+func (wc *Wildcat) LookupSymbol(query string) (*golang.Symbol, *ErrorResult) {
 	matches := wc.Index.Lookup(query)
 	switch len(matches) {
 	case 0:

@@ -95,7 +95,7 @@ func FindImplementors(iface *types.Interface, ifacePkgPath, ifaceName string, pa
 // IsInterfaceMethod checks if a method is required by an interface that its
 // receiver type implements. This is used for dead code analysis: methods that
 // implement interfaces should not be reported as dead if the type is used.
-func IsInterfaceMethod(sym *PackageSymbol, project *Project, stdlib []*Package) bool {
+func IsInterfaceMethod(sym *Symbol, project *Project, stdlib []*Package) bool {
 	if sym.Kind != SymbolKindMethod {
 		return false
 	}
@@ -177,8 +177,8 @@ func IsInterfaceMethod(sym *PackageSymbol, project *Project, stdlib []*Package) 
 // in project packages. This should be called after loading all packages.
 func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 	// Build a map of all type symbols for quick lookup
-	// key: pkgPath + "." + name -> *PackageSymbol
-	typeSymbols := make(map[string]*PackageSymbol)
+	// key: pkgPath + "." + name -> *Symbol
+	typeSymbols := make(map[string]*Symbol)
 
 	allPkgs := append(project, stdlib...)
 	for _, pkg := range allPkgs {
@@ -264,7 +264,7 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 				if errorObj != nil {
 					errorIface := errorObj.Type().Underlying().(*types.Interface)
 					if types.Implements(T, errorIface) || types.Implements(ptrT, errorIface) {
-						// Create a synthetic PackageSymbol for builtin error
+						// Create a synthetic Symbol for builtin error
 						// We'll handle this specially - for now skip it since there's no Package
 						// TODO: consider creating a synthetic "builtin" package
 					}
