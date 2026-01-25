@@ -180,6 +180,20 @@ func GetTypesObject(sym *Symbol) types.Object {
 		return sym.Package.Package.TypesInfo.Defs[n.Name]
 	case *ast.TypeSpec:
 		return sym.Package.Package.TypesInfo.Defs[n.Name]
+	case *ast.GenDecl:
+		// Symbol wraps TypeSpec/ValueSpec in synthetic GenDecl for formatting
+		if len(n.Specs) > 0 {
+			switch spec := n.Specs[0].(type) {
+			case *ast.TypeSpec:
+				return sym.Package.Package.TypesInfo.Defs[spec.Name]
+			case *ast.ValueSpec:
+				for _, name := range spec.Names {
+					if name.Name == sym.Name {
+						return sym.Package.Package.TypesInfo.Defs[name]
+					}
+				}
+			}
+		}
 	case *ast.ValueSpec:
 		for _, name := range n.Names {
 			if name.Name == sym.Name {
