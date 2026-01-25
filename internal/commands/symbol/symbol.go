@@ -51,7 +51,7 @@ func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *SymbolRefs {
 	if len(matches) > 1 {
 		var candidates []string
 		for _, m := range matches {
-			candidates = append(candidates, m.PackageIdentifier.PkgPath+"."+m.Name)
+			candidates = append(candidates, m.PkgPathSymbol())
 		}
 		wc.AddDiagnostic("warning", "", "ambiguous symbol %q matches %v; refs unavailable", symbolKey, candidates)
 		return nil
@@ -73,7 +73,7 @@ func getSymbolRefsOutput(wc *commands.Wildcat, symbolKey string) *output.TargetR
 	if len(matches) > 1 {
 		var candidates []string
 		for _, m := range matches {
-			candidates = append(candidates, m.PackageIdentifier.PkgPath+"."+m.Name)
+			candidates = append(candidates, m.PkgPathSymbol())
 		}
 		wc.AddDiagnostic("warning", "", "ambiguous symbol %q matches %v; refs unavailable", symbolKey, candidates)
 		return nil
@@ -190,7 +190,6 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	// Build target info
 	sig := target.Signature()
 	definition := target.FileDefinition()
-	qualifiedSymbol := target.PackageIdentifier.PkgPath + "." + target.Name
 
 	// Parse scope
 	scopeFilter, err := wc.ParseScope(ctx, c.scope, target.PackageIdentifier.PkgPath)
@@ -215,24 +214,22 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	if target.Kind == golang.SymbolKindType || target.Kind == golang.SymbolKindInterface {
 		// Use precomputed methods/constructors from Symbol
 		for _, m := range target.Methods {
-			methodSymbol := target.PackageIdentifier.Name + "." + target.Name + "." + m.Name
 			methods = append(methods, FunctionInfo{
-				Symbol:     methodSymbol,
+				Symbol:     m.PkgTypeSymbol(),
 				Signature:  m.Signature(),
 				Definition: m.FileDefinition(),
-				Refs:       getSymbolRefs(wc, methodSymbol),
+				Refs:       getSymbolRefs(wc, m.PkgTypeSymbol()),
 			})
 			excludeFromRefs[m.PathLocation()] = true
 		}
-		for _, c := range target.Constructors {
-			constructorSymbol := target.PackageIdentifier.Name + "." + c.Name
+		for _, ctor := range target.Constructors {
 			constructors = append(constructors, FunctionInfo{
-				Symbol:     constructorSymbol,
-				Signature:  c.Signature(),
-				Definition: c.FileDefinition(),
-				Refs:       getSymbolRefs(wc, constructorSymbol),
+				Symbol:     ctor.PkgSymbol(),
+				Signature:  ctor.Signature(),
+				Definition: ctor.FileDefinition(),
+				Refs:       getSymbolRefs(wc, ctor.PkgSymbol()),
 			})
-			excludeFromRefs[c.PathLocation()] = true
+			excludeFromRefs[ctor.PathLocation()] = true
 		}
 	}
 
@@ -256,13 +253,12 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 	// Find descendants (types that would be orphaned if target removed)
 	var descendants []DescendantInfo
 	for _, desc := range target.Descendants {
-		symbolKey := desc.PackageIdentifier.Name + "." + desc.Name
 		descendants = append(descendants, DescendantInfo{
-			Symbol:     symbolKey,
+			Symbol:     desc.PkgSymbol(),
 			Signature:  desc.Signature(),
 			Definition: desc.FileDefinition(),
 			Reason:     fmt.Sprintf("only referenced by %s", target.Name),
-			Refs:       getSymbolRefs(wc, symbolKey),
+			Refs:       getSymbolRefs(wc, desc.PkgSymbol()),
 		})
 	}
 
@@ -376,7 +372,7 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 
 	// Build exclusion list from all symbols in the report
 	excludeSymbols := []string{
-		target.PackageIdentifier.Name + "." + target.Name, // target itself
+		target.PkgSymbol(), // target itself
 	}
 	for _, m := range methods {
 		excludeSymbols = append(excludeSymbols, m.Symbol)
@@ -433,7 +429,7 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 		Query: output.QueryInfo{
 			Command:       "symbol",
 			Target:        symbol,
-			Resolved:      qualifiedSymbol,
+			Resolved:      target.PkgPathSymbol(),
 			Scope:         c.scope,
 			ScopeResolved: scopeResolved,
 		},
@@ -443,7 +439,7 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 			Dir:        target.PackageIdentifier.PkgDir,
 		},
 		Target: output.TargetInfo{
-			Symbol:     qualifiedSymbol,
+			Symbol:     target.PkgPathSymbol(),
 			Kind:       string(target.Kind),
 			Signature:  sig,
 			Definition: definition,
@@ -637,13 +633,11 @@ func (c *SymbolCommand) findImplementations(wc *commands.Wildcat, target *golang
 			}
 		}
 
-		symbolKey := impl.Package.Name + "." + impl.Name
-
 		byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
-			Symbol:     symbolKey,
+			Symbol:     impl.PkgSymbol(),
 			Signature:  impl.Signature(),
 			Definition: impl.FileDefinition(),
-			Refs:       getSymbolRefs(wc, symbolKey),
+			Refs:       getSymbolRefs(wc, impl.PkgSymbol()),
 		})
 	}
 
@@ -696,14 +690,11 @@ func (c *SymbolCommand) findConsumers(wc *commands.Wildcat, target *golang.Symbo
 			}
 		}
 
-		// Build qualified symbol name
-		symbol := consumer.PackageIdentifier.Name + "." + consumer.Name
-
 		byPkg[pkgPath].Functions = append(byPkg[pkgPath].Functions, FunctionInfo{
-			Symbol:     symbol,
+			Symbol:     consumer.PkgTypeSymbol(),
 			Signature:  consumer.Signature(),
 			Definition: consumer.FileDefinition(),
-			Refs:       getSymbolRefs(wc, symbol),
+			Refs:       getSymbolRefs(wc, consumer.PkgTypeSymbol()),
 		})
 	}
 
@@ -732,7 +723,6 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 
 	for _, ifaceSym := range target.Satisfies {
 		pkgPath := ifaceSym.Package.PkgPath
-		symbolKey := ifaceSym.Package.Name + "." + ifaceSym.Name
 
 		// Count implementations from precomputed ImplementedBy
 		projectCount := len(ifaceSym.ImplementedBy)
@@ -768,7 +758,7 @@ func (c *SymbolCommand) findSatisfies(wc *commands.Wildcat, target *golang.Symbo
 			}
 		}
 		byPkg[pkgPath].Types = append(byPkg[pkgPath].Types, TypeInfo{
-			Symbol:     symbolKey,
+			Symbol:     ifaceSym.PkgSymbol(),
 			Signature:  ifaceSym.Signature(),
 			Definition: ifaceSym.FileLocation(),
 			Impls: &ImplCounts{

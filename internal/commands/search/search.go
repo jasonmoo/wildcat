@@ -182,7 +182,7 @@ func (c *SearchCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 	for _, r := range results {
 		kindCounts[string(r.Symbol.Kind)]++
 		matches = append(matches, SearchMatch{
-			Symbol:     r.Symbol.PackageIdentifier.Name + "." + r.Name,
+			Symbol:     r.Symbol.PkgTypeSymbol(),
 			Kind:       string(r.Symbol.Kind),
 			Package:    r.Symbol.PackageIdentifier.PkgPath,
 			Signature:  r.Symbol.Signature(),

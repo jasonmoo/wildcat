@@ -201,7 +201,7 @@ func (wc *Wildcat) NewFuncNotFoundErrorResponse(symbol string) *ErrorResult {
 func (wc *Wildcat) NewSymbolAmbiguousErrorResponse(symbol string, candidates []*golang.Symbol) *ErrorResult {
 	e := NewErrorResultf("symbol_ambiguous", "%q matches multiple symbols; qualify with package name", symbol)
 	for _, c := range candidates {
-		e.Suggestions = append(e.Suggestions, c.PackageIdentifier.Name+"."+c.Name)
+		e.Suggestions = append(e.Suggestions, c.PkgSymbol())
 	}
 	return e
 }

@@ -153,7 +153,6 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	// Build target info
 	sig := target.Signature()
 	definition := target.PathDefinition()
-	qualifiedSymbol := target.PackageIdentifier.Name + "." + target.Name
 
 	// Track all functions for definitions section
 	collected := make(map[string]*collectedFunc)
@@ -161,7 +160,7 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 
 	// Map symbol names to full package paths for scope filtering
 	symbolPkgPaths := make(map[string]string)
-	symbolPkgPaths[qualifiedSymbol] = target.PackageIdentifier.PkgPath
+	symbolPkgPaths[target.PkgSymbol()] = target.PackageIdentifier.PkgPath
 
 	// Look up the golang.Package for the target
 	targetPkg, err := wc.Package(target.PackageIdentifier)
@@ -177,7 +176,7 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	if c.upDepth > 0 {
 		visited := make(map[string]bool)
 		callersBottomUp := c.buildCallersTree(wc, targetPkg, funcDecl, 0, visited, collected, symbolPkgPaths, &maxUpDepth, &totalCallers)
-		callers = invertCallersTree(callersBottomUp, qualifiedSymbol)
+		callers = invertCallersTree(callersBottomUp, target.PkgSymbol())
 	}
 
 	// Build callees (--down)
@@ -193,13 +192,13 @@ func (c *TreeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	return &TreeCommandResponse{
 		Query: output.TreeQuery{
 			Command: "tree",
-			Target:  qualifiedSymbol,
+			Target:  target.PkgSymbol(),
 			Up:      c.upDepth,
 			Down:    c.downDepth,
 			Scope:   string(c.scope),
 		},
 		Target: output.TreeTargetInfo{
-			Symbol:     qualifiedSymbol,
+			Symbol:     target.PkgSymbol(),
 			Signature:  sig,
 			Definition: definition,
 		},
@@ -421,11 +420,10 @@ type collectedFunc struct {
 }
 
 func collectFromSymbol(sym *golang.Symbol, collected map[string]*collectedFunc) {
-	key := sym.PackageIdentifier.PkgPath + "." + sym.Name
-	if _, ok := collected[key]; ok {
+	if _, ok := collected[sym.PkgPathSymbol()]; ok {
 		return
 	}
-	collected[key] = &collectedFunc{
+	collected[sym.PkgPathSymbol()] = &collectedFunc{
 		name:       sym.Name,
 		pkgIdent:   sym.PackageIdentifier,
 		signature:  sym.Signature(),

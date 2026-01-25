@@ -104,12 +104,60 @@ func (ps *Symbol) ParentTypeName() string {
 	return ps.ConstructedTypeName()
 }
 
-// SearchName returns the fully qualified name for search (PkgPath.Name).
-func (ps *Symbol) SearchName() string {
-	if ps.PackageIdentifier == nil {
-		return ps.Name
+// PkgSymbol returns "pkgName.symbolName" (e.g., "golang.Symbol").
+// For human-readable display.
+func (ps *Symbol) PkgSymbol() string {
+	if ps.PackageIdentifier != nil {
+		return ps.PackageIdentifier.Name + "." + ps.Name
 	}
-	return ps.PackageIdentifier.PkgPath + "." + ps.Name
+	return "<pkg-name-error>." + ps.Name
+}
+
+// PkgPathSymbol returns "pkgPath.symbolName" (e.g., "github.com/.../golang.Symbol").
+// For globally unique identification.
+func (ps *Symbol) PkgPathSymbol() string {
+	if ps.PackageIdentifier != nil {
+		return ps.PackageIdentifier.PkgPath + "." + ps.Name
+	}
+	return "<pkg-name-error>." + ps.Name
+}
+
+// PkgTypeSymbol returns the name with receiver type for methods.
+// For methods: "pkgName.ReceiverType.methodName" (e.g., "golang.Symbol.Signature")
+// For non-methods: same as PkgSymbol() (e.g., "golang.LoadSymbols")
+func (ps *Symbol) PkgTypeSymbol() string {
+	if ps.PackageIdentifier != nil {
+		if recv := ps.ReceiverTypeName(); recv != "" {
+			return ps.PackageIdentifier.Name + "." + recv + "." + ps.Name
+		}
+		return ps.PackageIdentifier.Name + "." + ps.Name
+	}
+	if recv := ps.ReceiverTypeName(); recv != "" {
+		return "<pkg-name-error>." + recv + "." + ps.Name
+	}
+	return "<pkg-name-error>." + ps.Name
+}
+
+// PkgPathTypeSymbol returns full path with receiver type for methods.
+// For methods: "pkgPath.ReceiverType.methodName"
+// For non-methods: same as PkgPathSymbol()
+func (ps *Symbol) PkgPathTypeSymbol() string {
+	if ps.PackageIdentifier != nil {
+		if recv := ps.ReceiverTypeName(); recv != "" {
+			return ps.PackageIdentifier.PkgPath + "." + recv + "." + ps.Name
+		}
+		return ps.PackageIdentifier.PkgPath + "." + ps.Name
+	}
+	if recv := ps.ReceiverTypeName(); recv != "" {
+		return "<pkg-name-error>." + recv + "." + ps.Name
+	}
+	return "<pkg-name-error>." + ps.Name
+}
+
+// SearchName returns the fully qualified name for search (PkgPath.Name).
+// Deprecated: Use PkgPathSymbol() instead.
+func (ps *Symbol) SearchName() string {
+	return ps.PkgPathSymbol()
 }
 
 func loadSymbols(pkg *packages.Package) []*Symbol {

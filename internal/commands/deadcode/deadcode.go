@@ -236,7 +236,7 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 		// Build dead symbol info
 		ds := DeadSymbol{
-			Symbol:     sym.PackageIdentifier.Name + "." + sym.Name,
+			Symbol:     sym.PkgSymbol(),
 			Kind:       string(sym.Kind),
 			Signature:  sym.Signature(),
 			Definition: sym.FileDefinition(),
@@ -422,7 +422,7 @@ func findReceiverTypeSymbol(wc *commands.Wildcat, methodSym *golang.Symbol) *gol
 	if len(matches) > 1 {
 		var candidates []string
 		for _, m := range matches {
-			candidates = append(candidates, m.PackageIdentifier.PkgPath+"."+m.Name)
+			candidates = append(candidates, m.PkgPathSymbol())
 		}
 		wc.AddDiagnostic("warning", "", "ambiguous type %q for method %s; matches %v", typeName, methodSym.Name, candidates)
 		return nil

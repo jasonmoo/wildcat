@@ -139,8 +139,7 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 			if sym.Kind != SymbolKindType && sym.Kind != SymbolKindInterface {
 				continue
 			}
-			key := pkg.Identifier.PkgPath + "." + sym.Name
-			typeSymbols[key] = sym
+			typeSymbols[sym.PkgPathSymbol()] = sym
 		}
 	}
 
