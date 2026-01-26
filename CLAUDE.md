@@ -33,6 +33,31 @@ This matters because AIs make decisions based on wildcat's output. Incomplete in
 
 An AI that knows it's missing information can adapt. An AI that doesn't know is operating blind.
 
+## Error Handling
+
+Two categories, one principle: **the AI must always know what happened.**
+
+**System errors** — things the AI cannot fix:
+- Filesystem failures
+- Network errors
+- Invalid configuration
+- Missing dependencies
+
+These stop execution. Return the error idiomatically (`return err`). There's no point continuing if the environment is broken.
+
+**Operational issues** — things that went wrong during analysis:
+- A signature couldn't be formatted
+- Type info was unavailable for a symbol
+- A package had parse errors but partially loaded
+
+These don't stop execution. Report them via:
+- **Diagnostics**: for issues affecting result completeness ("3 packages had type errors")
+- **Inline tokens**: for issues at a specific point (`func Foo(...) <format error: nil receiver>`)
+
+The AI can still use partial results and knows exactly what's degraded.
+
+**The test:** Can the AI do something about this? If yes (or if the info is still useful), continue and report. If no, stop and error.
+
 ## Design Principles
 
 - **Composability first**: Use interfaces to decouple components. Design for change.
@@ -47,10 +72,10 @@ The tool works and is useful. The main commands (`search`, `symbol`, `package`, 
 
 **Current priority:** Error handling consistency. A recent audit found ~18 places where errors are silently discarded or analysis fails without indication. These are tracked as tickets. Check `bd list -s open -p 1` for the high-priority work.
 
-**Key architectural tickets:**
-- `wc-f06a`: Add diagnostics channel for non-fatal issues
-- `wc-79d6`: Format functions should embed errors inline, not return them
-- `wc-c79f`: Error handling philosophy documentation
+**Key architectural decisions (now documented):**
+- Diagnostics channel for non-fatal issues (see Error Handling above)
+- Format functions embed errors inline, not return them
+- Error handling philosophy: system errors stop, operational issues report
 
 ## Architecture
 
