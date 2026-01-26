@@ -257,9 +257,11 @@ func (c *TreeCommand) buildCalleesTree(
 
 		*totalCalls++
 
-		// Collect function info
+		// Look up callee Symbol and collect
 		if calleeInfo != nil {
-			collectFromFuncInfo(calleeInfo, collected)
+			if calleeSym := calleeInfo.Pkg.SymbolByObject(calleeInfo.Func); calleeSym != nil {
+				collectFromSymbol(calleeSym, collected)
+			}
 		}
 
 		callsite := fmt.Sprintf("%s:%d", call.CallerFile, call.Line)
@@ -315,7 +317,7 @@ func (c *TreeCommand) buildCallersTree(
 	if targetObj == nil {
 		// Return an error node so AI knows analysis couldn't continue here
 		return []*output.CallNode{{
-			Symbol: targetPkg.Identifier.Name + "." + targetFn.Name.Name,
+			Symbol: "<type-info-error>",
 			Error:  "type info unavailable, callers analysis incomplete",
 		}}
 	}
@@ -330,17 +332,11 @@ func (c *TreeCommand) buildCallersTree(
 
 		*totalCalls++
 
-		// Build caller info
-		callerInfo := &golang.FuncInfo{
-			Decl:     call.Caller,
-			Pkg:      call.Package,
-			Filename: call.CallerFile,
+		// Look up caller Symbol and collect
+		callerSym := call.CallerSymbol()
+		if callerSym != nil {
+			collectFromSymbol(callerSym, collected)
 		}
-		if call.Caller.Recv != nil && len(call.Caller.Recv.List) > 0 {
-			callerInfo.Receiver = golang.ReceiverTypeName(call.Caller.Recv.List[0].Type)
-		}
-
-		collectFromFuncInfo(callerInfo, collected)
 
 		callsite := fmt.Sprintf("%s:%d", call.CallerFile, call.Line)
 		symbolName := call.CallerName()
@@ -413,7 +409,7 @@ func (c *TreeCommand) findInScopeDescendants(nodes []*output.CallNode, pkgPaths 
 
 // collectedFunc holds function data for definitions section
 type collectedFunc struct {
-	name       string
+	symbol     string // display name: "pkg.Func" or "pkg.Type.Method"
 	pkgIdent   *golang.PackageIdentifier
 	signature  string
 	definition string
@@ -424,31 +420,10 @@ func collectFromSymbol(sym *golang.Symbol, collected map[string]*collectedFunc) 
 		return
 	}
 	collected[sym.Id()] = &collectedFunc{
-		name:       sym.Name,
+		symbol:     sym.PkgTypeSymbol(),
 		pkgIdent:   sym.PackageIdentifier,
 		signature:  sym.Signature(),
 		definition: sym.PathDefinition(),
-	}
-}
-
-func collectFromFuncInfo(info *golang.FuncInfo, collected map[string]*collectedFunc) {
-	name := info.Decl.Name.Name
-	if info.Receiver != "" {
-		name = info.Receiver + "." + name
-	}
-	key := info.Pkg.Identifier.PkgPath + "." + name
-	if _, ok := collected[key]; ok {
-		return
-	}
-
-	start := info.Pkg.Package.Fset.Position(info.Decl.Pos())
-	end := info.Pkg.Package.Fset.Position(info.Decl.End())
-
-	collected[key] = &collectedFunc{
-		name:       name,
-		pkgIdent:   info.Pkg.Identifier,
-		signature:  golang.FormatNode(info.Decl),
-		definition: fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line),
 	}
 }
 
@@ -460,9 +435,8 @@ func groupByPackage(collected map[string]*collectedFunc) []output.TreePackage {
 	pkgMap := make(map[string]*pkgData)
 
 	for _, cf := range collected {
-		sym := cf.pkgIdent.Name + "." + cf.name
 		fn := output.TreeFunction{
-			Symbol:     sym,
+			Symbol:     cf.symbol,
 			Signature:  cf.signature,
 			Definition: cf.definition,
 		}

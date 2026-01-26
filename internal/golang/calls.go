@@ -109,14 +109,24 @@ type Call struct {
 	Line       int           // line number of the call
 }
 
+// CallerSymbol returns the Symbol for the calling function, or nil if not found.
+func (c *Call) CallerSymbol() *Symbol {
+	if c.Package == nil || c.Package.Package.TypesInfo == nil {
+		return nil
+	}
+	obj := c.Package.Package.TypesInfo.Defs[c.Caller.Name]
+	if obj == nil {
+		return nil
+	}
+	return c.Package.SymbolByObject(obj)
+}
+
 // CallerName returns the qualified name of the calling function.
 func (c *Call) CallerName() string {
-	name := c.Package.Identifier.Name + "."
-	if c.Caller.Recv != nil && len(c.Caller.Recv.List) > 0 {
-		name += ReceiverTypeName(c.Caller.Recv.List[0].Type) + "."
+	if sym := c.CallerSymbol(); sym != nil {
+		return sym.PkgTypeSymbol()
 	}
-	name += c.Caller.Name.Name
-	return name
+	return "<lookup-error>"
 }
 
 // CalledName returns the qualified name of the called function.
