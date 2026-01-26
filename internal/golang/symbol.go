@@ -58,27 +58,9 @@ func (ps *Symbol) PathDefinition() string {
 }
 
 // ReceiverTypeName returns the receiver type name for methods, or empty string for non-methods.
-// Uses type info rather than AST inspection.
 func (ps *Symbol) ReceiverTypeName() string {
-	if ps.Kind != SymbolKindMethod {
-		return ""
-	}
-	fn, ok := ps.Object.(*types.Func)
-	if !ok {
-		return ""
-	}
-	sig := fn.Signature()
-	if sig.Recv() == nil {
-		return ""
-	}
-	recvType := sig.Recv().Type()
-	// Strip pointer if present
-	if ptr, ok := recvType.(*types.Pointer); ok {
-		recvType = ptr.Elem()
-	}
-	// Get the type name
-	if named, ok := recvType.(*types.Named); ok {
-		return named.Obj().Name()
+	if ps.Kind == SymbolKindMethod && ps.Parent != nil {
+		return ps.Parent.Name
 	}
 	return ""
 }
@@ -103,6 +85,17 @@ func (ps *Symbol) ParentTypeName() string {
 		return name
 	}
 	return ps.ConstructedTypeName()
+}
+
+// TypeSymbol returns "Type.Symbol" for methods/constructors, or just "Symbol" for other symbols.
+// For methods: "ReceiverType.methodName" (e.g., "Symbol.Signature")
+// For constructors: "ConstructedType.funcName" (e.g., "Symbol.NewSymbol")
+// For other symbols: just the symbol name (e.g., "LoadSymbols")
+func (ps *Symbol) TypeSymbol() string {
+	if parent := ps.ParentTypeName(); parent != "" {
+		return parent + "." + ps.Name
+	}
+	return ps.Name
 }
 
 // PkgSymbol returns "pkgName.symbolName" (e.g., "golang.Symbol").

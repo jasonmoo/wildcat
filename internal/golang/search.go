@@ -381,7 +381,7 @@ func CollectSymbols(pkgs []*Package) *SymbolIndex {
 			// For types, also add methods with qualified names
 			for _, m := range sym.Methods {
 				idx.symbols = append(idx.symbols, indexedSymbol{
-					Name:   sym.Name + "." + m.Name, // "Type.Method"
+					Name:   m.TypeSymbol(), // "Type.Method"
 					Symbol: m,
 				})
 			}

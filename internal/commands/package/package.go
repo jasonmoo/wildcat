@@ -521,10 +521,11 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 				group.Makes = append(group.Makes, channelOp)
 			} else if op.funcDecl != nil {
 				// Group by function
-				funcKey := op.funcDecl.Name.Name
-				if op.funcDecl.Recv != nil && len(op.funcDecl.Recv.List) > 0 {
-					typeName := golang.ReceiverTypeName(op.funcDecl.Recv.List[0].Type)
-					funcKey = typeName + "." + funcKey
+				var funcKey string
+				if sym := pkg.SymbolByIdent(op.funcDecl.Name); sym != nil {
+					funcKey = sym.PkgTypeSymbol()
+				} else {
+					funcKey = "<lookup-error>"
 				}
 				funcOps[funcKey] = append(funcOps[funcKey], channelOp)
 				funcDecls[funcKey] = op.funcDecl
@@ -558,7 +559,7 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 				fn.Definition = fmt.Sprintf("%s:%d:%d", filepath.Base(startPos.Filename), startPos.Line, endPos.Line)
 
 				// Get refs for this function
-				fn.Refs = getSymbolRefs(wc, pkg.Identifier.Name+"."+funcKey)
+				fn.Refs = getSymbolRefs(wc, funcKey)
 			}
 
 			group.Functions = append(group.Functions, fn)
