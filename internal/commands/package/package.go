@@ -190,16 +190,14 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 	for _, sym := range pkg.Symbols {
 		switch sym.Object.(type) {
 		case *gotypes.Const:
-			symbolKey := pi.Name + "." + sym.Name
-			refs := getSymbolRefs(wc, symbolKey)
+			refs := getSymbolRefs(wc, sym.PkgSymbol())
 			pkgret.Constants = append(pkgret.Constants, output.PackageSymbol{
 				Signature: sym.Signature(),
 				Location:  sym.FileLocation(),
 				Refs:      refs,
 			})
 		case *gotypes.Var:
-			symbolKey := pi.Name + "." + sym.Name
-			refs := getSymbolRefs(wc, symbolKey)
+			refs := getSymbolRefs(wc, sym.PkgSymbol())
 			pkgret.Variables = append(pkgret.Variables, output.PackageSymbol{
 				Signature: sym.Signature(),
 				Location:  sym.FileLocation(),
@@ -210,13 +208,11 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 			tb.signature = sym.Signature()
 			tb.location = sym.FileLocation()
 			_, tb.isInterface = sym.Object.Type().Underlying().(*gotypes.Interface)
-			symbolKey := pi.Name + "." + sym.Name
-			tb.refs = getSymbolRefs(wc, symbolKey)
+			tb.refs = getSymbolRefs(wc, sym.PkgSymbol())
 
 			// Add methods
 			for _, m := range sym.Methods {
-				mSymbolKey := pi.Name + "." + sym.Name + "." + m.Name
-				mRefs := getSymbolRefs(wc, mSymbolKey)
+				mRefs := getSymbolRefs(wc, m.PkgTypeSymbol())
 				tb.methods = append(tb.methods, output.PackageSymbol{
 					Signature: m.Signature(),
 					Location:  m.FileLocation(),
@@ -226,8 +222,7 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 
 			// Add constructors
 			for _, c := range sym.Constructors {
-				cSymbolKey := pi.Name + "." + c.Name
-				cRefs := getSymbolRefs(wc, cSymbolKey)
+				cRefs := getSymbolRefs(wc, c.PkgSymbol())
 				tb.functions = append(tb.functions, output.PackageSymbol{
 					Signature: c.Signature(),
 					Location:  c.FileLocation(),
@@ -261,8 +256,7 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 				}
 			}
 			if !isConstructor {
-				symbolKey := pi.Name + "." + sym.Name
-				refs := getSymbolRefs(wc, symbolKey)
+				refs := getSymbolRefs(wc, sym.PkgSymbol())
 				pkgret.Functions = append(pkgret.Functions, output.PackageSymbol{
 					Signature: sym.Signature(),
 					Location:  sym.FileLocation(),

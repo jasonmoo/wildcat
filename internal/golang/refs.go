@@ -445,9 +445,9 @@ func ComputeDescendants(project []*Package) {
 
 			// Build the scope: this type + its methods
 			scope := make(map[string]bool)
-			scope[pkg.Identifier.Name+"."+sym.Name] = true
+			scope[sym.PkgSymbol()] = true
 			for _, m := range sym.Methods {
-				scope[pkg.Identifier.Name+"."+sym.Name+"."+m.Name] = true
+				scope[m.PkgTypeSymbol()] = true
 			}
 
 			// Find types referenced in this type's definition
