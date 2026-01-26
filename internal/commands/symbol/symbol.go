@@ -284,7 +284,10 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 
 		var callerLocs []output.Location
 		for _, caller := range usage.callers {
-			snippet, start, end, _ := extractor.ExtractSmart(caller.file, caller.line)
+			snippet, start, end, err := extractor.ExtractSmart(caller.file, caller.line)
+			if err != nil {
+				wc.AddDiagnostic("warning", pkgPath, "snippet extraction failed for %s:%d: %v", filepath.Base(caller.file), caller.line, err)
+			}
 			callerLocs = append(callerLocs, output.Location{
 				Location: fmt.Sprintf("%s:%d", filepath.Base(caller.file), caller.line),
 				Symbol:   caller.symbol,
@@ -302,7 +305,10 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 			if excludeFromRefs[fmt.Sprintf("%s:%d", ref.file, ref.line)] {
 				continue
 			}
-			snippet, start, end, _ := extractor.ExtractSmart(ref.file, ref.line)
+			snippet, start, end, err := extractor.ExtractSmart(ref.file, ref.line)
+			if err != nil {
+				wc.AddDiagnostic("warning", pkgPath, "snippet extraction failed for %s:%d: %v", filepath.Base(ref.file), ref.line, err)
+			}
 			refLocs = append(refLocs, output.Location{
 				Location: fmt.Sprintf("%s:%d", filepath.Base(ref.file), ref.line),
 				Symbol:   ref.symbol,

@@ -71,11 +71,8 @@ func (e *SnippetExtractor) ExtractSmart(filePath string, line int) (string, int,
 	// Try AST-based extraction
 	snippet, start, end, err := e.extractASTSnippet(filePath, line)
 	if err != nil {
-		// Fall back to line-based on any AST error
-		snippet, err := e.Extract(filePath, line, SmartSnippetFallbackContext)
-		start := max(1, line-SmartSnippetFallbackContext)
-		end := line + SmartSnippetFallbackContext
-		return snippet, start, end, err
+		// Return error - caller should emit diagnostic and handle gracefully
+		return "<ast-parse-failed>", line, line, err
 	}
 
 	return snippet, start, end, nil
