@@ -66,17 +66,6 @@ The AI can still use partial results and knows exactly what's degraded.
 - **No global state**: Pass dependencies explicitly.
 - **Wrap errors with context**: `fmt.Errorf("context: %w", err)`
 
-## Current State
-
-The tool works and is useful. The main commands (`search`, `symbol`, `package`, `tree`, `deadcode`) provide real value.
-
-**Current priority:** Error handling consistency. A recent audit found ~18 places where errors are silently discarded or analysis fails without indication. These are tracked as tickets. Check `bd list -s open -p 1` for the high-priority work.
-
-**Key architectural decisions (now documented):**
-- Diagnostics channel for non-fatal issues (see Error Handling above)
-- Format functions embed errors inline, not return them
-- Error handling philosophy: system errors stop, operational issues report
-
 ## Architecture
 
 ```
