@@ -1,49 +1,50 @@
 {
-    "permissions": {
-        "allow": [
-            "Bash(wildcat:*)",
-            "Bash(./bin/wildcat:*)",
-            "Bash(./wildcat:*)",
+  "permissions": {
+    "allow": [
+      "Bash(wildcat:*)",
+      "Bash(./bin/wildcat:*)",
+      "Bash(./wildcat:*)",
 
-            "Bash(bd:*)",
-            "Bash(go build:*)",
-            "Bash(go test:*)",
-            "Bash(go doc:*)",
-            "Bash(gopls:*)",
-            "Bash(jq:*)",
+      "Bash(bd:*)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go doc:*)",
+      "Bash(gopls:*)",
+      "Bash(jq:*)",
 
-            "Bash(git status:*)",
-            "Bash(git add:*)",
-            "Bash(git commit:*)",
-            "Bash(git log:*)",
-            "Bash(git diff:*)",
-            "Bash(git show:*)",
+      "Bash(git status:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
 
-            "Bash(git submodule:*)",
-            "Bash(git lfs:*)",
-            "Bash(git checkout:*)",
-            "Bash(git branch:*)",
-            "Bash(git remote:*)",
-            "Bash(git fetch:*)",
-            "Bash(git pull:*)",
-            "Bash(git merge:*)",
-            "Bash(git tag:*)",
-            "Bash(git rev-parse:*)",
+      "Bash(git submodule:*)",
+      "Bash(git lfs:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git merge:*)",
+      "Bash(git tag:*)",
+      "Bash(git rev-parse:*)",
 
-            "WebSearch",
-            "WebFetch(domain:github.com)",
-            "WebFetch(domain:github.io)",
-            "WebFetch(domain:microsoft.github.io)",
-            "WebFetch(domain:raw.githubusercontent.com)",
-            "WebFetch(domain:go.dev.googlesource.com)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:github.io)",
+      "WebFetch(domain:microsoft.github.io)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:go.dev.googlesource.com)",
 
-            "Bash(tree:*)",
-            "Bash(find:*)",
-            "Bash(dirname:*)",
-            "Bash(grep:*)",
-            "Bash(ls:*)"
-        ],
-        "ask": ["Bash(curl:*)", "Bash(git push:*)", "Bash(gh pr:*)"],
-        "deny": ["Read(.env*)"]
-    }
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(dirname:*)",
+      "Bash(ag:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)"
+    ],
+    "ask": ["Bash(curl:*)", "Bash(git push:*)", "Bash(gh pr:*)"],
+    "deny": ["Read(.env*)"]
+  }
 }
