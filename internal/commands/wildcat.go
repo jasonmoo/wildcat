@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
 	"os/exec"
 	"slices"
 	"strings"
@@ -195,9 +197,16 @@ func (wc *Wildcat) NewSymbolAmbiguousErrorResponse(symbol string, candidates []*
 }
 
 // LookupSymbol looks up a symbol and returns an appropriate error response if not found or ambiguous.
+// Validates the query syntax and resolves short package names to full paths.
 // Returns (symbol, nil) on success, or (nil, error response) on failure.
-func (wc *Wildcat) LookupSymbol(query string) (*golang.Symbol, *ErrorResult) {
-	matches := wc.Index.Lookup(query)
+func (wc *Wildcat) LookupSymbol(ctx context.Context, query string) (*golang.Symbol, *ErrorResult) {
+	// Parse and validate the query
+	resolved, err := wc.resolveSymbolQuery(ctx, query)
+	if err != nil {
+		return nil, NewErrorResultf("invalid_query", "invalid symbol query %q: %s", query, err)
+	}
+
+	matches := wc.Index.Lookup(resolved)
 	switch len(matches) {
 	case 0:
 		return nil, wc.NewSymbolNotFoundErrorResponse(query)
@@ -205,6 +214,47 @@ func (wc *Wildcat) LookupSymbol(query string) (*golang.Symbol, *ErrorResult) {
 		return matches[0], nil
 	default:
 		return nil, wc.NewSymbolAmbiguousErrorResponse(query, matches)
+	}
+}
+
+// resolveSymbolQuery parses and validates a symbol query, resolving short package names.
+// Returns the resolved query string or an error for invalid syntax.
+func (wc *Wildcat) resolveSymbolQuery(ctx context.Context, query string) (string, error) {
+	expr, err := parser.ParseExpr(query)
+	if err != nil {
+		return "", err
+	}
+
+	switch e := expr.(type) {
+	case *ast.Ident:
+		// Just a name like "Task"
+		return query, nil
+	case *ast.SelectorExpr:
+		// "pkg.Symbol" or "pkg.Type.Method"
+		parts := flattenSelector(e)
+		if len(parts) < 2 {
+			return query, nil
+		}
+		// First part is the package - try to resolve it
+		pi, err := wc.Project.ResolvePackageName(ctx, parts[0])
+		if err != nil {
+			return query, nil // couldn't resolve, return as-is
+		}
+		return pi.PkgPath + "." + strings.Join(parts[1:], "."), nil
+	default:
+		return "", fmt.Errorf("expected identifier or selector, got %T", expr)
+	}
+}
+
+// flattenSelector extracts all identifier names from a selector expression.
+func flattenSelector(expr ast.Expr) []string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return []string{e.Name}
+	case *ast.SelectorExpr:
+		return append(flattenSelector(e.X), e.Sel.Name)
+	default:
+		return nil
 	}
 }
 

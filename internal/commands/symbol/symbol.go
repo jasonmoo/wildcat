@@ -6,7 +6,6 @@ import (
 	"go/ast"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
@@ -173,16 +172,8 @@ func (c *SymbolCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts 
 }
 
 func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, symbol string) (commands.Result, error) {
-	if i := strings.IndexByte(symbol, '.'); i > -1 {
-		path, name := symbol[:i], symbol[i+1:]
-		pi, err := wc.Project.ResolvePackageName(ctx, path)
-		if err == nil {
-			symbol = pi.PkgPath + "." + name
-		}
-	}
-
 	// Find target symbol
-	target, errResp := wc.LookupSymbol(symbol)
+	target, errResp := wc.LookupSymbol(ctx, symbol)
 	if errResp != nil {
 		return errResp, nil
 	}
