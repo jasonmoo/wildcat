@@ -86,6 +86,7 @@ type TreeTargetInfo struct {
 type Snippet struct {
 	Location string `json:"location"` // "file.go:start:end"
 	Source   string `json:"source"`
+	Unique   bool   `json:"unique"` // true if source appears exactly once in file (safe for Edit tool)
 }
 
 // Location represents a reference location within a package.

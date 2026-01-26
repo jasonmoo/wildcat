@@ -288,12 +288,17 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 			if err != nil {
 				wc.AddDiagnostic("warning", pkgPath, "snippet extraction failed for %s:%d: %v", filepath.Base(caller.file), caller.line, err)
 			}
+			unique, err := extractor.IsUnique(caller.file, snippet)
+			if err != nil {
+				wc.AddDiagnostic("warning", pkgPath, "uniqueness check failed for %s:%d: %v", filepath.Base(caller.file), caller.line, err)
+			}
 			callerLocs = append(callerLocs, output.Location{
 				Location: fmt.Sprintf("%s:%d", filepath.Base(caller.file), caller.line),
 				Symbol:   caller.symbol,
 				Snippet: output.Snippet{
 					Location: fmt.Sprintf("%s:%d:%d", filepath.Base(caller.file), start, end),
 					Source:   snippet,
+					Unique:   unique,
 				},
 				Refs: getSymbolRefsOutput(wc, caller.symbol),
 			})
@@ -309,19 +314,27 @@ func (c *SymbolCommand) executeOne(ctx context.Context, wc *commands.Wildcat, sy
 			if err != nil {
 				wc.AddDiagnostic("warning", pkgPath, "snippet extraction failed for %s:%d: %v", filepath.Base(ref.file), ref.line, err)
 			}
+			unique, err := extractor.IsUnique(ref.file, snippet)
+			if err != nil {
+				wc.AddDiagnostic("warning", pkgPath, "uniqueness check failed for %s:%d: %v", filepath.Base(ref.file), ref.line, err)
+			}
 			refLocs = append(refLocs, output.Location{
 				Location: fmt.Sprintf("%s:%d", filepath.Base(ref.file), ref.line),
 				Symbol:   ref.symbol,
 				Snippet: output.Snippet{
 					Location: fmt.Sprintf("%s:%d:%d", filepath.Base(ref.file), start, end),
 					Source:   snippet,
+					Unique:   unique,
 				},
 				Refs: getSymbolRefsOutput(wc, ref.symbol),
 			})
 		}
 
 		// Merge references within same AST scope to reduce duplication
-		mergedRefs := extractor.MergeLocations(usage.pkg.Identifier.PkgDir, refLocs)
+		mergedRefs, mergeErrs := extractor.MergeLocations(usage.pkg.Identifier.PkgDir, refLocs)
+		for _, err := range mergeErrs {
+			wc.AddDiagnostic("warning", pkgPath, "uniqueness check failed during merge: %v", err)
+		}
 
 		packageUsages = append(packageUsages, output.PackageUsage{
 			Package:    pkgPath,

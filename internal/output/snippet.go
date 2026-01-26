@@ -1,7 +1,7 @@
 package output
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -21,15 +21,21 @@ const (
 	SmartSnippetFallbackContext = 3
 )
 
+// fileCache holds raw bytes and line offsets for a file.
+type fileCache struct {
+	content     []byte // raw file bytes
+	lineOffsets []int  // byte offset where each line starts (0-indexed by line number)
+}
+
 // SnippetExtractor extracts code snippets from source files.
 type SnippetExtractor struct {
-	cache map[string][]string // file path -> lines
+	cache map[string]*fileCache // file path -> cached content
 }
 
 // NewSnippetExtractor creates a new snippet extractor.
 func NewSnippetExtractor() *SnippetExtractor {
 	return &SnippetExtractor{
-		cache: make(map[string][]string),
+		cache: make(map[string]*fileCache),
 	}
 }
 
@@ -37,21 +43,19 @@ func NewSnippetExtractor() *SnippetExtractor {
 // line is 1-indexed (as displayed to users).
 // contextLines specifies how many lines before and after to include.
 func (e *SnippetExtractor) Extract(filePath string, line, contextLines int) (string, error) {
-	lines, err := e.getLines(filePath)
+	fc, err := e.getFileCache(filePath)
 	if err != nil {
 		return "", err
 	}
 
-	// Convert to 0-indexed
-	lineIdx := line - 1
-	if lineIdx < 0 || lineIdx >= len(lines) {
-		return "", fmt.Errorf("line %d out of range (file has %d lines)", line, len(lines))
+	if line < 1 || line > fc.lineCount() {
+		return "", fmt.Errorf("line %d out of range (file has %d lines)", line, fc.lineCount())
 	}
 
-	start := max(0, lineIdx-contextLines)
-	end := min(len(lines), lineIdx+contextLines+1)
+	startLine := max(1, line-contextLines)
+	endLine := min(fc.lineCount(), line+contextLines)
 
-	return strings.Join(lines[start:end], "\n"), nil
+	return fc.extractRange(startLine, endLine), nil
 }
 
 // ExtractSmart extracts an AST-aware snippet around a target line.
@@ -198,57 +202,106 @@ func (e *SnippetExtractor) findEnclosingNode(fset *token.FileSet, f *ast.File, t
 // ExtractRange returns source lines for a range.
 // startLine and endLine are 1-indexed.
 func (e *SnippetExtractor) ExtractRange(filePath string, startLine, endLine int) (string, error) {
-	lines, err := e.getLines(filePath)
+	fc, err := e.getFileCache(filePath)
 	if err != nil {
 		return "", err
 	}
 
-	// Convert to 0-indexed
-	startIdx := max(0, startLine-1)
-	endIdx := min(len(lines), endLine)
-
-	if startIdx >= len(lines) {
-		return "", fmt.Errorf("start line %d out of range (file has %d lines)", startLine, len(lines))
+	if startLine > fc.lineCount() {
+		return "", fmt.Errorf("start line %d out of range (file has %d lines)", startLine, fc.lineCount())
 	}
 
-	return strings.Join(lines[startIdx:endIdx], "\n"), nil
+	return fc.extractRange(startLine, endLine), nil
 }
 
-// getLines returns the lines of a file, using cache.
-func (e *SnippetExtractor) getLines(filePath string) ([]string, error) {
-	// Check cache
-	if lines, ok := e.cache[filePath]; ok {
-		return lines, nil
-	}
-
-	// Read file
-	file, err := os.Open(filePath)
+// IsUnique checks if a source string appears exactly once in the file.
+// This helps determine if the snippet is safe to use with string-matching edit tools.
+func (e *SnippetExtractor) IsUnique(filePath, source string) (bool, error) {
+	fc, err := e.getFileCache(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("opening file: %w", err)
+		return false, fmt.Errorf("checking uniqueness: %w", err)
 	}
-	defer file.Close()
+	return bytes.Count(fc.content, []byte(source)) == 1, nil
+}
 
-	var lines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+// getFileCache returns the cached file content and line offsets.
+func (e *SnippetExtractor) getFileCache(filePath string) (*fileCache, error) {
+	// Check cache
+	if fc, ok := e.cache[filePath]; ok {
+		return fc, nil
 	}
-	if err := scanner.Err(); err != nil {
+
+	// Read file as raw bytes
+	content, err := os.ReadFile(filePath)
+	if err != nil {
 		return nil, fmt.Errorf("reading file: %w", err)
 	}
 
-	// Cache the result
-	e.cache[filePath] = lines
+	// Build line offset index
+	// lineOffsets[i] is the byte offset where line i+1 starts (1-indexed lines)
+	lineOffsets := []int{0} // line 1 starts at offset 0
+	for i, b := range content {
+		if b == '\n' {
+			lineOffsets = append(lineOffsets, i+1)
+		}
+	}
 
-	return lines, nil
+	fc := &fileCache{
+		content:     content,
+		lineOffsets: lineOffsets,
+	}
+	e.cache[filePath] = fc
+
+	return fc, nil
+}
+
+// lineCount returns the number of lines in the cached file.
+func (fc *fileCache) lineCount() int {
+	return len(fc.lineOffsets)
+}
+
+// extractRange returns bytes for lines startLine to endLine (1-indexed, inclusive).
+// Does not include trailing newline after the last line.
+func (fc *fileCache) extractRange(startLine, endLine int) string {
+	if startLine < 1 {
+		startLine = 1
+	}
+	if endLine > fc.lineCount() {
+		endLine = fc.lineCount()
+	}
+	if startLine > endLine || startLine > fc.lineCount() {
+		return ""
+	}
+
+	startOffset := fc.lineOffsets[startLine-1]
+
+	var endOffset int
+	if endLine >= fc.lineCount() {
+		// Last line - go to end of file
+		endOffset = len(fc.content)
+	} else {
+		// End at start of next line
+		endOffset = fc.lineOffsets[endLine]
+	}
+
+	// Strip trailing newline (and CRLF) from the result
+	if endOffset > startOffset && fc.content[endOffset-1] == '\n' {
+		endOffset--
+		if endOffset > startOffset && fc.content[endOffset-1] == '\r' {
+			endOffset--
+		}
+	}
+
+	return string(fc.content[startOffset:endOffset])
 }
 
 // MergeLocations merges locations within the same AST declaration scope.
 // Locations in different top-level declarations stay separate.
 // baseDir is the package directory (needed to construct full paths for AST parsing).
-func (e *SnippetExtractor) MergeLocations(baseDir string, locations []Location) []Location {
+// Returns merged locations and any errors encountered during uniqueness checks.
+func (e *SnippetExtractor) MergeLocations(baseDir string, locations []Location) ([]Location, []error) {
 	if len(locations) <= 1 {
-		return locations
+		return locations, nil
 	}
 
 	// Group by filename
@@ -259,6 +312,7 @@ func (e *SnippetExtractor) MergeLocations(baseDir string, locations []Location) 
 	}
 
 	var merged []Location
+	var errs []error
 	for fileName, fileLocs := range byFile {
 		if len(fileLocs) == 1 {
 			merged = append(merged, fileLocs[0])
@@ -270,17 +324,18 @@ func (e *SnippetExtractor) MergeLocations(baseDir string, locations []Location) 
 
 		// Merge within declaration scopes
 		fullPath := filepath.Join(baseDir, fileName)
-		mergedFile := e.mergeLocationsByDeclaration(fullPath, fileName, fileLocs)
+		mergedFile, fileErrs := e.mergeLocationsByDeclaration(fullPath, fileName, fileLocs)
 		merged = append(merged, mergedFile...)
+		errs = append(errs, fileErrs...)
 	}
 
 	// Sort final results by location for consistent output
 	sortLocationsByLocation(merged)
-	return merged
+	return merged, errs
 }
 
 // mergeLocationsByDeclaration groups locations by their enclosing top-level declaration.
-func (e *SnippetExtractor) mergeLocationsByDeclaration(fullPath, fileName string, locations []Location) []Location {
+func (e *SnippetExtractor) mergeLocationsByDeclaration(fullPath, fileName string, locations []Location) ([]Location, []error) {
 	// For Go files, use AST to find declaration scopes
 	if strings.HasSuffix(fullPath, ".go") {
 		fset := token.NewFileSet()
@@ -295,7 +350,7 @@ func (e *SnippetExtractor) mergeLocationsByDeclaration(fullPath, fileName string
 }
 
 // mergeLocationsByAST merges locations within the same top-level AST declaration.
-func (e *SnippetExtractor) mergeLocationsByAST(fset *token.FileSet, f *ast.File, fullPath, fileName string, locations []Location) []Location {
+func (e *SnippetExtractor) mergeLocationsByAST(fset *token.FileSet, f *ast.File, fullPath, fileName string, locations []Location) ([]Location, []error) {
 	// Find top-level declaration ranges
 	type declRange struct {
 		start, end int
@@ -323,19 +378,25 @@ func (e *SnippetExtractor) mergeLocationsByAST(fset *token.FileSet, f *ast.File,
 
 	// Create merged location for each group
 	var merged []Location
+	var errs []error
 	for _, groupLocs := range groups {
 		sortLocationsByLine(groupLocs)
-		merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, groupLocs)...)
+		locs, err := e.finalizeLocationGroup(fullPath, fileName, groupLocs)
+		merged = append(merged, locs...)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
 
-	return merged
+	return merged, errs
 }
 
 // mergeLocationsByProximity merges locations that are close enough to have overlapping snippets.
-func (e *SnippetExtractor) mergeLocationsByProximity(fullPath, fileName string, locations []Location) []Location {
+func (e *SnippetExtractor) mergeLocationsByProximity(fullPath, fileName string, locations []Location) ([]Location, []error) {
 	mergeDistance := SmartSnippetMaxLines
 
 	var merged []Location
+	var errs []error
 	currentGroup := []Location{locations[0]}
 	_, currentMaxLine := parseLocation(locations[0].Location)
 
@@ -349,21 +410,30 @@ func (e *SnippetExtractor) mergeLocationsByProximity(fullPath, fileName string, 
 				currentMaxLine = line
 			}
 		} else {
-			merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, currentGroup)...)
+			locs, err := e.finalizeLocationGroup(fullPath, fileName, currentGroup)
+			merged = append(merged, locs...)
+			if err != nil {
+				errs = append(errs, err)
+			}
 			currentGroup = []Location{loc}
 			currentMaxLine = line
 		}
 	}
 
-	merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, currentGroup)...)
-	return merged
+	locs, err := e.finalizeLocationGroup(fullPath, fileName, currentGroup)
+	merged = append(merged, locs...)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	return merged, errs
 }
 
 // finalizeLocationGroup creates a merged Location from a group of locations.
 // Returns a slice with one merged location on success, or all original locations on error.
-func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, locations []Location) []Location {
+// Also returns any error encountered while checking uniqueness.
+func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, locations []Location) ([]Location, error) {
 	if len(locations) == 1 {
-		return locations
+		return locations, nil
 	}
 
 	// Collect all line numbers
@@ -378,7 +448,7 @@ func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, loca
 	snippet, snippetStart, snippetEnd, err := e.extractMergedSnippet(fullPath, minLine, maxLine)
 	if err != nil {
 		// Return all locations unmerged so AI gets complete data
-		return locations
+		return locations, nil
 	}
 
 	// Build comma-separated line list
@@ -396,15 +466,18 @@ func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, loca
 		}
 	}
 
+	unique, uniqueErr := e.IsUnique(fullPath, snippet)
+
 	return []Location{{
 		Location: fmt.Sprintf("%s:%s", fileName, strings.Join(lineStrs, ",")),
 		Symbol:   symbol,
 		Snippet: Snippet{
 			Location: fmt.Sprintf("%s:%d:%d", fileName, snippetStart, snippetEnd),
 			Source:   snippet,
+			Unique:   unique,
 		},
 		RefCount: len(locations),
-	}}
+	}}, uniqueErr
 }
 
 // parseLocation extracts filename and line from "file.go:123" or "file.go:123,124,125".
