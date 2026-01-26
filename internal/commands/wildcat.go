@@ -103,15 +103,13 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 			// Merge results, keeping best score for each symbol
 			resultMap := make(map[string]golang.SearchResult)
 			for _, r := range results {
-				key := r.Symbol.PackageIdentifier.PkgPath + "." + r.Name
-				if existing, ok := resultMap[key]; !ok || r.Score > existing.Score {
-					resultMap[key] = r
+				if existing, ok := resultMap[r.Symbol.PkgPathTypeSymbol()]; !ok || r.Score > existing.Score {
+					resultMap[r.Symbol.PkgPathTypeSymbol()] = r
 				}
 			}
 			for _, r := range baseResults {
-				key := r.Symbol.PackageIdentifier.PkgPath + "." + r.Name
-				if existing, ok := resultMap[key]; !ok || r.Score > existing.Score {
-					resultMap[key] = r
+				if existing, ok := resultMap[r.Symbol.PkgPathTypeSymbol()]; !ok || r.Score > existing.Score {
+					resultMap[r.Symbol.PkgPathTypeSymbol()] = r
 				}
 			}
 			// Rebuild results slice sorted by score descending
@@ -129,8 +127,7 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 	typeSet := make(map[string]bool) // "pkg.TypeName" -> true
 	for _, res := range results {
 		if res.Symbol.Kind == golang.SymbolKindType || res.Symbol.Kind == golang.SymbolKindInterface {
-			key := res.Symbol.PackageIdentifier.Name + "." + res.Name
-			typeSet[key] = true
+			typeSet[res.Symbol.PkgTypeSymbol()] = true
 		}
 	}
 	// Also add types from the exclude list (so their methods get filtered)
@@ -143,14 +140,10 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 	// Second pass: filter out methods whose receiver type is already in results or excluded
 	var ret []Suggestion
 	for _, res := range results {
-		fullName := res.Symbol.PackageIdentifier.Name + "." + res.Name
-
-		// If it's a method, check if its receiver type is in the results or excluded
+		// If it's a method, check if its receiver type is already in results or excluded
 		if res.Symbol.Kind == golang.SymbolKindMethod {
-			// Method names are "ReceiverType.MethodName", extract the type
-			if dotIdx := strings.Index(res.Name, "."); dotIdx > 0 {
-				receiverType := res.Name[:dotIdx]
-				typeKey := res.Symbol.PackageIdentifier.Name + "." + receiverType
+			if recv := res.Symbol.ReceiverTypeName(); recv != "" {
+				typeKey := res.Symbol.PackageIdentifier.Name + "." + recv
 				if typeSet[typeKey] {
 					continue // skip this method, its type is already in results or excluded
 				}
@@ -158,7 +151,7 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 		}
 
 		ret = append(ret, Suggestion{
-			Symbol: fullName,
+			Symbol: res.Symbol.PkgTypeSymbol(),
 			Kind:   string(res.Symbol.Kind),
 		})
 		if len(ret) >= limit {

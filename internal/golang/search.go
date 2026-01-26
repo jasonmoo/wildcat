@@ -205,11 +205,7 @@ func (s nameSource) Len() int            { return s.idx.Len() }
 type fullSource struct{ idx *SymbolIndex }
 
 func (s fullSource) String(i int) string {
-	entry := s.idx.symbols[i]
-	if entry.Symbol.PackageIdentifier == nil {
-		return entry.Name
-	}
-	return entry.Symbol.PackageIdentifier.PkgPath + "." + entry.Name
+	return s.idx.symbols[i].Symbol.PkgPathTypeSymbol()
 }
 func (s fullSource) Len() int { return s.idx.Len() }
 
@@ -340,8 +336,7 @@ func (idx *SymbolIndex) Search(query string, opts *SearchOptions) []SearchResult
 
 		// Exclude specific symbols
 		if opts != nil && len(opts.Exclude) > 0 {
-			fullName := entry.Symbol.PackageIdentifier.Name + "." + entry.Name
-			if slices.Contains(opts.Exclude, fullName) {
+			if slices.Contains(opts.Exclude, entry.Symbol.PkgTypeSymbol()) {
 				continue
 			}
 		}
@@ -424,8 +419,7 @@ func (idx *SymbolIndex) RegexSearch(pattern *regexp.Regexp, opts *SearchOptions)
 
 		// Exclude specific symbols
 		if opts != nil && len(opts.Exclude) > 0 {
-			fullName := entry.Symbol.PackageIdentifier.Name + "." + entry.Name
-			if slices.Contains(opts.Exclude, fullName) {
+			if slices.Contains(opts.Exclude, entry.Symbol.PkgTypeSymbol()) {
 				continue
 			}
 		}
