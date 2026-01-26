@@ -223,6 +223,10 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 				}
 
 			case "make":
+				if len(node.Args) == 0 {
+					return true
+				}
+				// Try type info first
 				if t := pkg.Package.TypesInfo.TypeOf(node); t != nil {
 					if ch, ok := t.Underlying().(*types.Chan); ok {
 						elemType := ch.Elem().String()
@@ -230,6 +234,12 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 						if !emitOp(ChannelOpMake, elemType, node, pos) {
 							return false
 						}
+					}
+				} else if _, ok := node.Args[0].(*ast.ChanType); ok {
+					// Type info unavailable but AST shows it's a channel make
+					pos := pkg.Package.Fset.Position(node.Pos())
+					if !emitOp(ChannelOpMake, "<unknown type>", node, pos) {
+						return false
 					}
 				}
 			}
