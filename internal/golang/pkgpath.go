@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"path"
 	"path/filepath"
 	"slices"
@@ -30,11 +31,28 @@ type resolvedPackage struct {
 }
 
 type Package struct {
-	Identifier *PackageIdentifier
-	Package    *packages.Package
-	Files      []*PackageFile
-	Symbols    []*Symbol
-	Imports    []*FileImports
+	Identifier      *PackageIdentifier
+	Package         *packages.Package
+	Files           []*PackageFile
+	Symbols         []*Symbol
+	Imports         []*FileImports
+	symbolsByObject map[types.Object]*Symbol
+}
+
+// SymbolByObject returns the Symbol for a given types.Object, or nil if not found.
+func (p *Package) SymbolByObject(obj types.Object) *Symbol {
+	return p.symbolsByObject[obj]
+}
+
+// buildSymbolIndex populates the symbolsByObject map for fast lookup.
+func (p *Package) buildSymbolIndex() {
+	p.symbolsByObject = make(map[types.Object]*Symbol)
+	for _, sym := range p.Symbols {
+		p.symbolsByObject[sym.Object] = sym
+		for _, m := range sym.Methods {
+			p.symbolsByObject[m.Object] = m
+		}
+	}
 }
 
 type PackageFile struct {
@@ -175,6 +193,7 @@ func LoadStdlibPackages(ctx context.Context, goroot string) ([]*Package, error) 
 			Symbols:    symbols,
 			// Imports not needed for stdlib
 		}
+		result[i].buildSymbolIndex()
 	}
 	return result, nil
 }
@@ -270,6 +289,7 @@ func LoadModulePackages(ctx context.Context, srcDir string, opt LoadPackagesOpt)
 			Files:      loadFiles(pkg, symbols),
 			Symbols:    symbols,
 		}
+		pkgs[i].buildSymbolIndex()
 		pkgMap[pkg.PkgPath] = pkgs[i]
 	}
 
