@@ -21,17 +21,26 @@ type Symbol struct {
 	Methods           []*Symbol // for types only
 	Constructors      []*Symbol // for types only (funcs returning this type)
 	Parent            *Symbol   // for methods: receiver type; for constructors: constructed type
+	IsBuiltin         bool      // true for synthetic builtin symbols (error, comparable)
 
 	// Interface relationships (only for types)
 	Satisfies     []*Symbol // interfaces this type implements
 	ImplementedBy []*Symbol // types implementing this interface (for interfaces only)
 	Consumers     []*Symbol // functions/methods accepting this interface as param (for interfaces only)
 
+	// StdlibEquivalent points to a builtin interface Symbol when this interface
+	// is structurally identical (e.g., `type MyError error` has StdlibEquivalent -> builtin.error)
+	StdlibEquivalent *Symbol
+
 	// Dependency relationships (only for struct types)
 	Descendants []*Symbol // direct descendants: types only referenced by this type (would be orphaned if removed)
 }
 
 func (ps *Symbol) Signature() string {
+	if ps.IsBuiltin {
+		// Builtins have no AST, use type string representation
+		return ps.Object.Type().String()
+	}
 	if ps.Node == nil {
 		return "<no-ast>"
 	}
@@ -39,16 +48,25 @@ func (ps *Symbol) Signature() string {
 }
 
 func (ps *Symbol) FileLocation() string {
+	if ps.IsBuiltin {
+		return "builtin"
+	}
 	pos := ps.Package.Fset.Position(ps.Object.Pos())
 	return fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line)
 }
 
 func (ps *Symbol) PathLocation() string {
+	if ps.IsBuiltin {
+		return "builtin"
+	}
 	pos := ps.Package.Fset.Position(ps.Object.Pos())
 	return fmt.Sprintf("%s:%d", pos.Filename, pos.Line)
 }
 
 func (ps *Symbol) FileDefinition() string {
+	if ps.IsBuiltin {
+		return "builtin"
+	}
 	if ps.Node == nil {
 		return "<no-position>"
 	}
@@ -58,6 +76,9 @@ func (ps *Symbol) FileDefinition() string {
 }
 
 func (ps *Symbol) PathDefinition() string {
+	if ps.IsBuiltin {
+		return "builtin"
+	}
 	if ps.Node == nil {
 		return "<no-position>"
 	}
@@ -112,6 +133,25 @@ func (ps *Symbol) TypeSymbol() string {
 func (ps *Symbol) PkgSymbol() string {
 	if ps.PackageIdentifier != nil {
 		return ps.PackageIdentifier.Name + "." + ps.Name
+	}
+	return "<pkg-name-error>." + ps.Name
+}
+
+// PkgShortSymbol returns "pkgShortPath.symbolName" (e.g., "internal/golang.Symbol").
+// Uses module-relative path for concise but unambiguous display.
+// For root module packages (empty short path), returns "<root>.Symbol".
+// For stdlib/builtin (no module), falls back to PkgPath (e.g., "builtin.error", "fmt.Stringer").
+func (ps *Symbol) PkgShortSymbol() string {
+	if ps.PackageIdentifier != nil {
+		if ps.PackageIdentifier.PkgShortPath == "" {
+			// Empty short path: either root module or stdlib/builtin
+			if ps.PackageIdentifier.IsStd {
+				// Stdlib/builtin: use full path (e.g., "builtin", "fmt", "go/ast")
+				return ps.PackageIdentifier.PkgPath + "." + ps.Name
+			}
+			return "<root>." + ps.Name
+		}
+		return ps.PackageIdentifier.PkgShortPath + "." + ps.Name
 	}
 	return "<pkg-name-error>." + ps.Name
 }

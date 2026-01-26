@@ -76,7 +76,8 @@ func TestGenericInterfaceImplementation(t *testing.T) {
 	}
 
 	// Call ComputeInterfaceRelations to populate ImplementedBy
-	ComputeInterfaceRelations(project.Packages, nil)
+	builtin := BuiltinPackage()
+	ComputeInterfaceRelations(project.Packages, nil, builtin)
 
 	// Find Command interface (a generic interface)
 	var commandSym *Symbol

@@ -16,6 +16,7 @@ import (
 type Wildcat struct {
 	Project     *golang.Project
 	Stdlib      []*golang.Package
+	Builtin     *golang.Package
 	Index       *golang.SymbolIndex
 	Diagnostics []Diagnostic
 }
@@ -54,8 +55,11 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 		return nil, err
 	}
 
+	// Create synthetic builtin package for error, comparable, etc.
+	builtin := golang.BuiltinPackage()
+
 	// Compute interface relationships (Satisfies/ImplementedBy) on all type symbols
-	ifaceIssues := golang.ComputeInterfaceRelations(p.Packages, stdps)
+	ifaceIssues := golang.ComputeInterfaceRelations(p.Packages, stdps, builtin)
 	for _, issue := range ifaceIssues {
 		ds = append(ds, NewWarningDiagnostic(issue.TypePkgIdent, fmt.Sprintf("cannot check if %s implements %s.%s: %s", issue.TypeName, issue.IfacePkgIdent.PkgPath, issue.IfaceName, issue.Error)))
 	}
@@ -66,6 +70,7 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	return &Wildcat{
 		Project:     p,
 		Stdlib:      stdps,
+		Builtin:     builtin,
 		Index:       golang.CollectSymbols(p.Packages),
 		Diagnostics: ds,
 	}, nil

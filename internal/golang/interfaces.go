@@ -135,22 +135,41 @@ type InterfaceIssue struct {
 	Error         string             // the error message
 }
 
-// ComputeInterfaceRelations populates Satisfies and ImplementedBy on all type symbols
-// in project packages. This should be called after loading all packages.
+// ComputeInterfaceRelations populates Satisfies, ImplementedBy, and StdlibEquivalent
+// on all type symbols in project packages. This should be called after loading all packages.
+// The builtin parameter should be the result of BuiltinPackage().
 // Returns any issues encountered during generic interface instantiation.
-func ComputeInterfaceRelations(project []*Package, stdlib []*Package) []InterfaceIssue {
+func ComputeInterfaceRelations(project []*Package, stdlib []*Package, builtin *Package) []InterfaceIssue {
 	var issues []InterfaceIssue
 	// Build a map of all type symbols for quick lookup
 	// key: pkgPath + "." + name -> *Symbol
 	typeSymbols := make(map[string]*Symbol)
 
+	// Include builtin in stdlib for interface checking
 	allPkgs := append(project, stdlib...)
+	allPkgs = append(allPkgs, builtin)
+
 	for _, pkg := range allPkgs {
 		for _, sym := range pkg.Symbols {
 			if sym.Kind != SymbolKindType && sym.Kind != SymbolKindInterface {
 				continue
 			}
 			typeSymbols[sym.Id()] = sym
+		}
+	}
+
+	// Get builtin interface symbols for StdlibEquivalent detection
+	errorSym := BuiltinErrorSymbol(builtin)
+	comparableSym := BuiltinComparableSymbol(builtin)
+
+	// Get underlying types for builtin interfaces
+	var errorIface, comparableIface *types.Interface
+	if errorSym != nil {
+		errorIface = errorSym.Object.Type().Underlying().(*types.Interface)
+	}
+	if comparableSym != nil {
+		if iface, ok := comparableSym.Object.Type().Underlying().(*types.Interface); ok {
+			comparableIface = iface
 		}
 	}
 
@@ -169,6 +188,13 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) []Interfac
 			iface, isIface := T.Underlying().(*types.Interface)
 
 			if isIface {
+				// Check if this interface is identical to a builtin interface
+				if errorIface != nil && types.Identical(iface, errorIface) {
+					sym.StdlibEquivalent = errorSym
+				} else if comparableIface != nil && types.Identical(iface, comparableIface) {
+					sym.StdlibEquivalent = comparableSym
+				}
+
 				// Find implementors across all project packages
 				if iface.NumMethods() == 0 {
 					continue // skip empty interfaces
@@ -230,19 +256,19 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) []Interfac
 					}
 				}
 			} else {
-				// Find satisfied interfaces across all packages (project + stdlib)
+				// Find satisfied interfaces across all packages (project + stdlib + builtin)
 				// Check builtin error interface first
-				errorObj := types.Universe.Lookup("error")
-				if errorObj != nil {
-					errorIface := errorObj.Type().Underlying().(*types.Interface)
+				if errorSym != nil && errorIface != nil {
 					if types.Implements(T, errorIface) || types.Implements(ptrT, errorIface) {
-						// Create a synthetic Symbol for builtin error
-						// We'll handle this specially - for now skip it since there's no Package
-						// TODO: consider creating a synthetic "builtin" package
+						sym.Satisfies = append(sym.Satisfies, errorSym)
 					}
 				}
 
 				for _, otherPkg := range allPkgs {
+					// Skip builtin package - handled explicitly above
+					if otherPkg.Identifier.PkgPath == "builtin" {
+						continue
+					}
 					for _, otherSym := range otherPkg.Symbols {
 						if otherSym.Kind != SymbolKindInterface {
 							continue

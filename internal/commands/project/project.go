@@ -2,7 +2,6 @@ package project_cmd
 
 import (
 	"context"
-	"go/types"
 	"path"
 	"slices"
 	"sort"
@@ -149,6 +148,9 @@ func (c *ProjectCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 	// Find cross-package interfaces
 	crossIfaces := c.findCrossPackageInterfaces(wc)
 
+	// Find stdlib interface aliases (project interfaces identical to stdlib/builtin)
+	stdlibAliases := c.findStdlibInterfaceAliases(wc)
+
 	// Collect external dependencies, tracking which packages use each
 	stdlibUsers := make(map[string][]string)  // dep -> list of packages using it
 	thirdPartyUsers := make(map[string][]string)
@@ -228,6 +230,7 @@ func (c *ProjectCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 		EntryPoints:    entryPoints,
 		CorePackages:   corePackages,
 		Interfaces:     crossIfaces,
+		StdlibAliases:  stdlibAliases,
 		StdlibDeps:     stdlibList,
 		ThirdPartyDeps: thirdPartyList,
 		PackageGraph:   pkgGraph,
@@ -237,7 +240,6 @@ func (c *ProjectCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts
 // findCrossPackageInterfaces finds interfaces that are implemented by types in other packages.
 func (c *ProjectCommand) findCrossPackageInterfaces(wc *commands.Wildcat) []CrossPackageInterface {
 	var result []CrossPackageInterface
-	modulePath := wc.Project.Module.Path
 
 	// Look for interfaces with ImplementedBy from different packages
 	for _, pkg := range wc.Project.Packages {
@@ -249,10 +251,8 @@ func (c *ProjectCommand) findCrossPackageInterfaces(wc *commands.Wildcat) []Cros
 				continue
 			}
 
-			// Check if this is an alias for a stdlib interface
-			stdlibAlias := detectStdlibInterfaceAlias(sym)
-			if stdlibAlias != "" {
-				// Skip stdlib aliases - they're too generic
+			// Skip interfaces that are aliases for stdlib interfaces (e.g., `type MyError error`)
+			if sym.StdlibEquivalent != nil {
 				continue
 			}
 
@@ -260,21 +260,14 @@ func (c *ProjectCommand) findCrossPackageInterfaces(wc *commands.Wildcat) []Cros
 			var externalImpls []string
 			for _, impl := range sym.ImplementedBy {
 				if impl.PackageIdentifier.PkgPath != pkg.Identifier.PkgPath {
-					// Use short path: pkg.Type format
-					shortPath := strings.TrimPrefix(impl.PackageIdentifier.PkgPath, modulePath+"/")
-					externalImpls = append(externalImpls, shortPath+"."+impl.Name)
+					externalImpls = append(externalImpls, impl.PkgShortSymbol())
 				}
 			}
 
 			if len(externalImpls) > 0 {
 				sort.Strings(externalImpls)
-				// Use short path for interface too
-				ifaceShort := pkg.Identifier.PkgShortPath
-				if ifaceShort == "" {
-					ifaceShort = "."
-				}
 				result = append(result, CrossPackageInterface{
-					Interface:     ifaceShort + "." + sym.Name,
+					Interface:     sym.PkgShortSymbol(),
 					Package:       pkg.Identifier.PkgShortPath,
 					ImplementedBy: externalImpls,
 				})
@@ -290,21 +283,32 @@ func (c *ProjectCommand) findCrossPackageInterfaces(wc *commands.Wildcat) []Cros
 	return result
 }
 
-// detectStdlibInterfaceAlias checks if an interface is an alias for a common stdlib interface.
-// Returns the stdlib interface name (e.g., "error") or empty string if not an alias.
-func detectStdlibInterfaceAlias(sym *golang.Symbol) string {
-	iface, ok := sym.Object.Type().Underlying().(*types.Interface)
-	if !ok {
-		return ""
+// findStdlibInterfaceAliases finds project interfaces that are identical to stdlib/builtin interfaces.
+func (c *ProjectCommand) findStdlibInterfaceAliases(wc *commands.Wildcat) []StdlibInterfaceAlias {
+	var result []StdlibInterfaceAlias
+
+	for _, pkg := range wc.Project.Packages {
+		for _, sym := range pkg.Symbols {
+			if sym.Kind != golang.SymbolKindInterface {
+				continue
+			}
+			if sym.StdlibEquivalent == nil {
+				continue
+			}
+
+			result = append(result, StdlibInterfaceAlias{
+				Interface: sym.PkgShortSymbol(),
+				Satisfies: sym.StdlibEquivalent.PkgSymbol(),
+			})
+		}
 	}
 
-	// Check common stdlib interfaces
-	errorType := types.Universe.Lookup("error").Type().Underlying()
-	if types.Identical(iface, errorType) {
-		return "error"
-	}
+	// Sort by interface name
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Interface < result[j].Interface
+	})
 
-	return ""
+	return result
 }
 
 // shortenPaths converts full package paths to short paths relative to module.
