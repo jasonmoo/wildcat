@@ -3,6 +3,7 @@ package golang
 import (
 	"context"
 	"go/ast"
+	"go/types"
 	"testing"
 )
 
@@ -65,5 +66,48 @@ func TestIsInterfaceMethod(t *testing.T) {
 
 	if !found {
 		t.Error("No README methods found")
+	}
+}
+
+func TestGenericInterfaceImplementation(t *testing.T) {
+	project, err := LoadModulePackages(context.Background(), "../..", nil)
+	if err != nil {
+		t.Fatalf("LoadModulePackages: %v", err)
+	}
+
+	// Call ComputeInterfaceRelations to populate ImplementedBy
+	ComputeInterfaceRelations(project.Packages, nil)
+
+	// Find Command interface (a generic interface)
+	var commandSym *Symbol
+	for _, pkg := range project.Packages {
+		for _, sym := range pkg.Symbols {
+			if sym.Name == "Command" && sym.Kind == SymbolKindInterface {
+				commandSym = sym
+				break
+			}
+		}
+		if commandSym != nil {
+			break
+		}
+	}
+
+	if commandSym == nil {
+		t.Fatal("Command interface not found")
+	}
+
+	// Verify it's a generic interface
+	named, ok := commandSym.Object.Type().(*types.Named)
+	if !ok || named.TypeParams().Len() == 0 {
+		t.Fatal("Command should be a generic interface")
+	}
+
+	// Check that implementations were found
+	// There are 6 command types: Deadcode, Package, Readme, Search, Symbol, Tree
+	if len(commandSym.ImplementedBy) < 6 {
+		t.Errorf("Expected at least 6 implementations of Command[T], got %d", len(commandSym.ImplementedBy))
+		for _, impl := range commandSym.ImplementedBy {
+			t.Logf("  Found: %s", impl.PkgSymbol())
+		}
 	}
 }
