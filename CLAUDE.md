@@ -109,20 +109,11 @@ internal/
 - Visitor patterns for walking (`RefVisitor`, `CallVisitor`, `ChannelOpVisitor`)
 - `ScopeFilter` for include/exclude package patterns
 
-## Bigger Picture
-
-Wildcat is intended to be a reference implementation for a broader specification: **AIDE (AI Development Environment)**. The idea is that if we get the command surface area and output semantics right for Go, we can write a spec that other languages can implement.
-
-This means command names and output structures should be thoughtfully designed - they're not just implementation details, they're potentially part of a standard.
-
-See `docs/AIDE-SPEC-SEED.md` for the early thinking on this.
-
 ## Developing on Wildcat
 
 ### Orient yourself
 
 ```bash
-bd list -s open              # See what needs work
 bd ready                     # See unblocked tickets ready to claim
 wildcat package internal/golang   # Understand a package
 wildcat search "YourTopic"   # Find relevant symbols
@@ -133,7 +124,7 @@ wildcat search "YourTopic"   # Find relevant symbols
 This is critical. Every time you need to understand code, find symbols, or explore - use wildcat instead of grep. This surfaces bugs and UX issues.
 
 ```bash
-wildcat search "DeadCode"                           # find symbols
+wildcat search DeadCode                             # find symbols
 wildcat symbol golang.WalkReferences                # deep dive on a symbol
 wildcat package internal/commands/symbol            # understand a package
 wildcat tree commands.LoadWildcat                   # trace call graphs
@@ -141,7 +132,13 @@ wildcat tree commands.LoadWildcat                   # trace call graphs
 
 A stable `wildcat` is in PATH. After changes, build with `go build -o wildcat .` and test with `./wildcat`.
 
-### Working on tickets
+### bd - Issue Tracker
+
+Issues are in `.beads/issues.jsonl`. Use `bd` to manage them.
+
+**Note for future Claudes:** bd is your memory across sessions. Track work, insights, and discoveries here. Your context won't persist, but `.beads/` will.
+
+#### Working on tickets
 
 The workflow is atomic: close the ticket and commit the code together.
 
@@ -157,21 +154,6 @@ git add . && git commit      # Code + .beads/ in same commit
 
 ### Code patterns to follow
 
-**Adding a new analysis function** (in `internal/golang/`):
-- Return errors, don't panic
-- Use visitor pattern if walking AST/packages
-- Consider what happens when type info is unavailable
-
-**Adding error handling:**
-- For fatal errors: return `error` or `*commands.ErrorResult` with suggestions
-- For partial failures: emit diagnostic (once `wc-f06a` is implemented)
-- For format failures: embed error inline in output string (per `wc-79d6`)
-
-**Adding a new command:**
-- Implement `Command[T]` interface
-- Put in `internal/commands/<name>/`
-- Wire up in `main.go`
-
 ## Build & Test
 
 ```bash
@@ -180,46 +162,19 @@ go test ./...                # Run tests
 ./wildcat <command>          # Test locally
 ```
 
-**Testing approach:**
+**Adhoc testing approach:**
 - Prefer writing `*_test.go` files - they integrate with package context
 - Table-driven tests preferred
 - Test interfaces, not implementations
-- For quick experiments: add print statements, build, run, remove them
+- **For quick experiments**: add print statements, build, run, remove them
 - NEVER use `go run -` or `cat <<EOF | go run` - they don't work and require approval
 
-**Why test files over ad-hoc:** Shell patterns like `cat > /tmp/test.go` require approval every time and fail due to import path issues. A proper test file in the package directory just works.
+**Why test files over ad-hoc:** Shell patterns like `cat > /tmp/test.go` require approval 
+every time and fail due to import path issues. A proper test file in the package directory 
+just works.
 
 ---
 
 ## Tools
-
-### bd - Issue Tracker
-
-Issues are in `.beads/issues.jsonl`. Use `bd` to manage them.
-
-**Note for future Claudes:** bd is your memory across sessions. Track work, insights, and discoveries here. Your context won't persist, but `.beads/` will.
-
-```bash
-bd ready                     # What's ready to work on
-bd list -s open -p 1         # High priority open tickets
-bd show wc-XXXX              # Ticket details
-bd create "Title" -d "Description" -p 2
-bd close wc-XXXX -r "Reason"
-bd dep tree wc-XXXX          # See dependencies
-```
-
-**Workflow rules:**
-1. Close ticket FIRST (updates .beads/)
-2. THEN commit code + .beads/ together
-3. Never commit ticket closure separately from the code it describes
-
-### Allowed Commands
-
-These don't require approval:
-- `bd`, `wildcat`, `go build`, `go test`, `go doc`, `jq`
-- `git status/add/commit/log/diff/show/checkout/branch/...`
-- `tree`, `find`, `ls`, `grep`
-
-Avoid: `go run -`, `cat <<EOF | go run`, `-C <dir>` flags (cd instead)
 
 Use built-in tools (Read, Write, Edit) instead of cat/echo/sed for file operations.
