@@ -49,11 +49,11 @@ func walkPackageRefs(pkg *Package, targetObj types.Object, visitor RefVisitor) b
 
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
-				containing = pkg.Identifier.Name + "."
-				if d.Recv != nil && len(d.Recv.List) > 0 {
-					containing += ReceiverTypeName(d.Recv.List[0].Type) + "."
+				if sym := pkg.SymbolByIdent(d.Name); sym != nil {
+					containing = sym.PkgTypeSymbol()
+				} else {
+					containing = "<lookup-error>"
 				}
-				containing += d.Name.Name
 
 				if !walkNodeRefs(d, pkg, filename, containing, targetObj, visitor) {
 					return false
@@ -63,20 +63,32 @@ func walkPackageRefs(pkg *Package, targetObj types.Object, visitor RefVisitor) b
 				for _, spec := range d.Specs {
 					switch s := spec.(type) {
 					case *ast.TypeSpec:
-						containing = pkg.Identifier.Name + "." + s.Name.Name
+						if sym := pkg.SymbolByIdent(s.Name); sym != nil {
+							containing = sym.PkgTypeSymbol()
+						} else {
+							containing = "<lookup-error>"
+						}
 						if !walkNodeRefs(s.Type, pkg, filename, containing, targetObj, visitor) {
 							return false
 						}
 					case *ast.ValueSpec:
 						if s.Type != nil && len(s.Names) > 0 {
-							containing = pkg.Identifier.Name + "." + s.Names[0].Name
+							if sym := pkg.SymbolByIdent(s.Names[0]); sym != nil {
+								containing = sym.PkgTypeSymbol()
+							} else {
+								containing = "<lookup-error>"
+							}
 							if !walkNodeRefs(s.Type, pkg, filename, containing, targetObj, visitor) {
 								return false
 							}
 						}
 						for i, name := range s.Names {
 							if i < len(s.Values) {
-								containing = pkg.Identifier.Name + "." + name.Name
+								if sym := pkg.SymbolByIdent(name); sym != nil {
+									containing = sym.PkgTypeSymbol()
+								} else {
+									containing = "<lookup-error>"
+								}
 								if !walkNodeRefs(s.Values[i], pkg, filename, containing, targetObj, visitor) {
 									return false
 								}
@@ -242,11 +254,11 @@ func walkPackageNonCallRefs(pkg *Package, targetObj types.Object, visitor RefVis
 
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
-				containing = pkg.Identifier.Name + "."
-				if d.Recv != nil && len(d.Recv.List) > 0 {
-					containing += ReceiverTypeName(d.Recv.List[0].Type) + "."
+				if sym := pkg.SymbolByIdent(d.Name); sym != nil {
+					containing = sym.PkgTypeSymbol()
+				} else {
+					containing = "<lookup-error>"
 				}
-				containing += d.Name.Name
 
 				if !walkNodeNonCallRefs(d, pkg, filename, containing, targetObj, visitor) {
 					return false
@@ -256,20 +268,32 @@ func walkPackageNonCallRefs(pkg *Package, targetObj types.Object, visitor RefVis
 				for _, spec := range d.Specs {
 					switch s := spec.(type) {
 					case *ast.TypeSpec:
-						containing = pkg.Identifier.Name + "." + s.Name.Name
+						if sym := pkg.SymbolByIdent(s.Name); sym != nil {
+							containing = sym.PkgTypeSymbol()
+						} else {
+							containing = "<lookup-error>"
+						}
 						if !walkNodeNonCallRefs(s.Type, pkg, filename, containing, targetObj, visitor) {
 							return false
 						}
 					case *ast.ValueSpec:
 						if s.Type != nil && len(s.Names) > 0 {
-							containing = pkg.Identifier.Name + "." + s.Names[0].Name
+							if sym := pkg.SymbolByIdent(s.Names[0]); sym != nil {
+								containing = sym.PkgTypeSymbol()
+							} else {
+								containing = "<lookup-error>"
+							}
 							if !walkNodeNonCallRefs(s.Type, pkg, filename, containing, targetObj, visitor) {
 								return false
 							}
 						}
 						for i, name := range s.Names {
 							if i < len(s.Values) {
-								containing = pkg.Identifier.Name + "." + name.Name
+								if sym := pkg.SymbolByIdent(name); sym != nil {
+									containing = sym.PkgTypeSymbol()
+								} else {
+									containing = "<lookup-error>"
+								}
 								if !walkNodeNonCallRefs(s.Values[i], pkg, filename, containing, targetObj, visitor) {
 									return false
 								}
@@ -406,22 +430,33 @@ func ComputeDescendants(project []*Package) {
 			for _, decl := range file.Decls {
 				switch d := decl.(type) {
 				case *ast.FuncDecl:
-					symbolName := pkg.Identifier.Name + "."
-					if d.Recv != nil && len(d.Recv.List) > 0 {
-						symbolName += ReceiverTypeName(d.Recv.List[0].Type) + "."
+					var symbolName string
+					if sym := pkg.SymbolByIdent(d.Name); sym != nil {
+						symbolName = sym.PkgTypeSymbol()
+					} else {
+						symbolName = "<lookup-error>"
 					}
-					symbolName += d.Name.Name
 					collectTypeReferrers(pkg, d, symbolName, referrers)
 
 				case *ast.GenDecl:
 					for _, spec := range d.Specs {
 						switch s := spec.(type) {
 						case *ast.TypeSpec:
-							symbolName := pkg.Identifier.Name + "." + s.Name.Name
+							var symbolName string
+							if sym := pkg.SymbolByIdent(s.Name); sym != nil {
+								symbolName = sym.PkgTypeSymbol()
+							} else {
+								symbolName = "<lookup-error>"
+							}
 							collectTypeReferrers(pkg, s.Type, symbolName, referrers)
 						case *ast.ValueSpec:
 							for _, name := range s.Names {
-								symbolName := pkg.Identifier.Name + "." + name.Name
+								var symbolName string
+								if sym := pkg.SymbolByIdent(name); sym != nil {
+									symbolName = sym.PkgTypeSymbol()
+								} else {
+									symbolName = "<lookup-error>"
+								}
 								collectTypeReferrers(pkg, s, symbolName, referrers)
 							}
 						}

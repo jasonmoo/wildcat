@@ -44,6 +44,19 @@ func (p *Package) SymbolByObject(obj types.Object) *Symbol {
 	return p.symbolsByObject[obj]
 }
 
+// SymbolByIdent returns the Symbol for a given ast.Ident, or nil if not found.
+// Looks up the types.Object via TypesInfo.Defs and then finds the corresponding Symbol.
+func (p *Package) SymbolByIdent(ident *ast.Ident) *Symbol {
+	if p.Package.TypesInfo == nil {
+		return nil
+	}
+	obj := p.Package.TypesInfo.Defs[ident]
+	if obj == nil {
+		return nil
+	}
+	return p.symbolsByObject[obj]
+}
+
 // buildSymbolIndex populates the symbolsByObject map for fast lookup.
 func (p *Package) buildSymbolIndex() {
 	p.symbolsByObject = make(map[types.Object]*Symbol)
