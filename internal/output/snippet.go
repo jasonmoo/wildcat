@@ -324,12 +324,8 @@ func (e *SnippetExtractor) mergeLocationsByAST(fset *token.FileSet, f *ast.File,
 	// Create merged location for each group
 	var merged []Location
 	for _, groupLocs := range groups {
-		if len(groupLocs) == 1 {
-			merged = append(merged, groupLocs[0])
-		} else {
-			sortLocationsByLine(groupLocs)
-			merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, groupLocs))
-		}
+		sortLocationsByLine(groupLocs)
+		merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, groupLocs)...)
 	}
 
 	return merged
@@ -353,20 +349,21 @@ func (e *SnippetExtractor) mergeLocationsByProximity(fullPath, fileName string, 
 				currentMaxLine = line
 			}
 		} else {
-			merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, currentGroup))
+			merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, currentGroup)...)
 			currentGroup = []Location{loc}
 			currentMaxLine = line
 		}
 	}
 
-	merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, currentGroup))
+	merged = append(merged, e.finalizeLocationGroup(fullPath, fileName, currentGroup)...)
 	return merged
 }
 
 // finalizeLocationGroup creates a merged Location from a group of locations.
-func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, locations []Location) Location {
+// Returns a slice with one merged location on success, or all original locations on error.
+func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, locations []Location) []Location {
 	if len(locations) == 1 {
-		return locations[0]
+		return locations
 	}
 
 	// Collect all line numbers
@@ -380,8 +377,8 @@ func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, loca
 	// Extract merged snippet
 	snippet, snippetStart, snippetEnd, err := e.extractMergedSnippet(fullPath, minLine, maxLine)
 	if err != nil {
-		// Fallback to first location's snippet
-		return locations[0]
+		// Return all locations unmerged so AI gets complete data
+		return locations
 	}
 
 	// Build comma-separated line list
@@ -399,7 +396,7 @@ func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, loca
 		}
 	}
 
-	return Location{
+	return []Location{{
 		Location: fmt.Sprintf("%s:%s", fileName, strings.Join(lineStrs, ",")),
 		Symbol:   symbol,
 		Snippet: Snippet{
@@ -407,7 +404,7 @@ func (e *SnippetExtractor) finalizeLocationGroup(fullPath, fileName string, loca
 			Source:   snippet,
 		},
 		RefCount: len(locations),
-	}
+	}}
 }
 
 // parseLocation extracts filename and line from "file.go:123" or "file.go:123,124,125".
