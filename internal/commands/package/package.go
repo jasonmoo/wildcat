@@ -232,15 +232,15 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 
 			// Use precomputed interface relationships
 			for _, s := range sym.Satisfies {
-				qualified := s.Package.PkgPath + "." + s.Name
-				if s.Package.PkgPath == pkg.Identifier.PkgPath {
+				qualified := s.PkgPathSymbol()
+				if s.PackageIdentifier.PkgPath == pkg.Identifier.PkgPath {
 					qualified = s.Name
 				}
 				tb.satisfies = append(tb.satisfies, qualified)
 			}
 			for _, impl := range sym.ImplementedBy {
-				qualified := impl.Package.PkgPath + "." + impl.Name
-				if impl.Package.PkgPath == pkg.Identifier.PkgPath {
+				qualified := impl.PkgPathSymbol()
+				if impl.PackageIdentifier.PkgPath == pkg.Identifier.PkgPath {
 					qualified = impl.Name
 				}
 				tb.implementedBy = append(tb.implementedBy, qualified)
