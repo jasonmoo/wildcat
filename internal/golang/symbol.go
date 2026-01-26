@@ -32,6 +32,9 @@ type Symbol struct {
 }
 
 func (ps *Symbol) Signature() string {
+	if ps.Node == nil {
+		return "<no-ast>"
+	}
 	return FormatNode(ps.Node)
 }
 
@@ -46,12 +49,18 @@ func (ps *Symbol) PathLocation() string {
 }
 
 func (ps *Symbol) FileDefinition() string {
+	if ps.Node == nil {
+		return "<no-position>"
+	}
 	start := ps.Package.Fset.Position(ps.Node.Pos())
 	end := ps.Package.Fset.Position(ps.Node.End())
 	return fmt.Sprintf("%s:%d:%d", filepath.Base(start.Filename), start.Line, end.Line)
 }
 
 func (ps *Symbol) PathDefinition() string {
+	if ps.Node == nil {
+		return "<no-position>"
+	}
 	start := ps.Package.Fset.Position(ps.Node.Pos())
 	end := ps.Package.Fset.Position(ps.Node.End())
 	return fmt.Sprintf("%s:%d:%d", start.Filename, start.Line, end.Line)
@@ -266,8 +275,16 @@ func kindFromObject(obj types.Object) SymbolKind {
 // For specs (TypeSpec, ValueSpec), returns a synthetic GenDecl wrapping just that spec
 // so the node is directly formattable with FormatNode.
 func findNode(pkg *packages.Package, pos token.Pos) (*ast.File, ast.Node) {
+	if !pos.IsValid() {
+		return nil, nil
+	}
+	posFile := pkg.Fset.File(pos)
+	if posFile == nil {
+		return nil, nil
+	}
 	for _, f := range pkg.Syntax {
-		if pkg.Fset.File(f.Pos()).Name() != pkg.Fset.File(pos).Name() {
+		fFile := pkg.Fset.File(f.Pos())
+		if fFile == nil || fFile.Name() != posFile.Name() {
 			continue
 		}
 		for _, decl := range f.Decls {
