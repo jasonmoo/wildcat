@@ -126,9 +126,20 @@ func IsInterfaceMethod(sym *Symbol, project *Project, stdlib []*Package) bool {
 	return false
 }
 
+// InterfaceIssue represents an issue encountered during interface relation computation.
+type InterfaceIssue struct {
+	TypePkgIdent  *PackageIdentifier // package of the type being checked
+	TypeName      string             // name of the type
+	IfacePkgIdent *PackageIdentifier // package of the interface
+	IfaceName     string             // name of the interface
+	Error         string             // the error message
+}
+
 // ComputeInterfaceRelations populates Satisfies and ImplementedBy on all type symbols
 // in project packages. This should be called after loading all packages.
-func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
+// Returns any issues encountered during generic interface instantiation.
+func ComputeInterfaceRelations(project []*Package, stdlib []*Package) []InterfaceIssue {
+	var issues []InterfaceIssue
 	// Build a map of all type symbols for quick lookup
 	// key: pkgPath + "." + name -> *Symbol
 	typeSymbols := make(map[string]*Symbol)
@@ -185,16 +196,28 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 						if isGenericIface {
 							// For generic interfaces like Command[T], try instantiating with the candidate type
 							// e.g., check if *SymbolCommand implements Command[SymbolCommandResponse]
+							var instErr error
 							if inst, err := types.Instantiate(nil, named, []types.Type{otherT}, false); err == nil {
 								if instIface, ok := inst.Underlying().(*types.Interface); ok {
 									implements = types.Implements(otherT, instIface) || types.Implements(otherPtrT, instIface)
 								}
+							} else {
+								instErr = err
 							}
 							if !implements {
 								if inst, err := types.Instantiate(nil, named, []types.Type{otherPtrT}, false); err == nil {
 									if instIface, ok := inst.Underlying().(*types.Interface); ok {
 										implements = types.Implements(otherT, instIface) || types.Implements(otherPtrT, instIface)
 									}
+								} else if instErr != nil {
+									// Both instantiations failed - record the issue
+									issues = append(issues, InterfaceIssue{
+										TypePkgIdent:  otherPkg.Identifier,
+										TypeName:      otherSym.Name,
+										IfacePkgIdent: pkg.Identifier,
+										IfaceName:     sym.Name,
+										Error:         instErr.Error(),
+									})
 								}
 							}
 						} else {
@@ -239,16 +262,28 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 						// Handle generic interfaces
 						if named, ok := otherSym.Object.Type().(*types.Named); ok && named.TypeParams().Len() > 0 {
 							// Try instantiating with T and *T
+							var instErr error
 							if inst, err := types.Instantiate(nil, named, []types.Type{T}, false); err == nil {
 								if instIface, ok := inst.Underlying().(*types.Interface); ok {
 									implements = types.Implements(T, instIface) || types.Implements(ptrT, instIface)
 								}
+							} else {
+								instErr = err
 							}
 							if !implements {
 								if inst, err := types.Instantiate(nil, named, []types.Type{ptrT}, false); err == nil {
 									if instIface, ok := inst.Underlying().(*types.Interface); ok {
 										implements = types.Implements(T, instIface) || types.Implements(ptrT, instIface)
 									}
+								} else if instErr != nil {
+									// Both instantiations failed - record the issue
+									issues = append(issues, InterfaceIssue{
+										TypePkgIdent:  pkg.Identifier,
+										TypeName:      sym.Name,
+										IfacePkgIdent: otherPkg.Identifier,
+										IfaceName:     otherSym.Name,
+										Error:         instErr.Error(),
+									})
 								}
 							}
 						} else {
@@ -297,6 +332,8 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package) {
 			}
 		}
 	}
+
+	return issues
 }
 
 // hasIfaceParam checks if a function signature has a parameter of the target interface type.

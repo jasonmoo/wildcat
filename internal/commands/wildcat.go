@@ -55,7 +55,10 @@ func LoadWildcat(ctx context.Context, srcDir string) (*Wildcat, error) {
 	}
 
 	// Compute interface relationships (Satisfies/ImplementedBy) on all type symbols
-	golang.ComputeInterfaceRelations(p.Packages, stdps)
+	ifaceIssues := golang.ComputeInterfaceRelations(p.Packages, stdps)
+	for _, issue := range ifaceIssues {
+		ds = append(ds, NewWarningDiagnostic(issue.TypePkgIdent, fmt.Sprintf("cannot check if %s implements %s.%s: %s", issue.TypeName, issue.IfacePkgIdent.PkgPath, issue.IfaceName, issue.Error)))
+	}
 
 	// Compute descendants (types only referenced by their parent type)
 	golang.ComputeDescendants(p.Packages)
