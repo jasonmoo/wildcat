@@ -20,6 +20,7 @@ type Symbol struct {
 	Node              ast.Node  // FuncDecl or synthetic GenDecl wrapping a single spec
 	Methods           []*Symbol // for types only
 	Constructors      []*Symbol // for types only (funcs returning this type)
+	Parent            *Symbol   // for methods: receiver type; for constructors: constructed type
 
 	// Interface relationships (only for types)
 	Satisfies     []*Symbol // interfaces this type implements
@@ -190,6 +191,7 @@ func loadSymbols(pkg *packages.Package) []*Symbol {
 						Package: pkg,
 						File:    mFile,
 						Node:    mNode,
+						Parent:  sym,
 					})
 				}
 			}
@@ -202,6 +204,7 @@ func loadSymbols(pkg *packages.Package) []*Symbol {
 			if typeName := ConstructorTypeName(fd.Type); typeName != "" {
 				if typeSym := ss[typeName]; typeSym != nil {
 					typeSym.Constructors = append(typeSym.Constructors, sym)
+					sym.Parent = typeSym
 				}
 			}
 		}

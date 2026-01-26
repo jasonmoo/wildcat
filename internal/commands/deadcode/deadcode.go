@@ -191,8 +191,8 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 
 		// Count methods by type for grouping
 		var parentType string
-		if recvType := sym.ReceiverTypeName(); recvType != "" {
-			parentType = sym.PackageIdentifier.Name + "." + recvType
+		if sym.Parent != nil {
+			parentType = sym.Parent.PkgSymbol()
 			totalMethodsByType[parentType]++
 		}
 
@@ -243,8 +243,8 @@ func (c *DeadcodeCommand) Execute(ctx context.Context, wc *commands.Wildcat, opt
 		}
 
 		// Get parent type for methods and constructors
-		if typeName := sym.ParentTypeName(); typeName != "" {
-			parentType = sym.PackageIdentifier.Name + "." + typeName
+		if sym.Parent != nil {
+			parentType = sym.Parent.PkgSymbol()
 		}
 
 		deadByPkg[pkgPath] = append(deadByPkg[pkgPath], tempDeadSymbol{ds: ds, parentType: parentType})

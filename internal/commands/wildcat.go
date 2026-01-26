@@ -141,13 +141,8 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 	var ret []Suggestion
 	for _, res := range results {
 		// If it's a method, check if its receiver type is already in results or excluded
-		if res.Symbol.Kind == golang.SymbolKindMethod {
-			if recv := res.Symbol.ReceiverTypeName(); recv != "" {
-				typeKey := res.Symbol.PackageIdentifier.Name + "." + recv
-				if typeSet[typeKey] {
-					continue // skip this method, its type is already in results or excluded
-				}
-			}
+		if res.Symbol.Parent != nil && typeSet[res.Symbol.Parent.PkgSymbol()] {
+			continue // skip this method, its type is already in results or excluded
 		}
 
 		ret = append(ret, Suggestion{
