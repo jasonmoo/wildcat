@@ -103,13 +103,13 @@ func (wc *Wildcat) Suggestions(symbol string, opt *golang.SearchOptions) []Sugge
 			// Merge results, keeping best score for each symbol
 			resultMap := make(map[string]golang.SearchResult)
 			for _, r := range results {
-				if existing, ok := resultMap[r.Symbol.PkgPathTypeSymbol()]; !ok || r.Score > existing.Score {
-					resultMap[r.Symbol.PkgPathTypeSymbol()] = r
+				if existing, ok := resultMap[r.Symbol.Id()]; !ok || r.Score > existing.Score {
+					resultMap[r.Symbol.Id()] = r
 				}
 			}
 			for _, r := range baseResults {
-				if existing, ok := resultMap[r.Symbol.PkgPathTypeSymbol()]; !ok || r.Score > existing.Score {
-					resultMap[r.Symbol.PkgPathTypeSymbol()] = r
+				if existing, ok := resultMap[r.Symbol.Id()]; !ok || r.Score > existing.Score {
+					resultMap[r.Symbol.Id()] = r
 				}
 			}
 			// Rebuild results slice sorted by score descending

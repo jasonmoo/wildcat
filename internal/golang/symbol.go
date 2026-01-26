@@ -155,6 +155,13 @@ func (ps *Symbol) PkgPathTypeSymbol() string {
 	return "<pkg-name-error>." + ps.Name
 }
 
+// Id returns the unique identifier for this symbol.
+// For top-level symbols: "pkgPath.Name"
+// For methods: "pkgPath.Type.Method"
+func (ps *Symbol) Id() string {
+	return ps.PkgPathTypeSymbol()
+}
+
 // SearchName returns the fully qualified name for search (PkgPath.Name).
 // Deprecated: Use PkgPathSymbol() instead.
 func (ps *Symbol) SearchName() string {

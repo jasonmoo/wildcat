@@ -420,10 +420,10 @@ type collectedFunc struct {
 }
 
 func collectFromSymbol(sym *golang.Symbol, collected map[string]*collectedFunc) {
-	if _, ok := collected[sym.PkgPathSymbol()]; ok {
+	if _, ok := collected[sym.Id()]; ok {
 		return
 	}
-	collected[sym.PkgPathSymbol()] = &collectedFunc{
+	collected[sym.Id()] = &collectedFunc{
 		name:       sym.Name,
 		pkgIdent:   sym.PackageIdentifier,
 		signature:  sym.Signature(),
