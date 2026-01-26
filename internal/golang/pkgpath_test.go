@@ -16,7 +16,7 @@ func TestLoadPackages(t *testing.T) {
 	start := time.Now()
 	// ps, err := LoadPackages(t.Context(), "/home/jason/go/src/github.com/jasonmoo/wildcat", "./...")
 	// _, err = LoadPackages(t.Context(), pi.ModuleDir, pi.PkgPath)
-	p, err := LoadModulePackages(t.Context(), "/home/jason/go/src/github.com/jasonmoo/bbb", nil)
+	p, err := LoadModulePackages(t.Context(), ".", nil)
 	if err != nil {
 		t.Error(err)
 	}

@@ -6,6 +6,7 @@ import (
 
 	deadcode_cmd "github.com/jasonmoo/wildcat/internal/commands/deadcode"
 	package_cmd "github.com/jasonmoo/wildcat/internal/commands/package"
+	project_cmd "github.com/jasonmoo/wildcat/internal/commands/project"
 	readme_cmd "github.com/jasonmoo/wildcat/internal/commands/readme"
 	search_cmd "github.com/jasonmoo/wildcat/internal/commands/search"
 	symbol_cmd "github.com/jasonmoo/wildcat/internal/commands/symbol"
@@ -42,6 +43,7 @@ and actionable error messages.`,
 
 	// Custom usage template with ordered commands
 	commandOrder := []string{
+		"project",  // project-level overview
 		"package",  // package-level analysis
 		"symbol",   // symbol-level analysis
 		"search",   // find symbols
@@ -99,6 +101,7 @@ and actionable error messages.`,
 	}
 
 	// Add subcommands
+	rootCmd.AddCommand(project_cmd.NewProjectCommand().Cmd())
 	rootCmd.AddCommand(package_cmd.NewPackageCommand().Cmd())
 	rootCmd.AddCommand(symbol_cmd.NewSymbolCommand().Cmd())
 	rootCmd.AddCommand(search_cmd.NewSearchCommand().Cmd())
