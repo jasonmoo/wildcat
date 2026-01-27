@@ -73,7 +73,8 @@ func ChannelElemType(info *types.Info, expr ast.Expr) string {
 // FormatNode formats an AST node to its canonical source representation.
 // Strips comments and doc strings from the node before formatting.
 func FormatNode(node ast.Node) string {
-	stripComments(node)
+	restore := stripComments(node)
+	defer restore()
 	var sb strings.Builder
 	if err := format.Node(&sb, token.NewFileSet(), node); err != nil {
 		return fmt.Sprintf("<format error: %v>", err)
@@ -81,29 +82,45 @@ func FormatNode(node ast.Node) string {
 	return sb.String()
 }
 
-// stripComments removes comments and doc strings from an AST node.
-func stripComments(node ast.Node) {
+// stripComments removes comments, doc strings, and function bodies from an AST node.
+// Returns a restore function that puts back all the original values.
+func stripComments(node ast.Node) func() {
+	var restoreFuncs []func()
+
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch v := n.(type) {
 		case *ast.FuncDecl:
-			v.Body = nil
-			v.Doc = nil
+			body, doc := v.Body, v.Doc
+			v.Body, v.Doc = nil, nil
+			restoreFuncs = append(restoreFuncs, func() { v.Body, v.Doc = body, doc })
 		case *ast.GenDecl:
+			doc := v.Doc
 			v.Doc = nil
+			restoreFuncs = append(restoreFuncs, func() { v.Doc = doc })
 		case *ast.TypeSpec:
-			v.Doc = nil
-			v.Comment = nil
+			doc, comment := v.Doc, v.Comment
+			v.Doc, v.Comment = nil, nil
+			restoreFuncs = append(restoreFuncs, func() { v.Doc, v.Comment = doc, comment })
 		case *ast.ValueSpec:
-			v.Doc = nil
-			v.Comment = nil
+			doc, comment := v.Doc, v.Comment
+			v.Doc, v.Comment = nil, nil
+			restoreFuncs = append(restoreFuncs, func() { v.Doc, v.Comment = doc, comment })
 		case *ast.Field:
-			v.Doc = nil
-			v.Comment = nil
+			doc, comment := v.Doc, v.Comment
+			v.Doc, v.Comment = nil, nil
+			restoreFuncs = append(restoreFuncs, func() { v.Doc, v.Comment = doc, comment })
 		case *ast.ImportSpec:
-			v.Doc = nil
-			v.Comment = nil
+			doc, comment := v.Doc, v.Comment
+			v.Doc, v.Comment = nil, nil
+			restoreFuncs = append(restoreFuncs, func() { v.Doc, v.Comment = doc, comment })
 		}
 		return true
 	})
+
+	return func() {
+		for _, f := range restoreFuncs {
+			f()
+		}
+	}
 }
 

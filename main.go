@@ -5,6 +5,7 @@ import (
 	"os"
 
 	deadcode_cmd "github.com/jasonmoo/wildcat/internal/commands/deadcode"
+	ls_cmd "github.com/jasonmoo/wildcat/internal/commands/ls"
 	package_cmd "github.com/jasonmoo/wildcat/internal/commands/package"
 	project_cmd "github.com/jasonmoo/wildcat/internal/commands/project"
 	readme_cmd "github.com/jasonmoo/wildcat/internal/commands/readme"
@@ -47,6 +48,7 @@ and actionable error messages.`,
 		"package",  // package-level analysis
 		"symbol",   // symbol-level analysis
 		"search",   // find symbols
+		"ls",       // path discovery
 		"tree",     // call graph traversal
 		"channels", // concurrency analysis
 		"deadcode", // dead code detection
@@ -105,6 +107,7 @@ and actionable error messages.`,
 	rootCmd.AddCommand(package_cmd.NewPackageCommand().Cmd())
 	rootCmd.AddCommand(symbol_cmd.NewSymbolCommand().Cmd())
 	rootCmd.AddCommand(search_cmd.NewSearchCommand().Cmd())
+	rootCmd.AddCommand(ls_cmd.NewLsCommand().Cmd())
 	rootCmd.AddCommand(tree_cmd.NewTreeCommand().Cmd())
 	rootCmd.AddCommand(deadcode_cmd.NewDeadcodeCommand().Cmd())
 	rootCmd.AddCommand(readme_cmd.NewReadmeCommand().Cmd())

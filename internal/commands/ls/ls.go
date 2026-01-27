@@ -1,0 +1,341 @@
+package ls_cmd
+
+import (
+	"context"
+	"go/types"
+	"sort"
+
+	"github.com/jasonmoo/wildcat/internal/commands"
+	"github.com/jasonmoo/wildcat/internal/commands/spath"
+	"github.com/jasonmoo/wildcat/internal/golang"
+	"github.com/spf13/cobra"
+)
+
+type LsCommand struct {
+	targets []string
+	depth   int // 1 = immediate children only, 0 = unlimited depth
+}
+
+var _ commands.Command[*LsCommand] = (*LsCommand)(nil)
+
+func WithTargets(targets []string) func(*LsCommand) error {
+	return func(c *LsCommand) error {
+		c.targets = targets
+		return nil
+	}
+}
+
+func WithDepth(depth int) func(*LsCommand) error {
+	return func(c *LsCommand) error {
+		c.depth = depth
+		return nil
+	}
+}
+
+func NewLsCommand() *LsCommand {
+	return &LsCommand{
+		depth: 1, // default to immediate children only
+	}
+}
+
+func (c *LsCommand) Cmd() *cobra.Command {
+	var depth int
+
+	cmd := &cobra.Command{
+		Use:   "ls <path> [path...]",
+		Short: "List available paths within a scope",
+		Long: `Discover semantic paths for code elements.
+
+The ls command shows what paths are available from a given starting point.
+Use it to explore the codebase before using read or edit commands.
+
+Arguments:
+  <path>    Package name, symbol, or semantic path (multiple allowed)
+
+Flags:
+  --depth   How deep to recurse (1 = immediate children, 0 = unlimited)
+
+Examples:
+  wildcat ls golang                          # all symbols in package
+  wildcat ls golang.Symbol                   # fields, methods of a type
+  wildcat ls golang.Symbol golang.Package    # multiple symbols
+  wildcat ls golang.Symbol --depth 0         # all paths recursively
+  wildcat ls golang.WalkReferences           # params, returns, body of a function
+  wildcat ls golang.Symbol.String            # parts of a method
+  wildcat ls golang.Symbol/fields[Name]      # subpaths of a field
+
+Output shows paths that can be used with read/edit commands.`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return commands.RunCommand(cmd, c, WithTargets(args), WithDepth(depth))
+		},
+	}
+
+	cmd.Flags().IntVar(&depth, "depth", 1, "How deep to recurse (1 = immediate, 0 = unlimited)")
+
+	return cmd
+}
+
+func (c *LsCommand) README() string {
+	return "TODO"
+}
+
+func (c *LsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...func(*LsCommand) error) (commands.Result, error) {
+	if len(c.targets) == 0 {
+		return commands.NewErrorResultf("invalid_target", "at least one target path is required"), nil
+	}
+
+	var sections []TargetSection
+
+	for _, target := range c.targets {
+		section, errResult := c.listTarget(ctx, wc, target)
+		if errResult != nil {
+			// Include error as a section with no paths
+			sections = append(sections, TargetSection{
+				Target: target,
+				Error:  errResult.Error.Error(),
+			})
+			continue
+		}
+		sections = append(sections, *section)
+	}
+
+	return &LsResponse{
+		Sections: sections,
+	}, nil
+}
+
+// listTarget lists paths for a single target, returning either a section or an error.
+func (c *LsCommand) listTarget(ctx context.Context, wc *commands.Wildcat, target string) (*TargetSection, *commands.ErrorResult) {
+	// Try to resolve as a package first
+	pkg := c.resolvePackage(wc, target)
+	if pkg != nil {
+		return c.listPackageSection(ctx, wc, target, pkg), nil
+	}
+
+	// Try to resolve as a semantic path (symbol or deeper)
+	res, err := wc.ResolveSpath(ctx, target)
+	if err != nil {
+		return nil, c.notFoundError(wc, target, err)
+	}
+
+	return c.listResolutionSection(ctx, wc, target, res), nil
+}
+
+// resolvePackage tries to find a package by name or path.
+func (c *LsCommand) resolvePackage(wc *commands.Wildcat, name string) *golang.Package {
+	for _, pkg := range wc.Project.Packages {
+		// Match by full path
+		if pkg.Identifier.PkgPath == name {
+			return pkg
+		}
+		// Match by short name
+		if pkg.Identifier.Name == name {
+			return pkg
+		}
+		// Match by module-relative path (e.g., "internal/golang")
+		if pkg.Identifier.PkgShortPath == name {
+			return pkg
+		}
+	}
+	return nil
+}
+
+// listPackageSection enumerates all top-level symbols in a package.
+func (c *LsCommand) listPackageSection(ctx context.Context, wc *commands.Wildcat, target string, pkg *golang.Package) *TargetSection {
+	var paths []PathEntry
+
+	// Sort symbols by name for consistent output
+	symbols := make([]*golang.Symbol, len(pkg.Symbols))
+	copy(symbols, pkg.Symbols)
+	sort.Slice(symbols, func(i, j int) bool {
+		return symbols[i].Name < symbols[j].Name
+	})
+
+	for _, sym := range symbols {
+		symPath := spath.Generate(sym)
+		paths = append(paths, PathEntry{
+			Path: symPath,
+			Kind: string(sym.Kind),
+		})
+
+		// Recurse if depth allows
+		if c.shouldRecurse(1) {
+			childPaths := c.enumerateRecursive(ctx, wc, symPath, 2)
+			paths = append(paths, childPaths...)
+		}
+	}
+
+	return &TargetSection{
+		Target:  target,
+		Scope:   "package",
+		Package: pkg.Identifier.PkgPath,
+		Paths:   paths,
+	}
+}
+
+// listResolutionSection enumerates children from a resolved semantic path.
+func (c *LsCommand) listResolutionSection(ctx context.Context, wc *commands.Wildcat, target string, res *spath.Resolution) *TargetSection {
+	// Create a short-form base path for enumeration using package short name
+	shortBasePath := &spath.Path{
+		Package: res.Package.Identifier.Name,
+		Symbol:  res.Path.Symbol,
+		Method:  res.Path.Method,
+	}
+
+	// Start with the target symbol itself as the first entry
+	var paths []PathEntry
+	paths = append(paths, PathEntry{
+		Path: shortBasePath.String(),
+		Kind: string(res.Symbol.Kind),
+		Type: symbolTypeString(res.Symbol),
+	})
+
+	children := spath.EnumerateChildrenWithBase(res, res.Symbol, shortBasePath)
+
+	for _, child := range children {
+		paths = append(paths, PathEntry{
+			Path: child.Path,
+			Kind: child.Kind,
+			Type: child.Type,
+		})
+
+		// Recurse if depth allows
+		if c.shouldRecurse(1) {
+			childPaths := c.enumerateRecursive(ctx, wc, child.Path, 2)
+			paths = append(paths, childPaths...)
+		}
+	}
+
+	scope := "symbol"
+	if res.Field != nil {
+		scope = "field"
+	}
+
+	// Symbol for header - use TypeSymbol format (e.g., "Wildcat" or "Symbol.Method")
+	symName := res.Path.Symbol
+	if res.Path.Method != "" {
+		symName = res.Path.Symbol + "." + res.Path.Method
+	}
+
+	return &TargetSection{
+		Target:  target,
+		Scope:   scope,
+		Package: res.Package.Identifier.PkgPath,
+		Symbol:  symName,
+		Paths:   paths,
+	}
+}
+
+// shouldRecurse returns true if we should recurse at the given current depth.
+// depth=0 means unlimited, depth=1 means no recursion, depth>1 means recurse.
+func (c *LsCommand) shouldRecurse(currentDepth int) bool {
+	if c.depth == 0 {
+		return true // unlimited
+	}
+	return currentDepth < c.depth
+}
+
+// enumerateRecursive resolves a path and enumerates its children recursively.
+func (c *LsCommand) enumerateRecursive(ctx context.Context, wc *commands.Wildcat, pathStr string, currentDepth int) []PathEntry {
+	res, err := wc.ResolveSpath(ctx, pathStr)
+	if err != nil {
+		return nil // silently skip paths that can't be resolved
+	}
+
+	// Use short package name for output
+	shortBasePath := &spath.Path{
+		Package: res.Package.Identifier.Name,
+		Symbol:  res.Path.Symbol,
+		Method:  res.Path.Method,
+	}
+
+	children := spath.EnumerateChildrenWithBase(res, res.Symbol, shortBasePath)
+	var paths []PathEntry
+
+	for _, child := range children {
+		paths = append(paths, PathEntry{
+			Path: child.Path,
+			Kind: child.Kind,
+			Type: child.Type,
+		})
+
+		// Continue recursing if depth allows
+		if c.shouldRecurse(currentDepth) {
+			childPaths := c.enumerateRecursive(ctx, wc, child.Path, currentDepth+1)
+			paths = append(paths, childPaths...)
+		}
+	}
+
+	return paths
+}
+
+func (c *LsCommand) notFoundError(wc *commands.Wildcat, target string, err error) *commands.ErrorResult {
+	e := commands.NewErrorResultf("path_not_found", "cannot resolve %q: %v", target, err)
+	for _, s := range wc.Suggestions(target, &golang.SearchOptions{Limit: 5}) {
+		e.Suggestions = append(e.Suggestions, s.Symbol)
+	}
+	return e
+}
+
+// symbolTypeString returns the type annotation for a symbol.
+// For funcs/methods: the signature
+// For types: the underlying kind (struct, map, slice, etc.)
+// For vars/consts: the declared type
+func symbolTypeString(sym *golang.Symbol) string {
+	switch sym.Kind {
+	case golang.SymbolKindFunc, golang.SymbolKindMethod:
+		return sym.Signature()
+	case golang.SymbolKindType:
+		return describeType(sym)
+	case golang.SymbolKindInterface:
+		return "interface"
+	default:
+		// For vars/consts, get the type from the Object
+		if sym.Object != nil {
+			return sym.Object.Type().String()
+		}
+		return string(sym.Kind)
+	}
+}
+
+// describeType returns a description of the underlying type kind.
+func describeType(sym *golang.Symbol) string {
+	if sym.Object == nil {
+		return "type"
+	}
+
+	t := sym.Object.Type()
+	if t == nil {
+		return "type"
+	}
+
+	// Check for type alias
+	if tn, ok := sym.Object.(*types.TypeName); ok && tn.IsAlias() {
+		return "alias"
+	}
+
+	// Describe based on underlying type
+	switch sym.Object.Type().Underlying().(type) {
+	case *types.Struct:
+		return "struct"
+	case *types.Interface:
+		return "interface"
+	case *types.Map:
+		return "map"
+	case *types.Slice:
+		return "slice"
+	case *types.Array:
+		return "array"
+	case *types.Chan:
+		return "chan"
+	case *types.Pointer:
+		return "pointer"
+	case *types.Signature:
+		return "func"
+	case *types.Basic:
+		return "type" // e.g., type MyInt int
+	default:
+		return "type"
+	}
+}

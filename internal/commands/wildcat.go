@@ -229,6 +229,12 @@ func (wc *Wildcat) LookupSymbol(ctx context.Context, query string) (*golang.Symb
 // resolveSymbolQuery parses and validates a symbol query, resolving short package names.
 // Returns the resolved query string or an error for invalid syntax.
 func (wc *Wildcat) resolveSymbolQuery(ctx context.Context, query string) (string, error) {
+	// If query contains slashes, it's a path-style query (e.g., "internal/commands.Wildcat")
+	// Handle directly without Go expression parsing since "/" would be parsed as division
+	if strings.Contains(query, "/") {
+		return wc.resolvePathQuery(ctx, query)
+	}
+
 	expr, err := parser.ParseExpr(query)
 	if err != nil {
 		return "", err
@@ -253,6 +259,34 @@ func (wc *Wildcat) resolveSymbolQuery(ctx context.Context, query string) (string
 	default:
 		return "", fmt.Errorf("expected identifier or selector, got %T", expr)
 	}
+}
+
+// resolvePathQuery handles queries with slashes like "internal/commands.Wildcat".
+// Finds the last dot after the last slash to separate package path from symbol.
+func (wc *Wildcat) resolvePathQuery(ctx context.Context, query string) (string, error) {
+	lastSlash := strings.LastIndex(query, "/")
+	if lastSlash == -1 {
+		return query, nil // shouldn't happen, but fallback
+	}
+
+	// Find the first dot after the last slash - that separates package from symbol
+	afterSlash := query[lastSlash+1:]
+	dotIdx := strings.Index(afterSlash, ".")
+	if dotIdx == -1 {
+		return "", fmt.Errorf("invalid path query %q: no symbol after package", query)
+	}
+
+	pkgPath := query[:lastSlash+1+dotIdx]
+	symbolPart := afterSlash[dotIdx+1:]
+
+	// Try to resolve the package path
+	pi, err := wc.Project.ResolvePackageName(ctx, pkgPath)
+	if err != nil {
+		// Couldn't resolve - return as-is, let lookup handle it
+		return query, nil
+	}
+
+	return pi.PkgPath + "." + symbolPart, nil
 }
 
 // flattenSelector extracts all identifier names from a selector expression.

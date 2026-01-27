@@ -338,13 +338,13 @@ func findNode(pkg *packages.Package, pos token.Pos) (*ast.File, ast.Node) {
 					switch vv := spec.(type) {
 					case *ast.TypeSpec:
 						if vv.Name.Pos() == pos {
-							// Preserve position from the spec for FileDefinition
-							return f, &ast.GenDecl{TokPos: vv.Pos(), Tok: v.Tok, Specs: []ast.Spec{vv}}
+							// Preserve position and doc from the spec for FileDefinition
+							return f, &ast.GenDecl{TokPos: vv.Pos(), Tok: v.Tok, Specs: []ast.Spec{vv}, Doc: v.Doc}
 						}
 					case *ast.ValueSpec:
 						for _, ident := range vv.Names {
 							if ident.Pos() == pos {
-								return f, &ast.GenDecl{TokPos: vv.Pos(), Tok: v.Tok, Specs: []ast.Spec{vv}}
+								return f, &ast.GenDecl{TokPos: vv.Pos(), Tok: v.Tok, Specs: []ast.Spec{vv}, Doc: v.Doc}
 							}
 						}
 					}
