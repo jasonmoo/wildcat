@@ -115,6 +115,15 @@ func (p *Path) WithSegment(category, selector string, isIndex bool) *Path {
 	return newPath
 }
 
+// SymbolQuery returns the symbol query string for Index.Lookup.
+// Format: "Package.Symbol" or "Package.Symbol.Method"
+func (p *Path) SymbolQuery() string {
+	if p.Method != "" {
+		return p.Package + "." + p.Symbol + "." + p.Method
+	}
+	return p.Package + "." + p.Symbol
+}
+
 // Valid category names for segments.
 var ValidCategories = map[string]bool{
 	"fields":     true,

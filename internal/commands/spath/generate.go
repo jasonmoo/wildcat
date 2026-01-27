@@ -12,18 +12,7 @@ import (
 // The generated path uses the full import path (PkgPath) for the package,
 // ensuring the path is unambiguous and portable.
 func Generate(sym *golang.Symbol) string {
-	path := &Path{
-		Package: sym.PackageIdentifier.PkgPath,
-		Symbol:  sym.Name,
-	}
-
-	// For methods, add the receiver type
-	if sym.Kind == golang.SymbolKindMethod && sym.Parent != nil {
-		path.Symbol = sym.Parent.Name
-		path.Method = sym.Name
-	}
-
-	return path.String()
+	return GeneratePath(sym).String()
 }
 
 // GeneratePath creates a Path struct for a symbol.

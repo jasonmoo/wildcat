@@ -33,27 +33,9 @@ type Resolution struct {
 	FieldIndex int
 }
 
-// Resolve resolves a path to an AST node within the given project.
-//
-// The path's Package field can be in any of the accepted forms:
-//   - Package name: "golang"
-//   - Relative path: "internal/golang"
-//   - Full import path: "github.com/jasonmoo/wildcat/internal/golang"
-//
-// Returns a Resolution containing the package, symbol, and target node.
-func Resolve(project *golang.Project, path *Path) (*Resolution, error) {
-	// Find the package
-	pkg := findPackage(project, path.Package)
-	if pkg == nil {
-		return nil, fmt.Errorf("package not found: %s", path.Package)
-	}
-
-	// Find the symbol
-	sym := findSymbol(pkg, path.Symbol)
-	if sym == nil {
-		return nil, fmt.Errorf("symbol not found: %s.%s", path.Package, path.Symbol)
-	}
-
+// NewResolution creates a Resolution from a parsed path, package, and symbol.
+// It navigates through any segments in the path and returns the fully resolved result.
+func NewResolution(path *Path, pkg *golang.Package, sym *golang.Symbol) (*Resolution, error) {
 	res := &Resolution{
 		Path:       path,
 		Package:    pkg,
@@ -62,57 +44,21 @@ func Resolve(project *golang.Project, path *Path) (*Resolution, error) {
 		FieldIndex: -1,
 	}
 
-	// If there's a method, navigate to it
-	if path.Method != "" {
-		method := findMethod(sym, path.Method)
-		if method == nil {
-			return nil, fmt.Errorf("method not found: %s.%s.%s", path.Package, path.Symbol, path.Method)
-		}
-		res.Symbol = method
-		res.Node = method.Node
-	}
-
 	// Navigate through segments
-	for i, seg := range path.Segments {
-		if err := resolveSegment(res, seg); err != nil {
-			return nil, fmt.Errorf("segment %d (%s): %w", i, seg.Category, err)
-		}
+	if err := ResolveSegments(res); err != nil {
+		return nil, err
 	}
 
 	return res, nil
 }
 
-// findPackage finds a package by name, short path, or full path.
-func findPackage(project *golang.Project, pkgPath string) *golang.Package {
-	for _, pkg := range project.Packages {
-		if pkg.Identifier.PkgPath == pkgPath {
-			return pkg
-		}
-		if pkg.Identifier.PkgShortPath == pkgPath {
-			return pkg
-		}
-		if pkg.Identifier.Name == pkgPath {
-			return pkg
-		}
-	}
-	return nil
-}
-
-// findSymbol finds a top-level symbol by name.
-func findSymbol(pkg *golang.Package, name string) *golang.Symbol {
-	for _, sym := range pkg.Symbols {
-		if sym.Name == name {
-			return sym
-		}
-	}
-	return nil
-}
-
-// findMethod finds a method on a type.
-func findMethod(typeSym *golang.Symbol, methodName string) *golang.Symbol {
-	for _, m := range typeSym.Methods {
-		if m.Name == methodName {
-			return m
+// ResolveSegments navigates through all segments in the path.
+// The Resolution must have Path, Package, Symbol, and Node set.
+// This function modifies res in place, updating Node, Field, and FieldIndex.
+func ResolveSegments(res *Resolution) error {
+	for i, seg := range res.Path.Segments {
+		if err := resolveSegment(res, seg); err != nil {
+			return fmt.Errorf("segment %d (%s): %w", i, seg.Category, err)
 		}
 	}
 	return nil

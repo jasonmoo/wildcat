@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jasonmoo/wildcat/internal/commands/spath"
 	"github.com/jasonmoo/wildcat/internal/golang"
 )
 
@@ -269,4 +270,38 @@ func flattenSelector(expr ast.Expr) []string {
 func goroot() (string, error) {
 	out, err := exec.Command("go", "env", "GOROOT").Output()
 	return strings.TrimSpace(string(out)), err
+}
+
+// ResolveSpath resolves a semantic path string to an AST node.
+// Uses the precomputed symbol index for efficient lookup.
+func (wc *Wildcat) ResolveSpath(ctx context.Context, pathStr string) (*spath.Resolution, error) {
+	// Parse the path
+	p, err := spath.Parse(pathStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse path: %w", err)
+	}
+
+	query, err := wc.resolveSymbolQuery(ctx, p.SymbolQuery())
+	if err != nil {
+		return nil, err
+	}
+
+	// Look up the symbol
+	matches := wc.Index.Lookup(query)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("symbol not found: %s", query)
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("ambiguous symbol: %s (matches %d)", query, len(matches))
+	}
+	sym := matches[0]
+
+	// Find the package
+	pkg, err := wc.Package(sym.PackageIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	return spath.NewResolution(p, pkg, sym)
+
 }
