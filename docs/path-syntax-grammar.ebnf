@@ -1,0 +1,364 @@
+(*
+ * Wildcat Path Syntax Grammar
+ *
+ * This grammar defines the syntax for addressing Go code elements semantically.
+ * Paths identify code by meaning (package, type, method, field) rather than
+ * location (file, line, column).
+ *
+ * Design principles:
+ * - Canonical output: wildcat always generates paths in canonical form
+ * - Flexible input: parser accepts alternative forms that resolve unambiguously
+ * - Go-natural: syntax feels like extended Go, not a foreign query language
+ *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════
+ * TOP-LEVEL STRUCTURE
+ * ═══════════════════════════════════════════════════════════════════════════ *)
+
+(* A path consists of: package + symbol + optional structural subpath *)
+path = package_path , "." , symbol , [ subpath ] ;
+
+(*
+ * Examples:
+ *   golang.Symbol                      - type in package
+ *   golang.Symbol.String               - method on type
+ *   golang.Symbol/fields[Name]         - struct field
+ *   golang.WalkReferences/params[ctx]  - function parameter
+ *   io.Reader.Read/returns[0]          - interface method return value
+ *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════
+ * PACKAGE PATH
+ * ═══════════════════════════════════════════════════════════════════════════ *)
+
+(* Package path: slash-separated components, may include dots in module paths *)
+package_path = package_component , { "/" , package_component } ;
+
+package_component = identifier
+                  | identifier , "." , identifier , { "." , identifier } ;
+                  (* Allows: github.com, example.org, v2.api *)
+
+(*
+ * CANONICAL FORM: Full import path (PkgPath)
+ *
+ * Wildcat always outputs the full import path - the same string you'd use
+ * in a Go import statement. This is unambiguous and portable.
+ *
+ * Canonical examples:
+ *   encoding/json                              - stdlib
+ *   github.com/jasonmoo/wildcat/internal/golang - module package
+ *   io                                         - stdlib (single component)
+ *
+ * ACCEPTED INPUT: Three forms (resolver handles all)
+ *
+ *   1. Package name only:
+ *      golang                  → resolves to full path if unambiguous
+ *
+ *   2. Relative path (from module root):
+ *      internal/golang         → prepends module path
+ *
+ *   3. Full import path:
+ *      github.com/jasonmoo/wildcat/internal/golang  → used directly
+ *
+ * All three resolve to the same package. Conflicts surface at resolution time.
+ *
+ * Examples (input → canonical output):
+ *   golang.Symbol           → github.com/jasonmoo/wildcat/internal/golang.Symbol
+ *   internal/golang.Symbol  → github.com/jasonmoo/wildcat/internal/golang.Symbol
+ *   encoding/json.Marshal   → encoding/json.Marshal (stdlib, already canonical)
+ *   json.Marshal            → error: "json" is ambiguous or not found
+ *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════
+ * SYMBOL IDENTITY
+ * ═══════════════════════════════════════════════════════════════════════════ *)
+
+(* Symbol: top-level declaration, optionally with method *)
+symbol = identifier , [ "." , identifier ] ;
+         (* First: type, func, var, or const name *)
+         (* Second (optional): method name - ONLY valid on types *)
+
+(*
+ * Examples:
+ *   Symbol                  - type, func, var, or const
+ *   WalkReferences          - function
+ *   Symbol.String           - method on Symbol type
+ *   ErrNotFound             - variable
+ *   SymbolKindFunc          - constant
+ *
+ * Constraint: Dot notation is for methods only. Maximum one dot in symbol.
+ * Fields, params, etc. use subpath notation.
+ *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════
+ * STRUCTURAL SUBPATH
+ * ═══════════════════════════════════════════════════════════════════════════ *)
+
+(* Subpath: one or more structural navigations *)
+subpath = "/" , segment , { "/" , segment } ;
+
+(* Segment: category with optional selector *)
+segment = category , [ selector ] ;
+
+(* Categories: structural components of declarations *)
+category = "fields"      (* struct fields *)
+         | "methods"     (* interface methods - alternative to dot notation *)
+         | "embeds"      (* embedded types in struct or interface *)
+         | "params"      (* function/method parameters *)
+         | "returns"     (* function/method return values *)
+         | "receiver"    (* method receiver *)
+         | "typeparams"  (* generic type parameters *)
+         | "body"        (* function/method body *)
+         | "doc"         (* godoc comment *)
+         | "tag"         (* struct field tag *)
+         | "type"        (* declared type of field/param/var *)
+         | "name"        (* name component of receiver/param *)
+         | "constraint"  (* type parameter constraint *)
+         | "value"       (* initializer expression for const/var *)
+         ;
+
+(* Selector: choose element by name or position *)
+selector = "[" , ( identifier | integer ) , "]" ;
+
+(*
+ * Examples:
+ *   /fields[Name]           - field by name
+ *   /fields[0]              - field by position
+ *   /params[ctx]            - parameter by name
+ *   /params[0]              - parameter by position
+ *   /returns[0]             - return value by position
+ *   /returns[err]           - named return by name
+ *   /typeparams[T]          - type parameter by name
+ *   /embeds[Reader]         - embedded type by name
+ *   /receiver               - method receiver (no selector needed)
+ *   /body                   - function body (no selector needed)
+ *   /doc                    - doc comment (no selector needed)
+ *   /tag                    - full struct tag
+ *   /tag[json]              - specific tag key
+ *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════
+ * LEXICAL ELEMENTS
+ * ═══════════════════════════════════════════════════════════════════════════ *)
+
+(* Identifier: Go-style identifier *)
+identifier = letter , { letter | digit } ;
+
+(* Integer: non-negative integer for positional access *)
+integer = digit , { digit } ;
+
+(* Basic character classes *)
+letter = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j"
+       | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t"
+       | "u" | "v" | "w" | "x" | "y" | "z"
+       | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J"
+       | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" | "S" | "T"
+       | "U" | "V" | "W" | "X" | "Y" | "Z"
+       | "_" ;
+
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+
+(* ═══════════════════════════════════════════════════════════════════════════
+ * CANONICAL VS ACCEPTED FORMS
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * The grammar above defines the CANONICAL form - what wildcat outputs.
+ * The parser also ACCEPTS alternative forms that resolve unambiguously.
+ *
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │ Element            │ Canonical              │ Accepted Alternatives    │
+ * ├─────────────────────────────────────────────────────────────────────────┤
+ * │ Interface method   │ pkg.Interface.Method   │ pkg.Interface/methods[M] │
+ * │                    │                        │ pkg.Interface/methods[0] │
+ * ├─────────────────────────────────────────────────────────────────────────┤
+ * │ Named parameter    │ pkg.Func/params[name]  │ pkg.Func/params[0]       │
+ * ├─────────────────────────────────────────────────────────────────────────┤
+ * │ Named return       │ pkg.Func/returns[name] │ pkg.Func/returns[0]      │
+ * ├─────────────────────────────────────────────────────────────────────────┤
+ * │ Named field        │ pkg.T/fields[Name]     │ pkg.T/fields[0]          │
+ * ├─────────────────────────────────────────────────────────────────────────┤
+ * │ Type param         │ pkg.T/typeparams[T]    │ pkg.T/typeparams[0]      │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Principle: Named access is canonical when name exists. Positional always
+ * accepted. For interface methods, dot notation is canonical.
+ *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════
+ * VALID PATH PATTERNS BY DECLARATION TYPE
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * PACKAGE
+ *   pkg                                    - package itself
+ *
+ * CONSTANT
+ *   pkg.Const                              - constant
+ *   pkg.Const/doc                          - doc comment
+ *   pkg.Const/value                        - initializer expression
+ *   pkg.Const/type                         - explicit type (if declared)
+ *
+ * VARIABLE
+ *   pkg.Var                                - variable
+ *   pkg.Var/doc                            - doc comment
+ *   pkg.Var/value                          - initializer expression
+ *   pkg.Var/type                           - explicit type (if declared)
+ *
+ * FUNCTION
+ *   pkg.Func                               - function
+ *   pkg.Func/doc                           - doc comment
+ *   pkg.Func/params[name]                  - parameter by name
+ *   pkg.Func/params[0]                     - parameter by position
+ *   pkg.Func/params[name]/type             - parameter type
+ *   pkg.Func/params[name]/name             - parameter name
+ *   pkg.Func/returns[name]                 - return value by name
+ *   pkg.Func/returns[0]                    - return value by position
+ *   pkg.Func/returns[0]/type               - return type
+ *   pkg.Func/typeparams[T]                 - type parameter
+ *   pkg.Func/typeparams[T]/constraint      - type constraint
+ *   pkg.Func/body                          - function body
+ *
+ * TYPE (struct)
+ *   pkg.Type                               - type
+ *   pkg.Type/doc                           - doc comment
+ *   pkg.Type/typeparams[T]                 - type parameter
+ *   pkg.Type/typeparams[T]/constraint      - type constraint
+ *   pkg.Type/fields[Name]                  - field by name
+ *   pkg.Type/fields[0]                     - field by position
+ *   pkg.Type/fields[Name]/type             - field type
+ *   pkg.Type/fields[Name]/doc              - field doc comment
+ *   pkg.Type/fields[Name]/tag              - full struct tag
+ *   pkg.Type/fields[Name]/tag[json]        - specific tag key
+ *   pkg.Type/embeds[TypeName]              - embedded type
+ *
+ * TYPE (interface)
+ *   pkg.Interface                          - interface type
+ *   pkg.Interface/doc                      - doc comment
+ *   pkg.Interface.Method                   - method (canonical)
+ *   pkg.Interface/methods[Name]            - method (accepted)
+ *   pkg.Interface/methods[0]               - method by position
+ *   pkg.Interface.Method/params[name]      - method parameter
+ *   pkg.Interface.Method/returns[0]        - method return
+ *   pkg.Interface.Method/doc               - method doc
+ *   pkg.Interface/embeds[OtherInterface]   - embedded interface
+ *
+ * METHOD (concrete)
+ *   pkg.Type.Method                        - method
+ *   pkg.Type.Method/doc                    - doc comment
+ *   pkg.Type.Method/receiver               - receiver
+ *   pkg.Type.Method/receiver/name          - receiver name
+ *   pkg.Type.Method/receiver/type          - receiver type
+ *   pkg.Type.Method/params[name]           - parameter
+ *   pkg.Type.Method/returns[0]             - return value
+ *   pkg.Type.Method/typeparams[T]          - type parameter
+ *   pkg.Type.Method/body                   - method body
+ *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════
+ * RESOLUTION RULES
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * 1. PACKAGE RESOLUTION
+ *    Parse from left, greedily match longest known package path.
+ *    Example: "github.com/user/repo.Type"
+ *             → package="github.com/user/repo", symbol="Type"
+ *
+ * 2. SYMBOL RESOLUTION
+ *    After package, next identifier is symbol name.
+ *    If followed by dot + identifier, that's a method name.
+ *    Example: "pkg.Type.Method" → symbol="Type", method="Method"
+ *
+ * 3. SUBPATH RESOLUTION
+ *    Each /category[selector] navigates into the current node.
+ *    Categories valid only on appropriate node types (see patterns above).
+ *
+ * 4. SELECTOR RESOLUTION
+ *    Named selectors match by identifier.
+ *    Positional selectors (integers) use declaration order.
+ *    For grouped declarations (e.g., `a, b int`), each name is a position.
+ *
+ * 5. AMBIGUITY
+ *    Paths are unambiguous by construction.
+ *    Same element may have multiple valid paths (canonical + accepted).
+ *    All valid paths for an element resolve to the same AST node.
+ *)
+
+
+(* ═══════════════════════════════════════════════════════════════════════════
+ * EXAMPLES
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Given this Go code in module "github.com/example/app":
+ *
+ *   // In file: internal/database/user.go
+ *   package database
+ *
+ *   // User represents a user in the system.
+ *   type User struct {
+ *       ID   int64  `json:"id" db:"user_id"`
+ *       Name string `json:"name"`
+ *   }
+ *
+ *   // GetID returns the user's ID.
+ *   func (u *User) GetID() int64 {
+ *       return u.ID
+ *   }
+ *
+ *   // NewUser creates a new user.
+ *   func NewUser(ctx context.Context, name string) (*User, error) {
+ *       // ...
+ *   }
+ *
+ *   type Repository interface {
+ *       Get(ctx context.Context, id int64) (*User, error)
+ *       Save(ctx context.Context, user *User) error
+ *   }
+ *
+ * Canonical paths (what wildcat outputs):
+ *
+ *   github.com/example/app/internal/database.User                      → User struct
+ *   github.com/example/app/internal/database.User/doc                  → "User represents..."
+ *   github.com/example/app/internal/database.User/fields[ID]           → ID field
+ *   github.com/example/app/internal/database.User/fields[ID]/type      → int64
+ *   github.com/example/app/internal/database.User/fields[ID]/tag       → `json:"id" db:"user_id"`
+ *   github.com/example/app/internal/database.User/fields[ID]/tag[json] → "id"
+ *   github.com/example/app/internal/database.User/fields[0]            → ID (positional)
+ *   github.com/example/app/internal/database.User.GetID                → GetID method
+ *   github.com/example/app/internal/database.User.GetID/receiver       → u *User
+ *   github.com/example/app/internal/database.User.GetID/returns[0]     → int64
+ *   github.com/example/app/internal/database.User.GetID/body           → { return u.ID }
+ *   github.com/example/app/internal/database.NewUser                   → NewUser function
+ *   github.com/example/app/internal/database.NewUser/params[ctx]       → ctx context.Context
+ *   github.com/example/app/internal/database.NewUser/params[0]         → ctx (positional)
+ *   github.com/example/app/internal/database.NewUser/returns[0]        → *User
+ *   github.com/example/app/internal/database.Repository                → Repository interface
+ *   github.com/example/app/internal/database.Repository.Get            → Get method
+ *   github.com/example/app/internal/database.Repository/methods[Get]   → Get (accepted)
+ *   github.com/example/app/internal/database.Repository.Get/params[ctx] → ctx parameter
+ *
+ * Accepted input (shorter forms that resolve to canonical):
+ *
+ *   database.User                → github.com/example/app/internal/database.User
+ *   internal/database.User       → github.com/example/app/internal/database.User
+ *   database.User/fields[ID]     → github.com/example/app/internal/database.User/fields[ID]
+ *
+ * Stdlib examples (PkgPath is already the canonical form):
+ *
+ *   encoding/json.Marshal                    → Marshal function
+ *   encoding/json.Marshal/params[v]          → v parameter
+ *   io.Reader                                → Reader interface
+ *   io.Reader.Read                           → Read method
+ *   io.Reader.Read/params[p]                 → p []byte parameter
+ *   io.Reader.Read/returns[n]                → n int return
+ *   context.Context                          → Context interface
+ *   context.WithCancel/params[parent]        → parent parameter
+ *   context.WithCancel/returns[0]            → Context return
+ *   context.WithCancel/returns[1]            → CancelFunc return
+ *)
