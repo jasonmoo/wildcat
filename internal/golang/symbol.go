@@ -47,6 +47,50 @@ func (ps *Symbol) Signature() string {
 	return FormatNode(ps.Node)
 }
 
+// TypeKind returns a description of the underlying type structure.
+// For type declarations, returns "struct", "interface", "map", "slice", "array",
+// "chan", "pointer", "func", "alias", or the basic type name (e.g., "int", "string").
+// Returns empty string for non-type symbols.
+func (ps *Symbol) TypeKind() string {
+	if ps.Object == nil {
+		return ""
+	}
+
+	tn, ok := ps.Object.(*types.TypeName)
+	if !ok {
+		return ""
+	}
+
+	// Check for type alias first - show what it aliases to
+	if tn.IsAlias() {
+		return "= " + tn.Type().String()
+	}
+
+	// Inspect underlying type
+	switch t := tn.Type().Underlying().(type) {
+	case *types.Struct:
+		return "struct"
+	case *types.Interface:
+		return "interface"
+	case *types.Map:
+		return "map"
+	case *types.Slice:
+		return "slice"
+	case *types.Array:
+		return "array"
+	case *types.Chan:
+		return "chan"
+	case *types.Pointer:
+		return "pointer"
+	case *types.Signature:
+		return "func"
+	case *types.Basic:
+		return t.Name() // "int", "string", "bool", etc.
+	default:
+		return "type"
+	}
+}
+
 func (ps *Symbol) FileLocation() string {
 	if ps.IsBuiltin {
 		return "builtin"

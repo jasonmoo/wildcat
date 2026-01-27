@@ -2,7 +2,6 @@ package ls_cmd
 
 import (
 	"context"
-	"go/types"
 	"sort"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
@@ -108,9 +107,10 @@ func (c *LsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...f
 // listTarget lists paths for a single target, returning either a section or an error.
 func (c *LsCommand) listTarget(ctx context.Context, wc *commands.Wildcat, target string) (*TargetSection, *commands.ErrorResult) {
 	// Try to resolve as a package first
-	pkg := c.resolvePackage(wc, target)
-	if pkg != nil {
-		return c.listPackageSection(ctx, wc, target, pkg), nil
+	if pi, err := wc.Project.ResolvePackageName(ctx, target); err == nil {
+		if pkg, err := wc.Package(pi); err == nil {
+			return c.listPackageSection(ctx, wc, target, pkg), nil
+		}
 	}
 
 	// Try to resolve as a semantic path (symbol or deeper)
@@ -120,25 +120,6 @@ func (c *LsCommand) listTarget(ctx context.Context, wc *commands.Wildcat, target
 	}
 
 	return c.listResolutionSection(ctx, wc, target, res), nil
-}
-
-// resolvePackage tries to find a package by name or path.
-func (c *LsCommand) resolvePackage(wc *commands.Wildcat, name string) *golang.Package {
-	for _, pkg := range wc.Project.Packages {
-		// Match by full path
-		if pkg.Identifier.PkgPath == name {
-			return pkg
-		}
-		// Match by short name
-		if pkg.Identifier.Name == name {
-			return pkg
-		}
-		// Match by module-relative path (e.g., "internal/golang")
-		if pkg.Identifier.PkgShortPath == name {
-			return pkg
-		}
-	}
-	return nil
 }
 
 // listPackageSection enumerates all top-level symbols in a package.
@@ -286,56 +267,13 @@ func symbolTypeString(sym *golang.Symbol) string {
 	switch sym.Kind {
 	case golang.SymbolKindFunc, golang.SymbolKindMethod:
 		return sym.Signature()
-	case golang.SymbolKindType:
-		return describeType(sym)
-	case golang.SymbolKindInterface:
-		return "interface"
+	case golang.SymbolKindType, golang.SymbolKindInterface:
+		return sym.TypeKind()
 	default:
 		// For vars/consts, get the type from the Object
 		if sym.Object != nil {
 			return sym.Object.Type().String()
 		}
 		return string(sym.Kind)
-	}
-}
-
-// describeType returns a description of the underlying type kind.
-func describeType(sym *golang.Symbol) string {
-	if sym.Object == nil {
-		return "type"
-	}
-
-	t := sym.Object.Type()
-	if t == nil {
-		return "type"
-	}
-
-	// Check for type alias
-	if tn, ok := sym.Object.(*types.TypeName); ok && tn.IsAlias() {
-		return "alias"
-	}
-
-	// Describe based on underlying type
-	switch sym.Object.Type().Underlying().(type) {
-	case *types.Struct:
-		return "struct"
-	case *types.Interface:
-		return "interface"
-	case *types.Map:
-		return "map"
-	case *types.Slice:
-		return "slice"
-	case *types.Array:
-		return "array"
-	case *types.Chan:
-		return "chan"
-	case *types.Pointer:
-		return "pointer"
-	case *types.Signature:
-		return "func"
-	case *types.Basic:
-		return "type" // e.g., type MyInt int
-	default:
-		return "type"
 	}
 }

@@ -27,6 +27,23 @@ const (
 	SymbolKindUnknown   SymbolKind = "unknown" // unrecognized types.Object
 )
 
+// TypeKind describes the underlying structure of a type declaration.
+// Only set for symbols with Kind == SymbolKindType or SymbolKindInterface.
+type TypeKind string
+
+const (
+	TypeKindStruct    TypeKind = "struct"
+	TypeKindInterface TypeKind = "interface"
+	TypeKindMap       TypeKind = "map"
+	TypeKindSlice     TypeKind = "slice"
+	TypeKindArray     TypeKind = "array"
+	TypeKindChan      TypeKind = "chan"
+	TypeKindPointer   TypeKind = "pointer"
+	TypeKindFunc      TypeKind = "func"
+	TypeKindAlias     TypeKind = "alias"
+	TypeKindBasic     TypeKind = "basic" // defined type over basic type (e.g., type MyInt int)
+)
+
 // KindAliases maps accepted kind names to their SymbolKind.
 var KindAliases = map[string]SymbolKind{
 	"func": SymbolKindFunc, "function": SymbolKindFunc,
