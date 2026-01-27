@@ -18,12 +18,13 @@ type PathEntry struct {
 
 // TargetSection represents the listing for a single target.
 type TargetSection struct {
-	Target  string      `json:"target"`
-	Scope   string      `json:"scope,omitempty"` // "package", "symbol", "field"
-	Package string      `json:"package,omitempty"`
-	Symbol  string      `json:"symbol,omitempty"` // symbol name for header
-	Paths   []PathEntry `json:"paths,omitempty"`
-	Error   string      `json:"error,omitempty"`
+	Target      string      `json:"target"`
+	Scope       string      `json:"scope,omitempty"` // "package", "symbol", "field"
+	Package     string      `json:"package,omitempty"`
+	Symbol      string      `json:"symbol,omitempty"` // symbol name for header
+	Paths       []PathEntry `json:"paths,omitempty"`
+	Error       string      `json:"error,omitempty"`
+	Suggestions []string    `json:"suggestions,omitempty"`
 }
 
 // LsResponse is the result of the ls command.
@@ -66,6 +67,9 @@ func (r *LsResponse) MarshalMarkdown() ([]byte, error) {
 	for _, section := range r.Sections {
 		if section.Error != "" {
 			fmt.Fprintf(&buf, "# error: %s - %s\n", section.Target, section.Error)
+			if len(section.Suggestions) > 0 {
+				fmt.Fprintf(&buf, "# did you mean: %s\n", strings.Join(section.Suggestions, ", "))
+			}
 			continue
 		}
 		for _, p := range section.Paths {

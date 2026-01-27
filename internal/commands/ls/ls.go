@@ -92,8 +92,9 @@ func (c *LsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...f
 		if errResult != nil {
 			// Include error as a section with no paths
 			sections = append(sections, TargetSection{
-				Target: target,
-				Error:  errResult.Error.Error(),
+				Target:      target,
+				Error:       errResult.Error.Error(),
+				Suggestions: errResult.Suggestions,
 			})
 			continue
 		}
@@ -280,7 +281,7 @@ func (c *LsCommand) enumerateRecursive(ctx context.Context, wc *commands.Wildcat
 }
 
 func (c *LsCommand) notFoundError(wc *commands.Wildcat, target string, err error) *commands.ErrorResult {
-	e := commands.NewErrorResultf("path_not_found", "cannot resolve %q: %v", target, err)
+	e := commands.NewErrorResultf("path_not_found", "not found")
 	for _, s := range wc.Suggestions(target, &golang.SearchOptions{Limit: 5}) {
 		e.Suggestions = append(e.Suggestions, s.Symbol)
 	}

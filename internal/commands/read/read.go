@@ -92,10 +92,14 @@ func (c *ReadCommand) readTarget(ctx context.Context, wc *commands.Wildcat, targ
 	// Resolve the path
 	res, err := wc.ResolveSpath(ctx, target)
 	if err != nil {
-		return ReadSection{
+		section := ReadSection{
 			Path:  target,
-			Error: fmt.Sprintf("cannot resolve: %v", err),
+			Error: "not found",
 		}
+		for _, s := range wc.Suggestions(target, &golang.SearchOptions{Limit: 5}) {
+			section.Suggestions = append(section.Suggestions, s.Symbol)
+		}
+		return section
 	}
 
 	// Get FileSet for rendering
