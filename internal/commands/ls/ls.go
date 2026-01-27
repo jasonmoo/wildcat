@@ -49,18 +49,18 @@ The ls command shows what paths are available from a given starting point.
 Use it to explore the codebase before using read or edit commands.
 
 Arguments:
-  <path>    Package name, symbol, or semantic path (multiple allowed)
+  <path>    Package path, symbol, or semantic path (multiple allowed)
 
 Flags:
   --depth   How deep to recurse (1 = immediate children, 0 = unlimited)
 
 Examples:
-  wildcat ls golang                          # all symbols in package
+  wildcat ls internal/golang                 # all symbols in package
   wildcat ls golang.Symbol                   # fields, methods of a type
-  wildcat ls golang.Symbol golang.Package    # multiple symbols
+  wildcat ls golang.Symbol golang.Package   # multiple symbols
   wildcat ls golang.Symbol --depth 0         # all paths recursively
   wildcat ls golang.WalkReferences           # params, returns, body of a function
-  wildcat ls golang.Symbol.String            # parts of a method
+  wildcat ls golang.Symbol.Signature         # parts of a method
   wildcat ls golang.Symbol/fields[Name]      # subpaths of a field
 
 Output shows paths that can be used with read/edit commands.`,
