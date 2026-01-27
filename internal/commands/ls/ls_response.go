@@ -51,7 +51,11 @@ func (r *LsResponse) MarshalMarkdown() ([]byte, error) {
 	for _, section := range r.Sections {
 		if section.Error == "" && section.Package != "" {
 			// Use full package path + symbol for the header
-			resolvedPaths = append(resolvedPaths, section.Package+"."+section.Symbol)
+			path := section.Package
+			if section.Symbol != "" {
+				path += "." + section.Symbol
+			}
+			resolvedPaths = append(resolvedPaths, path)
 		}
 	}
 	if len(resolvedPaths) > 0 {

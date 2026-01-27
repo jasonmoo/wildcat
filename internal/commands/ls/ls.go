@@ -3,6 +3,7 @@ package ls_cmd
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/commands/spath"
@@ -122,7 +123,7 @@ func (c *LsCommand) listTarget(ctx context.Context, wc *commands.Wildcat, target
 	return c.listResolutionSection(ctx, wc, target, res), nil
 }
 
-// listPackageSection enumerates all top-level symbols in a package.
+// listPackageSection enumerates top-level symbols and subpackages in a package.
 func (c *LsCommand) listPackageSection(ctx context.Context, wc *commands.Wildcat, target string, pkg *golang.Package) *TargetSection {
 	var paths []PathEntry
 
@@ -145,6 +146,24 @@ func (c *LsCommand) listPackageSection(ctx context.Context, wc *commands.Wildcat
 			childPaths := c.enumerateRecursive(ctx, wc, symPath, 2)
 			paths = append(paths, childPaths...)
 		}
+	}
+
+	// Find all descendant packages and show with relative paths
+	prefix := pkg.Identifier.PkgPath + "/"
+	var subpkgs []string
+	for _, p := range wc.Project.Packages {
+		if strings.HasPrefix(p.Identifier.PkgPath, prefix) {
+			// Use module-relative path for display
+			subpkgs = append(subpkgs, p.Identifier.PkgShortPath)
+		}
+	}
+	sort.Strings(subpkgs)
+
+	for _, subpkg := range subpkgs {
+		paths = append(paths, PathEntry{
+			Path: subpkg,
+			Kind: "package",
+		})
 	}
 
 	return &TargetSection{
