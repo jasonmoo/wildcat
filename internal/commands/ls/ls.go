@@ -158,19 +158,21 @@ func (c *LsCommand) listPackageSection(ctx context.Context, wc *commands.Wildcat
 // listResolutionSection enumerates children from a resolved semantic path.
 func (c *LsCommand) listResolutionSection(ctx context.Context, wc *commands.Wildcat, target string, res *spath.Resolution) *TargetSection {
 	// Create a short-form base path for enumeration using package short name
+	// Include segments if the original path had them (subpath query)
 	shortBasePath := &spath.Path{
-		Package: res.Package.Identifier.Name,
-		Symbol:  res.Path.Symbol,
-		Method:  res.Path.Method,
+		Package:  res.Package.Identifier.Name,
+		Symbol:   res.Path.Symbol,
+		Method:   res.Path.Method,
+		Segments: res.Path.Segments,
 	}
 
-	// Start with the target symbol itself as the first entry
-	var paths []PathEntry
-	paths = append(paths, PathEntry{
-		Path: shortBasePath.String(),
-		Kind: string(res.Symbol.Kind),
-		Type: symbolTypeString(res.Symbol),
-	})
+	// Start with the resolved target itself as the first entry
+	self := spath.EnumerateSelf(res, res.Symbol, shortBasePath)
+	paths := []PathEntry{{
+		Path: self.Path,
+		Kind: self.Kind,
+		Type: self.Type,
+	}}
 
 	children := spath.EnumerateChildrenWithBase(res, res.Symbol, shortBasePath)
 
@@ -193,10 +195,17 @@ func (c *LsCommand) listResolutionSection(ctx context.Context, wc *commands.Wild
 		scope = "field"
 	}
 
-	// Symbol for header - use TypeSymbol format (e.g., "Wildcat" or "Symbol.Method")
+	// Symbol for header - include method and subpath if present
 	symName := res.Path.Symbol
 	if res.Path.Method != "" {
 		symName = res.Path.Symbol + "." + res.Path.Method
+	}
+	// Append subpath segments to the symbol name for the header
+	for _, seg := range res.Path.Segments {
+		symName += "/" + seg.Category
+		if seg.Selector != "" {
+			symName += "[" + seg.Selector + "]"
+		}
 	}
 
 	return &TargetSection{
@@ -257,23 +266,4 @@ func (c *LsCommand) notFoundError(wc *commands.Wildcat, target string, err error
 		e.Suggestions = append(e.Suggestions, s.Symbol)
 	}
 	return e
-}
-
-// symbolTypeString returns the type annotation for a symbol.
-// For funcs/methods: the signature
-// For types: the underlying kind (struct, map, slice, etc.)
-// For vars/consts: the declared type
-func symbolTypeString(sym *golang.Symbol) string {
-	switch sym.Kind {
-	case golang.SymbolKindFunc, golang.SymbolKindMethod:
-		return sym.Signature()
-	case golang.SymbolKindType, golang.SymbolKindInterface:
-		return sym.TypeKind()
-	default:
-		// For vars/consts, get the type from the Object
-		if sym.Object != nil {
-			return sym.Object.Type().String()
-		}
-		return string(sym.Kind)
-	}
 }

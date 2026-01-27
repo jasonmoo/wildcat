@@ -24,6 +24,92 @@ func EnumerateChildren(res *Resolution, sym *golang.Symbol) []ChildPath {
 	return EnumerateChildrenWithBase(res, sym, res.Path)
 }
 
+// EnumerateSelf returns a ChildPath describing the resolved node itself.
+// This uses the same kind/type logic as child enumeration for consistency.
+func EnumerateSelf(res *Resolution, sym *golang.Symbol, basePath *Path) ChildPath {
+	if res == nil {
+		return ChildPath{}
+	}
+
+	// Get FileSet for line counting
+	var fset *token.FileSet
+	if res.Package != nil && res.Package.Package != nil {
+		fset = res.Package.Package.Fset
+	}
+
+	// Default to symbol info when no subpath
+	if !res.Path.HasSubpath() {
+		return ChildPath{
+			Path: basePath.String(),
+			Kind: string(sym.Kind),
+			Type: symbolTypeString(sym),
+		}
+	}
+
+	// Determine kind/type based on last segment category and resolved node
+	lastSeg := res.Path.Segments[len(res.Path.Segments)-1]
+	kind := lastSeg.Category
+	typeStr := ""
+
+	switch lastSeg.Category {
+	case "receiver", "params", "returns", "fields", "embeds", "typeparams":
+		if res.Field != nil {
+			typeStr = golang.FormatNode(res.Field.Type)
+		}
+		// Adjust kind to singular form
+		switch lastSeg.Category {
+		case "params":
+			kind = "param"
+		case "returns":
+			kind = "return"
+		case "fields":
+			kind = "field"
+		case "embeds":
+			kind = "embed"
+		case "typeparams":
+			kind = "typeparam"
+		}
+	case "methods":
+		kind = "method"
+		if res.Field != nil {
+			typeStr = golang.FormatNode(res.Field.Type)
+		}
+	case "body":
+		if block, ok := res.Node.(*ast.BlockStmt); ok {
+			typeStr = bodyLoc(fset, block)
+		}
+	case "doc":
+		if doc, ok := res.Node.(*ast.CommentGroup); ok {
+			typeStr = docLines(fset, doc)
+		}
+	case "tag":
+		// No type for tags
+	}
+
+	return ChildPath{
+		Path:     basePath.String(),
+		Category: lastSeg.Category,
+		Selector: lastSeg.Selector,
+		Kind:     kind,
+		Type:     typeStr,
+	}
+}
+
+// symbolTypeString returns the type annotation for a symbol.
+func symbolTypeString(sym *golang.Symbol) string {
+	switch sym.Kind {
+	case golang.SymbolKindFunc, golang.SymbolKindMethod:
+		return sym.Signature()
+	case golang.SymbolKindType, golang.SymbolKindInterface:
+		return sym.TypeKind()
+	default:
+		if sym.Object != nil {
+			return sym.Object.Type().String()
+		}
+		return string(sym.Kind)
+	}
+}
+
 // EnumerateChildrenWithBase returns child paths using a custom base path for output formatting.
 // This allows using short package names in output while preserving full paths for resolution.
 func EnumerateChildrenWithBase(res *Resolution, sym *golang.Symbol, basePath *Path) []ChildPath {
@@ -91,18 +177,11 @@ func enumerateFunc(basePath *Path, fn *ast.FuncDecl, fset *token.FileSet) []Chil
 
 	// Body
 	if fn.Body != nil {
-		locStr := ""
-		if fset != nil {
-			startLine := fset.Position(fn.Body.Lbrace).Line
-			endLine := fset.Position(fn.Body.Rbrace).Line
-			loc := endLine - startLine + 1
-			locStr = fmt.Sprintf("%d loc", loc)
-		}
 		children = append(children, ChildPath{
 			Path:     basePath.WithSegment("body", "", false).String(),
 			Category: "body",
 			Kind:     "body",
-			Type:     locStr,
+			Type:     bodyLoc(fset, fn.Body),
 		})
 	}
 
@@ -131,6 +210,16 @@ func docLines(fset *token.FileSet, doc *ast.CommentGroup) string {
 		return "1 line"
 	}
 	return fmt.Sprintf("%d lines", lines)
+}
+
+// bodyLoc returns a "N loc" string for a block statement.
+func bodyLoc(fset *token.FileSet, block *ast.BlockStmt) string {
+	if fset == nil || block == nil {
+		return ""
+	}
+	startLine := fset.Position(block.Lbrace).Line
+	endLine := fset.Position(block.Rbrace).Line
+	return fmt.Sprintf("%d loc", endLine-startLine+1)
 }
 
 // enumerateGenDecl lists children of a general declaration.
