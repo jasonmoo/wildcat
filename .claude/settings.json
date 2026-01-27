@@ -6,9 +6,7 @@
       "Bash(./wildcat:*)",
 
       "Bash(bd:*)",
-      "Bash(go build:*)",
-      "Bash(go test:*)",
-      "Bash(go doc:*)",
+      "Bash(go:*)",
       "Bash(gopls:*)",
       "Bash(jq:*)",
 
