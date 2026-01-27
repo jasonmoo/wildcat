@@ -72,6 +72,7 @@ func ChannelElemType(info *types.Info, expr ast.Expr) string {
 
 // FormatNode formats an AST node to its canonical source representation.
 // Strips comments and doc strings from the node before formatting.
+// Use this for compact display (signatures, type expressions).
 func FormatNode(node ast.Node) string {
 	restore := stripComments(node)
 	defer restore()
@@ -80,6 +81,75 @@ func FormatNode(node ast.Node) string {
 		return fmt.Sprintf("<format error: %v>", err)
 	}
 	return sb.String()
+}
+
+// RenderSource renders an AST node to source code, preserving comments.
+// Use this for full source display where comments matter.
+// The fset parameter should be the original FileSet from parsing.
+func RenderSource(node ast.Node, fset *token.FileSet) (string, error) {
+	if node == nil {
+		return "", fmt.Errorf("no AST node")
+	}
+
+	// Handle node types that format.Node doesn't support
+	switch n := node.(type) {
+	case *ast.Field:
+		return RenderField(n, fset)
+	case *ast.CommentGroup:
+		return RenderCommentGroup(n), nil
+	case *ast.BasicLit:
+		return n.Value, nil
+	}
+
+	var buf strings.Builder
+	if err := format.Node(&buf, fset, node); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+// RenderField renders a field (struct field, param, etc.) to source.
+func RenderField(field *ast.Field, fset *token.FileSet) (string, error) {
+	var buf strings.Builder
+
+	// Names (if any)
+	for i, name := range field.Names {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteString(name.Name)
+	}
+
+	// Type
+	if field.Type != nil {
+		if len(field.Names) > 0 {
+			buf.WriteString(" ")
+		}
+		if err := format.Node(&buf, fset, field.Type); err != nil {
+			return "", err
+		}
+	}
+
+	// Tag
+	if field.Tag != nil {
+		buf.WriteString(" ")
+		buf.WriteString(field.Tag.Value)
+	}
+
+	return buf.String(), nil
+}
+
+// RenderCommentGroup renders a comment group to source.
+func RenderCommentGroup(cg *ast.CommentGroup) string {
+	if cg == nil {
+		return ""
+	}
+	var lines []string
+	for _, c := range cg.List {
+		lines = append(lines, c.Text)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // stripComments removes comments, doc strings, and function bodies from an AST node.

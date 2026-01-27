@@ -33,6 +33,11 @@ type Resolution struct {
 	FieldIndex int
 }
 
+// FullPath returns the canonical path string with the full package import path.
+func (r *Resolution) FullPath() string {
+	return r.Package.Identifier.PkgPath + "." + r.Path.Symbol + r.Path.Subpath()
+}
+
 // NewResolution creates a Resolution from a parsed path, package, and symbol.
 // It navigates through any segments in the path and returns the fully resolved result.
 func NewResolution(path *Path, pkg *golang.Package, sym *golang.Symbol) (*Resolution, error) {

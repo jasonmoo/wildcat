@@ -89,6 +89,31 @@ func (p *Path) HasSubpath() bool {
 	return len(p.Segments) > 0
 }
 
+// Subpath returns the method and segments portion of the path as a string.
+// For example, for "pkg.Type.Method/body", returns ".Method/body".
+// Returns empty string if there's no method or segments.
+func (p *Path) Subpath() string {
+	if p.Method == "" && len(p.Segments) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	if p.Method != "" {
+		b.WriteByte('.')
+		b.WriteString(p.Method)
+	}
+	for _, seg := range p.Segments {
+		b.WriteByte('/')
+		b.WriteString(seg.Category)
+		if seg.Selector != "" {
+			b.WriteByte('[')
+			b.WriteString(seg.Selector)
+			b.WriteByte(']')
+		}
+	}
+	return b.String()
+}
+
 // Base returns a new Path with only Package, Symbol, and Method (no segments).
 func (p *Path) Base() *Path {
 	return &Path{

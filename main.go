@@ -8,6 +8,7 @@ import (
 	ls_cmd "github.com/jasonmoo/wildcat/internal/commands/ls"
 	package_cmd "github.com/jasonmoo/wildcat/internal/commands/package"
 	project_cmd "github.com/jasonmoo/wildcat/internal/commands/project"
+	read_cmd "github.com/jasonmoo/wildcat/internal/commands/read"
 	readme_cmd "github.com/jasonmoo/wildcat/internal/commands/readme"
 	search_cmd "github.com/jasonmoo/wildcat/internal/commands/search"
 	symbol_cmd "github.com/jasonmoo/wildcat/internal/commands/symbol"
@@ -49,8 +50,8 @@ and actionable error messages.`,
 		"symbol",   // symbol-level analysis
 		"search",   // find symbols
 		"ls",       // path discovery
+		"read",     // read source at path
 		"tree",     // call graph traversal
-		"channels", // concurrency analysis
 		"deadcode", // dead code detection
 		"readme",   // onboarding
 		"version",  // meta
@@ -108,6 +109,7 @@ and actionable error messages.`,
 	rootCmd.AddCommand(symbol_cmd.NewSymbolCommand().Cmd())
 	rootCmd.AddCommand(search_cmd.NewSearchCommand().Cmd())
 	rootCmd.AddCommand(ls_cmd.NewLsCommand().Cmd())
+	rootCmd.AddCommand(read_cmd.NewReadCommand().Cmd())
 	rootCmd.AddCommand(tree_cmd.NewTreeCommand().Cmd())
 	rootCmd.AddCommand(deadcode_cmd.NewDeadcodeCommand().Cmd())
 	rootCmd.AddCommand(readme_cmd.NewReadmeCommand().Cmd())
