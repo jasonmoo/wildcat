@@ -245,10 +245,14 @@ func walkFileChannelOps(pkg *Package, file *ast.File, filename string, visitor C
 			}
 
 		case *ast.RangeStmt:
-			elemType := ChannelElemType(pkg.Package.TypesInfo, node.X)
-			pos := pkg.Package.Fset.Position(node.Pos())
-			if !emitOp(ChannelOpRange, elemType, node, pos) {
-				return false
+			// Only emit if ranging over a channel
+			if t := pkg.Package.TypesInfo.TypeOf(node.X); t != nil {
+				if ch, ok := t.Underlying().(*types.Chan); ok {
+					pos := pkg.Package.Fset.Position(node.Pos())
+					if !emitOp(ChannelOpRange, ch.Elem().String(), node, pos) {
+						return false
+					}
+				}
 			}
 		}
 		return true
