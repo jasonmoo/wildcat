@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go/token"
+	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
@@ -89,7 +90,14 @@ func (c *ReadCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 
 // readTarget reads a single target and returns a section.
 func (c *ReadCommand) readTarget(ctx context.Context, wc *commands.Wildcat, target string) ReadSection {
-	// Resolve the path
+	// Try to resolve as a package first
+	if pi, err := wc.Project.ResolvePackageName(ctx, target); err == nil {
+		if pkg, err := wc.Package(pi); err == nil {
+			return c.readPackage(pkg)
+		}
+	}
+
+	// Try to resolve as a semantic path (symbol or deeper)
 	res, err := wc.ResolveSpath(ctx, target)
 	if err != nil {
 		section := ReadSection{
@@ -121,5 +129,25 @@ func (c *ReadCommand) readTarget(ctx context.Context, wc *commands.Wildcat, targ
 		Path:     target,
 		Resolved: res.FullPath(),
 		Source:   source,
+	}
+}
+
+// readPackage renders all source files in a package.
+func (c *ReadCommand) readPackage(pkg *golang.Package) ReadSection {
+	var sources []string
+	fset := pkg.Package.Fset
+
+	for _, file := range pkg.Package.Syntax {
+		src, err := golang.RenderSource(file, fset)
+		if err != nil {
+			continue
+		}
+		sources = append(sources, src)
+	}
+
+	return ReadSection{
+		Path:     pkg.Identifier.PkgShortPath,
+		Resolved: pkg.Identifier.PkgPath,
+		Source:   strings.Join(sources, "\n\n"),
 	}
 }

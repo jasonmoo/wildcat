@@ -66,9 +66,12 @@ func (r *LsResponse) MarshalMarkdown() ([]byte, error) {
 	// Flat list of all paths
 	for _, section := range r.Sections {
 		if section.Error != "" {
-			fmt.Fprintf(&buf, "# error: %s - %s\n", section.Target, section.Error)
+			fmt.Fprintf(&buf, "Error: (path_not_found) %q %s\n", section.Target, section.Error)
 			if len(section.Suggestions) > 0 {
-				fmt.Fprintf(&buf, "# did you mean: %s\n", strings.Join(section.Suggestions, ", "))
+				buf.WriteString("Suggestions:\n")
+				for _, s := range section.Suggestions {
+					fmt.Fprintf(&buf, " - %s\n", s)
+				}
 			}
 			continue
 		}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 )
@@ -44,9 +43,12 @@ func (r *ReadResponse) MarshalMarkdown() ([]byte, error) {
 		}
 
 		if section.Error != "" {
-			fmt.Fprintf(&buf, "# error: %s - %s\n", section.Path, section.Error)
+			fmt.Fprintf(&buf, "Error: (path_not_found) %q %s\n", section.Path, section.Error)
 			if len(section.Suggestions) > 0 {
-				fmt.Fprintf(&buf, "# did you mean: %s\n", strings.Join(section.Suggestions, ", "))
+				buf.WriteString("Suggestions:\n")
+				for _, s := range section.Suggestions {
+					fmt.Fprintf(&buf, " - %s\n", s)
+				}
 			}
 			continue
 		}

@@ -8,6 +8,7 @@ import (
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/commands/spath"
 	"github.com/jasonmoo/wildcat/internal/golang"
+	"github.com/sahilm/fuzzy"
 	"github.com/spf13/cobra"
 )
 
@@ -282,8 +283,24 @@ func (c *LsCommand) enumerateRecursive(ctx context.Context, wc *commands.Wildcat
 
 func (c *LsCommand) notFoundError(wc *commands.Wildcat, target string, err error) *commands.ErrorResult {
 	e := commands.NewErrorResultf("path_not_found", "not found")
+
+	// Add symbol suggestions
 	for _, s := range wc.Suggestions(target, &golang.SearchOptions{Limit: 5}) {
 		e.Suggestions = append(e.Suggestions, s.Symbol)
 	}
+
+	// Add package suggestions (fuzzy match on short path)
+	var pkgPaths []string
+	for _, pkg := range wc.Project.Packages {
+		pkgPaths = append(pkgPaths, pkg.Identifier.PkgShortPath)
+	}
+	matches := fuzzy.Find(target, pkgPaths)
+	for i, m := range matches {
+		if i >= 5 {
+			break
+		}
+		e.Suggestions = append(e.Suggestions, m.Str)
+	}
+
 	return e
 }
