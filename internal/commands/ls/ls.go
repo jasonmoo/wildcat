@@ -2,6 +2,7 @@ package ls_cmd
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -51,10 +52,18 @@ The ls command shows what paths are available from a given starting point.
 Use it to explore the codebase before using read or edit commands.
 
 Arguments:
-  <path>    Package path, symbol, or semantic path (multiple allowed)
+  <path>    Package path, symbol, semantic path, or pattern (multiple allowed)
 
 Flags:
   --depth   How deep to recurse (1 = immediate children, 0 = unlimited)
+
+Pattern Matching:
+  Paths can include wildcards for searching across the codebase:
+    *   matches any chars within a segment (stops at . / [ ])
+    **  matches any chars across segments
+
+  Patterns match against canonical spath format, so write patterns
+  that look like the paths you see in output.
 
 Examples:
   wildcat ls internal/golang                 # all symbols in package
@@ -64,6 +73,12 @@ Examples:
   wildcat ls golang.WalkReferences           # params, returns, body of a function
   wildcat ls golang.Symbol.Signature         # parts of a method
   wildcat ls golang.Symbol/fields[Name]      # subpaths of a field
+
+  # Pattern examples
+  wildcat ls '**.Execute'                    # all Execute methods
+  wildcat ls '**/fields[Diag*]'              # all fields starting with Diag
+  wildcat ls '**/params[ctx]'                # all params named ctx
+  wildcat ls 'internal/commands.*Command'    # types ending in Command
 
 Output shows paths that can be used with read/edit commands.`,
 		Args: cobra.MinimumNArgs(1),
@@ -109,6 +124,11 @@ func (c *LsCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ...f
 
 // listTarget lists paths for a single target, returning either a section or an error.
 func (c *LsCommand) listTarget(ctx context.Context, wc *commands.Wildcat, target string) (*TargetSection, *commands.ErrorResult) {
+	// Check if this is a glob pattern
+	if commands.IsSpathPattern(target) {
+		return c.listGlobSection(wc, target)
+	}
+
 	// Try to resolve as a package first
 	if pi, err := wc.Project.ResolvePackageName(ctx, target); err == nil {
 		if pkg, err := wc.Package(pi); err == nil {
@@ -123,6 +143,63 @@ func (c *LsCommand) listTarget(ctx context.Context, wc *commands.Wildcat, target
 	}
 
 	return c.listResolutionSection(ctx, wc, target, res), nil
+}
+
+// listGlobSection matches a glob pattern against all spaths.
+func (c *LsCommand) listGlobSection(wc *commands.Wildcat, pattern string) (*TargetSection, *commands.ErrorResult) {
+	// Default limit, can be adjusted
+	limit := 1000
+
+	result, err := wc.MatchSpathGlob(pattern, limit)
+	if err != nil {
+		return nil, commands.NewErrorResultf("glob_error", "pattern error: %s", err)
+	}
+
+	if len(result.Matches) == 0 {
+		return nil, commands.NewErrorResultf("no_matches", "no paths match pattern %q", pattern)
+	}
+
+	// Group matches by package
+	byPackage := make(map[string][]commands.SpathEntry)
+	var pkgOrder []string
+	for _, m := range result.Matches {
+		if _, seen := byPackage[m.PackageShort]; !seen {
+			pkgOrder = append(pkgOrder, m.PackageShort)
+		}
+		byPackage[m.PackageShort] = append(byPackage[m.PackageShort], m)
+	}
+
+	// Build paths list with package grouping indicated
+	var paths []PathEntry
+	for _, pkg := range pkgOrder {
+		entries := byPackage[pkg]
+		for _, e := range entries {
+			paths = append(paths, PathEntry{
+				Path: e.Path,
+				Kind: e.Kind,
+				Type: e.Type,
+			})
+		}
+	}
+
+	section := &TargetSection{
+		Target:  pattern,
+		Scope:   "glob",
+		Paths:   paths,
+		Total:   result.Total,
+		Showing: len(result.Matches),
+	}
+
+	// Add package breakdown to metadata
+	if len(pkgOrder) > 1 {
+		var breakdown []string
+		for _, pkg := range pkgOrder {
+			breakdown = append(breakdown, fmt.Sprintf("%s (%d)", pkg, len(byPackage[pkg])))
+		}
+		section.PackageBreakdown = breakdown
+	}
+
+	return section, nil
 }
 
 // listPackageSection enumerates top-level symbols and subpackages in a package.
