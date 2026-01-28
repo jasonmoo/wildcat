@@ -39,7 +39,12 @@ the source code. This provides symbolic access to code without needing
 to know file paths or line numbers.
 
 Arguments:
-  <path>    Semantic path to read (multiple allowed)
+  <path>    Semantic path or pattern to read (multiple allowed)
+
+Pattern Matching:
+  Paths can include wildcards:
+    *   matches within a segment (stops at . / [ ])
+    **  matches across segments
 
 Examples:
   wildcat read golang.WalkReferences           # whole function
@@ -49,6 +54,11 @@ Examples:
   wildcat read golang.Symbol/fields[Name]      # a specific field
   wildcat read ls_cmd.PathEntry/doc            # doc comment
   wildcat read golang.Symbol golang.Package    # multiple paths
+
+  # Pattern examples
+  wildcat read 'spath.Path/fields[*]'          # all fields of a type
+  wildcat read 'spath.Path.*'                  # type + all methods
+  wildcat read '**.Execute'                    # all Execute methods
 
 Output is the rendered AST, consistently formatted regardless of
 original source formatting.`,
@@ -79,8 +89,8 @@ func (c *ReadCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 	var sections []ReadSection
 
 	for _, target := range c.targets {
-		section := c.readTarget(ctx, wc, target)
-		sections = append(sections, section)
+		targetSections := c.readTarget(ctx, wc, target)
+		sections = append(sections, targetSections...)
 	}
 
 	return &ReadResponse{
@@ -89,11 +99,16 @@ func (c *ReadCommand) Execute(ctx context.Context, wc *commands.Wildcat, opts ..
 }
 
 // readTarget reads a single target and returns a section.
-func (c *ReadCommand) readTarget(ctx context.Context, wc *commands.Wildcat, target string) ReadSection {
+func (c *ReadCommand) readTarget(ctx context.Context, wc *commands.Wildcat, target string) []ReadSection {
+	// Check if this is a glob pattern
+	if commands.IsSpathPattern(target) {
+		return c.readGlob(ctx, wc, target)
+	}
+
 	// Try to resolve as a package first
 	if pi, err := wc.Project.ResolvePackageName(ctx, target); err == nil {
 		if pkg, err := wc.Package(pi); err == nil {
-			return c.readPackage(pkg)
+			return []ReadSection{c.readPackage(pkg)}
 		}
 	}
 
@@ -107,7 +122,7 @@ func (c *ReadCommand) readTarget(ctx context.Context, wc *commands.Wildcat, targ
 		for _, s := range wc.Suggestions(target, &golang.SearchOptions{Limit: 5}) {
 			section.Suggestions = append(section.Suggestions, s.Symbol)
 		}
-		return section
+		return []ReadSection{section}
 	}
 
 	// Get FileSet for rendering
@@ -119,17 +134,48 @@ func (c *ReadCommand) readTarget(ctx context.Context, wc *commands.Wildcat, targ
 	// Render the AST node
 	source, err := golang.RenderSource(res.Node, fset)
 	if err != nil {
-		return ReadSection{
+		return []ReadSection{{
 			Path:  target,
 			Error: fmt.Sprintf("render error: %v", err),
-		}
+		}}
 	}
 
-	return ReadSection{
+	return []ReadSection{{
 		Path:     target,
 		Resolved: res.FullPath(),
 		Source:   source,
+	}}
+}
+
+// readGlob matches a pattern and reads all matching paths.
+func (c *ReadCommand) readGlob(ctx context.Context, wc *commands.Wildcat, pattern string) []ReadSection {
+	result, err := wc.MatchSpathGlob(pattern, 0) // no limit
+	if err != nil {
+		return []ReadSection{{
+			Path:  pattern,
+			Error: fmt.Sprintf("pattern error: %v", err),
+		}}
 	}
+
+	if len(result.Matches) == 0 {
+		return []ReadSection{{
+			Path:  pattern,
+			Error: fmt.Sprintf("no paths match pattern %q", pattern),
+		}}
+	}
+
+	var sections []ReadSection
+	for _, match := range result.Matches {
+		// Skip packages - only read actual code paths
+		if match.Kind == "package" {
+			continue
+		}
+		// Read each matched path (non-pattern, so won't recurse)
+		s := c.readTarget(ctx, wc, match.Path)
+		sections = append(sections, s...)
+	}
+
+	return sections
 }
 
 // readPackage renders all source files in a package.

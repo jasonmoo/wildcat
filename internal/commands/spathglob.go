@@ -205,8 +205,9 @@ func patternToRegex(pattern string) (*regexp.Regexp, error) {
 }
 
 // IsSpathPattern returns true if the string contains glob wildcards.
+// Only checks for * since [ is valid spath syntax for selectors.
 func IsSpathPattern(s string) bool {
-	return strings.ContainsAny(s, "*?[")
+	return strings.Contains(s, "*")
 }
 
 // spathSymbolTypeString returns the type annotation for a symbol.
