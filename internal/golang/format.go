@@ -152,7 +152,8 @@ func RenderCommentGroup(cg *ast.CommentGroup) string {
 	return strings.Join(lines, "\n")
 }
 
-// stripComments removes comments, doc strings, and function bodies from an AST node.
+// stripComments removes comments, doc strings, function bodies, and truncates
+// multiline string literals from an AST node for compact display.
 // Returns a restore function that puts back all the original values.
 func stripComments(node ast.Node) func() {
 	var restoreFuncs []func()
@@ -183,6 +184,13 @@ func stripComments(node ast.Node) func() {
 			doc, comment := v.Doc, v.Comment
 			v.Doc, v.Comment = nil, nil
 			restoreFuncs = append(restoreFuncs, func() { v.Doc, v.Comment = doc, comment })
+		case *ast.BasicLit:
+			// Truncate multiline raw string literals (backtick strings)
+			if strings.HasPrefix(v.Value, "`") && strings.Contains(v.Value, "\n") {
+				orig := v.Value
+				v.Value = "`..."
+				restoreFuncs = append(restoreFuncs, func() { v.Value = orig })
+			}
 		}
 		return true
 	})
