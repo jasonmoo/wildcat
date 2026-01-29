@@ -195,6 +195,13 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package, builtin *P
 					sym.StdlibEquivalent = comparableSym
 				}
 
+				// Skip implementer search for stdlib-equivalent interfaces.
+				// Types that implement these are really implementing the stdlib interface,
+				// not this alias (e.g., type NotFoundError error).
+				if sym.StdlibEquivalent != nil {
+					continue
+				}
+
 				// Find implementors across all project packages
 				if iface.NumMethods() == 0 {
 					continue // skip empty interfaces
