@@ -186,6 +186,12 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 		fileOrder = append(fileOrder, fileName)
 	}
 
+	// Collect embed variable names to exclude from Variables section
+	embedVars := make(map[string]bool)
+	for _, ed := range golang.FindEmbedDirectives(pkg) {
+		embedVars[ed.VarName] = true
+	}
+
 	// Collect symbols from pkg.Symbols
 	for _, sym := range pkg.Symbols {
 		switch sym.Object.(type) {
@@ -197,6 +203,10 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 				Refs:      refs,
 			})
 		case *gotypes.Var:
+			// Skip embed variables - they're shown in the Embeds section
+			if embedVars[sym.Name] {
+				continue
+			}
 			refs := getSymbolRefs(wc, sym)
 			pkgret.Variables = append(pkgret.Variables, output.PackageSymbol{
 				Signature: sym.Signature(),
