@@ -55,7 +55,7 @@ type PackageCommandResponse struct {
 	Channels    []ChannelGroup         `json:"channels"`
 	Imports     []output.DepResult     `json:"imports"`
 	ImportedBy  []output.DepResult     `json:"imported_by"`
-	Diagnostics []commands.Diagnostic `json:"diagnostics,omitempty"`
+	Diagnostics []commands.Diagnostic  `json:"diagnostics,omitempty"`
 }
 
 var _ commands.Result = (*PackageCommandResponse)(nil)
@@ -68,7 +68,7 @@ func (r *PackageCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 type MultiPackageResponse struct {
 	Query       output.QueryInfo          `json:"query"`
 	Packages    []*PackageCommandResponse `json:"packages"`
-	Diagnostics []commands.Diagnostic    `json:"diagnostics,omitempty"`
+	Diagnostics []commands.Diagnostic     `json:"diagnostics,omitempty"`
 }
 
 var _ commands.Result = (*MultiPackageResponse)(nil)
@@ -79,7 +79,7 @@ func (r *MultiPackageResponse) SetDiagnostics(ds []commands.Diagnostic) {
 
 func (resp *MultiPackageResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Diagnostics []commands.Diagnostic    `json:"diagnostics,omitempty"`
+		Diagnostics []commands.Diagnostic     `json:"diagnostics,omitempty"`
 		Query       output.QueryInfo          `json:"query"`
 		Packages    []*PackageCommandResponse `json:"packages"`
 	}{
@@ -103,7 +103,7 @@ func (resp *MultiPackageResponse) MarshalMarkdown() ([]byte, error) {
 
 func (resp *PackageCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Diagnostics []commands.Diagnostic `json:"diagnostics,omitempty"`
+		Diagnostics []commands.Diagnostic  `json:"diagnostics,omitempty"`
 		Query       output.QueryInfo       `json:"query"`
 		Package     output.PackageInfo     `json:"package"`
 		Summary     output.PackageSummary  `json:"summary"`
@@ -164,7 +164,7 @@ func renderPackageMarkdown(r *PackageCommandResponse) string {
 	for _, f := range r.Files {
 		fmt.Fprintf(&sb, "%s // %d lines, %d exported, %d unexported", f.Name, f.LineCount, f.Exported, f.Unexported)
 		if f.Refs != nil {
-			fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", f.Refs.Internal, f.Refs.External, f.Refs.Packages)
+			fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported by %d)", f.Refs.Internal, f.Refs.External, f.Refs.Packages)
 		}
 		sb.WriteString("\n")
 	}
@@ -301,9 +301,9 @@ func writeSymbolMd(sb *strings.Builder, signature, location string, refs *output
 	sb.WriteString(location)
 	if refs != nil {
 		if useCallers {
-			fmt.Fprintf(sb, ", callers(%d pkg, %d proj, imported %d)", refs.Internal, refs.External, refs.Packages)
+			fmt.Fprintf(sb, ", callers(%d pkg, %d proj, imported by %d)", refs.Internal, refs.External, refs.Packages)
 		} else {
-			fmt.Fprintf(sb, ", refs(%d pkg, %d proj, imported %d)", refs.Internal, refs.External, refs.Packages)
+			fmt.Fprintf(sb, ", refs(%d pkg, %d proj, imported by %d)", refs.Internal, refs.External, refs.Packages)
 		}
 	}
 	sb.WriteString("\n")

@@ -68,16 +68,16 @@ type DepInfo struct {
 
 // ProjectCommandResponse is the response for the project command.
 type ProjectCommandResponse struct {
-	Module          ModuleInfo              `json:"module"`
-	Summary         ProjectSummary          `json:"summary"`
-	EntryPoints     []EntryPoint            `json:"entry_points"`
-	CorePackages    []CorePackage           `json:"core_packages"`
-	Interfaces      []CrossPackageInterface `json:"cross_package_interfaces"`
-	StdlibAliases   []StdlibInterfaceAlias  `json:"stdlib_interface_aliases,omitempty"`
-	StdlibDeps      []DepInfo               `json:"stdlib_deps"`
-	ThirdPartyDeps  []DepInfo               `json:"third_party_deps"`
-	PackageGraph    []PackageNode           `json:"package_graph"`
-	Diagnostics     []commands.Diagnostic   `json:"diagnostics,omitempty"`
+	Module         ModuleInfo              `json:"module"`
+	Summary        ProjectSummary          `json:"summary"`
+	EntryPoints    []EntryPoint            `json:"entry_points"`
+	CorePackages   []CorePackage           `json:"core_packages"`
+	Interfaces     []CrossPackageInterface `json:"cross_package_interfaces"`
+	StdlibAliases  []StdlibInterfaceAlias  `json:"stdlib_interface_aliases,omitempty"`
+	StdlibDeps     []DepInfo               `json:"stdlib_deps"`
+	ThirdPartyDeps []DepInfo               `json:"third_party_deps"`
+	PackageGraph   []PackageNode           `json:"package_graph"`
+	Diagnostics    []commands.Diagnostic   `json:"diagnostics,omitempty"`
 }
 
 var _ commands.Result = (*ProjectCommandResponse)(nil)
@@ -260,7 +260,7 @@ func renderCorePackagesHistogram(sb *strings.Builder, packages []CorePackage) {
 		methodBarStr := strings.Repeat(" ", maxBarWidth-methodBar) + strings.Repeat("█", methodBar)
 		depBarStr := strings.Repeat("█", depBar)
 
-		fmt.Fprintf(sb, "%3d methods %s %-*s %s imported %d\n",
+		fmt.Fprintf(sb, "%3d methods %s %-*s %s imported by %d\n",
 			pkg.Methods, methodBarStr,
 			maxPkgStrLen, pkgStrs[i],
 			depBarStr, pkg.Dependents)

@@ -72,21 +72,21 @@ type SuggestionInfo struct {
 }
 
 type SymbolCommandResponse struct {
-	Query             output.QueryInfo       `json:"query"`
-	Package           output.PackageInfo     `json:"package"`
-	Target            output.TargetInfo      `json:"target"`
-	Methods           []FunctionInfo         `json:"methods,omitempty"`
-	Constructors      []FunctionInfo         `json:"constructors,omitempty"`
-	Descendants       []DescendantInfo       `json:"direct_descendants,omitempty"` // direct descendants: types orphaned if target removed
-	ImportedBy        []output.DepResult     `json:"imported_by"`
-	References        []output.PackageUsage  `json:"references"`
-	Implementations   []PackageTypes         `json:"implementations,omitempty"`
-	Consumers         []PackageFunctions     `json:"consumers,omitempty"` // funcs that accept the interface as param
-	Satisfies         []PackageTypes         `json:"satisfies,omitempty"`
-	QuerySummary      output.SymbolSummary   `json:"query_summary"`
-	PackageSummary    output.SymbolSummary   `json:"package_summary"`
-	ProjectSummary    output.SymbolSummary   `json:"project_summary"`
-	OtherFuzzyMatches []SuggestionInfo       `json:"other_fuzzy_matches"`
+	Query             output.QueryInfo      `json:"query"`
+	Package           output.PackageInfo    `json:"package"`
+	Target            output.TargetInfo     `json:"target"`
+	Methods           []FunctionInfo        `json:"methods,omitempty"`
+	Constructors      []FunctionInfo        `json:"constructors,omitempty"`
+	Descendants       []DescendantInfo      `json:"direct_descendants,omitempty"` // direct descendants: types orphaned if target removed
+	ImportedBy        []output.DepResult    `json:"imported_by"`
+	References        []output.PackageUsage `json:"references"`
+	Implementations   []PackageTypes        `json:"implementations,omitempty"`
+	Consumers         []PackageFunctions    `json:"consumers,omitempty"` // funcs that accept the interface as param
+	Satisfies         []PackageTypes        `json:"satisfies,omitempty"`
+	QuerySummary      output.SymbolSummary  `json:"query_summary"`
+	PackageSummary    output.SymbolSummary  `json:"package_summary"`
+	ProjectSummary    output.SymbolSummary  `json:"project_summary"`
+	OtherFuzzyMatches []SuggestionInfo      `json:"other_fuzzy_matches"`
 	Diagnostics       []commands.Diagnostic `json:"diagnostics,omitempty"`
 }
 
@@ -97,7 +97,7 @@ func (r *SymbolCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 // MultiSymbolCommandResponse wraps multiple symbol results.
 type MultiSymbolCommandResponse struct {
 	Symbols     []SymbolCommandResponse `json:"symbols"`
-	Diagnostics []commands.Diagnostic  `json:"diagnostics,omitempty"`
+	Diagnostics []commands.Diagnostic   `json:"diagnostics,omitempty"`
 }
 
 func (r *MultiSymbolCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
@@ -107,21 +107,21 @@ func (r *MultiSymbolCommandResponse) SetDiagnostics(ds []commands.Diagnostic) {
 func (r *SymbolCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Diagnostics       []commands.Diagnostic `json:"diagnostics,omitempty"`
-		Query             output.QueryInfo       `json:"query"`
-		Package           output.PackageInfo     `json:"package"`
-		Target            output.TargetInfo      `json:"target"`
-		QuerySummary      output.SymbolSummary   `json:"query_summary"`
-		PackageSummary    output.SymbolSummary   `json:"package_summary"`
-		ProjectSummary    output.SymbolSummary   `json:"project_summary"`
-		Methods           []FunctionInfo         `json:"methods,omitempty"`
-		Constructors      []FunctionInfo         `json:"constructors,omitempty"`
-		Descendants       []DescendantInfo       `json:"direct_descendants,omitempty"`
-		ImportedBy        []output.DepResult     `json:"imported_by"`
-		References        []output.PackageUsage  `json:"references"`
-		Implementations   []PackageTypes         `json:"implementations,omitempty"`
-		Consumers         []PackageFunctions     `json:"consumers,omitempty"`
-		Satisfies         []PackageTypes         `json:"satisfies,omitempty"`
-		OtherFuzzyMatches []SuggestionInfo       `json:"other_fuzzy_matches"`
+		Query             output.QueryInfo      `json:"query"`
+		Package           output.PackageInfo    `json:"package"`
+		Target            output.TargetInfo     `json:"target"`
+		QuerySummary      output.SymbolSummary  `json:"query_summary"`
+		PackageSummary    output.SymbolSummary  `json:"package_summary"`
+		ProjectSummary    output.SymbolSummary  `json:"project_summary"`
+		Methods           []FunctionInfo        `json:"methods,omitempty"`
+		Constructors      []FunctionInfo        `json:"constructors,omitempty"`
+		Descendants       []DescendantInfo      `json:"direct_descendants,omitempty"`
+		ImportedBy        []output.DepResult    `json:"imported_by"`
+		References        []output.PackageUsage `json:"references"`
+		Implementations   []PackageTypes        `json:"implementations,omitempty"`
+		Consumers         []PackageFunctions    `json:"consumers,omitempty"`
+		Satisfies         []PackageTypes        `json:"satisfies,omitempty"`
+		OtherFuzzyMatches []SuggestionInfo      `json:"other_fuzzy_matches"`
 	}{
 		Diagnostics:       r.Diagnostics,
 		Query:             r.Query,
@@ -163,7 +163,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		sb.WriteString("\n")
 	}
 
-	fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported %d)\n\n", r.Target.Signature, r.Target.Definition, r.Target.Refs.Internal, r.Target.Refs.External, r.Target.Refs.Packages)
+	fmt.Fprintf(&sb, "%s // %s, refs(%d pkg, %d proj, imported by %d)\n\n", r.Target.Signature, r.Target.Definition, r.Target.Refs.Internal, r.Target.Refs.External, r.Target.Refs.Packages)
 
 	// Summary section
 	sb.WriteString("## Summary\n\n")
@@ -176,7 +176,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		for _, m := range r.Methods {
 			fmt.Fprintf(&sb, "%s // %s", m.Signature, m.Definition)
 			if m.Refs != nil {
-				fmt.Fprintf(&sb, ", callers(%d pkg, %d proj, imported %d)", m.Refs.Internal, m.Refs.External, m.Refs.Packages)
+				fmt.Fprintf(&sb, ", callers(%d pkg, %d proj, imported by %d)", m.Refs.Internal, m.Refs.External, m.Refs.Packages)
 			}
 			sb.WriteString("\n")
 		}
@@ -191,7 +191,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		for _, c := range r.Constructors {
 			fmt.Fprintf(&sb, "%s // %s", c.Signature, c.Definition)
 			if c.Refs != nil {
-				fmt.Fprintf(&sb, ", callers(%d pkg, %d proj, imported %d)", c.Refs.Internal, c.Refs.External, c.Refs.Packages)
+				fmt.Fprintf(&sb, ", callers(%d pkg, %d proj, imported by %d)", c.Refs.Internal, c.Refs.External, c.Refs.Packages)
 			}
 			sb.WriteString("\n")
 		}
@@ -206,7 +206,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 		for _, d := range r.Descendants {
 			fmt.Fprintf(&sb, "%s // %s", d.Signature, d.Definition)
 			if d.Refs != nil {
-				fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", d.Refs.Internal, d.Refs.External, d.Refs.Packages)
+				fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported by %d)", d.Refs.Internal, d.Refs.External, d.Refs.Packages)
 			}
 			sb.WriteString("\n")
 			if d.Reason != "" {
@@ -246,7 +246,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 					sb.WriteString(caller.Snippet.Source)
 					fmt.Fprintf(&sb, "``` // %s", caller.Snippet.Location)
 					if caller.Refs != nil {
-						fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", caller.Refs.Internal, caller.Refs.External, caller.Refs.Packages)
+						fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported by %d)", caller.Refs.Internal, caller.Refs.External, caller.Refs.Packages)
 					}
 					sb.WriteString("\n\n")
 				}
@@ -278,7 +278,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 					sb.WriteString(ref.Snippet.Source)
 					fmt.Fprintf(&sb, "``` // %s%s", ref.Snippet.Location, refAnnotation)
 					if ref.Refs != nil {
-						fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", ref.Refs.Internal, ref.Refs.External, ref.Refs.Packages)
+						fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported by %d)", ref.Refs.Internal, ref.Refs.External, ref.Refs.Packages)
 					}
 					sb.WriteString("\n\n")
 				}
@@ -299,7 +299,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 			for _, impl := range pkg.Types {
 				fmt.Fprintf(&sb, "%s // %s", impl.Signature, impl.Definition)
 				if impl.Refs != nil {
-					fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported %d)", impl.Refs.Internal, impl.Refs.External, impl.Refs.Packages)
+					fmt.Fprintf(&sb, ", refs(%d pkg, %d proj, imported by %d)", impl.Refs.Internal, impl.Refs.External, impl.Refs.Packages)
 				}
 				sb.WriteString("\n")
 			}
@@ -320,7 +320,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 			for _, fn := range pkg.Functions {
 				fmt.Fprintf(&sb, "%s // %s", fn.Signature, fn.Definition)
 				if fn.Refs != nil {
-					fmt.Fprintf(&sb, ", callers(%d pkg, %d proj, imported %d)", fn.Refs.Internal, fn.Refs.External, fn.Refs.Packages)
+					fmt.Fprintf(&sb, ", callers(%d pkg, %d proj, imported by %d)", fn.Refs.Internal, fn.Refs.External, fn.Refs.Packages)
 				}
 				sb.WriteString("\n")
 			}
@@ -363,7 +363,7 @@ func (r *SymbolCommandResponse) MarshalMarkdown() ([]byte, error) {
 
 func (r *MultiSymbolCommandResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Diagnostics []commands.Diagnostic  `json:"diagnostics,omitempty"`
+		Diagnostics []commands.Diagnostic   `json:"diagnostics,omitempty"`
 		Symbols     []SymbolCommandResponse `json:"symbols"`
 	}{
 		Diagnostics: r.Diagnostics,
