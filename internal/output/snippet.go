@@ -261,7 +261,7 @@ func (fc *fileCache) lineCount() int {
 }
 
 // extractRange returns bytes for lines startLine to endLine (1-indexed, inclusive).
-// Does not include trailing newline after the last line.
+// Includes trailing newline for byte-for-byte parity with source.
 func (fc *fileCache) extractRange(startLine, endLine int) string {
 	if startLine < 1 {
 		startLine = 1
@@ -280,16 +280,8 @@ func (fc *fileCache) extractRange(startLine, endLine int) string {
 		// Last line - go to end of file
 		endOffset = len(fc.content)
 	} else {
-		// End at start of next line
+		// End at start of next line (includes newline of endLine)
 		endOffset = fc.lineOffsets[endLine]
-	}
-
-	// Strip trailing newline (and CRLF) from the result
-	if endOffset > startOffset && fc.content[endOffset-1] == '\n' {
-		endOffset--
-		if endOffset > startOffset && fc.content[endOffset-1] == '\r' {
-			endOffset--
-		}
 	}
 
 	return string(fc.content[startOffset:endOffset])
