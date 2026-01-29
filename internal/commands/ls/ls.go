@@ -331,11 +331,12 @@ func (c *LsCommand) enumerateRecursive(ctx context.Context, wc *commands.Wildcat
 		return nil // silently skip paths that can't be resolved
 	}
 
-	// Use short package name for output
+	// Use short package name for output, preserving segments from resolved path
 	shortBasePath := &spath.Path{
-		Package: res.Package.Identifier.Name,
-		Symbol:  res.Path.Symbol,
-		Method:  res.Path.Method,
+		Package:  res.Package.Identifier.Name,
+		Symbol:   res.Path.Symbol,
+		Method:   res.Path.Method,
+		Segments: res.Path.Segments,
 	}
 
 	children := spath.EnumerateChildrenWithBase(res, res.Symbol, shortBasePath)

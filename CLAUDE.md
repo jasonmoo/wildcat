@@ -162,16 +162,21 @@ go test ./...                # Run tests
 ./wildcat <command>          # Test locally
 ```
 
+## FORBIDDEN PATTERNS
+
+**NEVER use these patterns under any circumstances:**
+
+- **No /tmp files** - Do not create, write, or use files in /tmp
+- **No cat EOF/heredoc** - Do not use `cat << 'EOF'` or similar shell heredoc patterns
+- **No `go run -`** - Do not pipe code to go run
+
+These patterns cause session aborts. Always use proper `*_test.go` files in the package directory instead.
+
 **Adhoc testing approach:**
-- Prefer writing `*_test.go` files - they integrate with package context
+- Write `*_test.go` files - they integrate with package context
 - Table-driven tests preferred
 - Test interfaces, not implementations
 - **For quick experiments**: add print statements, build, run, remove them
-- NEVER use `go run -` or `cat <<EOF | go run` - they don't work and require approval
-
-**Why test files over ad-hoc:** Shell patterns like `cat > /tmp/test.go` require approval 
-every time and fail due to import path issues. A proper test file in the package directory 
-just works.
 
 ---
 
