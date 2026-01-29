@@ -213,22 +213,45 @@ func (wc *Wildcat) expandPatternPackage(pattern string) string {
 // patternToRegex converts a wildcard pattern to a compiled regex.
 //   - **/ becomes (.*/)? (match any prefix ending with /, or nothing)
 //   - /** becomes (/.*)? (match any suffix starting with /, or nothing)
+//   - **. becomes (.+[^.]|[^.])\. (match non-empty string not ending with dot, then dot)
 //   - ** becomes .* (match anything)
-//   - * becomes [^./\[\]]* (match within segment)
+//   - *.* becomes [^./\[\]]+\.[^./\[\]]+ (both stars are full identifiers, both need 1+)
+//   - [*] becomes \[[^./\[\]]+\] (complete selector, star needs 1+)
+//   - .* at end becomes \.[^./\[\]]+ (star is full symbol, needs 1+)
+//   - /* at end becomes /[^./\[\]]+ (star is full package component, needs 1+)
+//   - * elsewhere becomes [^./\[\]]* (can match 0+ chars - partial identifier)
 //   - everything else is escaped as literal
 func patternToRegex(pattern string) (*regexp.Regexp, error) {
 	// Use placeholders to protect wildcards during QuoteMeta
 	const (
-		doubleStarSlash = "\x00"
-		slashDoubleStar = "\x01"
-		doubleStar      = "\x02"
-		singleStar      = "\x03"
+		doubleStarSlash  = "\x00"
+		slashDoubleStar  = "\x01"
+		doubleStarDot    = "\x02"
+		doubleStar       = "\x03"
+		starDotStar      = "\x04" // *.* - both stars are full identifiers
+		bracketStarClose = "\x05" // [*] - complete selector, needs 1+
+		dotStarEnd       = "\x06" // .* at end - full symbol, needs 1+
+		slashStarEnd     = "\x07" // /* at end - full component, needs 1+
+		singleStar       = "\x08" // * elsewhere - partial, can be 0+
 	)
 
-	// Order matters: replace **/ and /** before standalone **
+	// Order matters: replace specific patterns before general ones
 	result := strings.ReplaceAll(pattern, "**/", doubleStarSlash)
 	result = strings.ReplaceAll(result, "/**", slashDoubleStar)
+	result = strings.ReplaceAll(result, "**.", doubleStarDot)
 	result = strings.ReplaceAll(result, "**", doubleStar)
+	// Handle *.* (both stars are full identifiers)
+	result = strings.ReplaceAll(result, "*.*", starDotStar)
+	// Handle [*] (complete selector)
+	result = strings.ReplaceAll(result, "[*]", bracketStarClose)
+	// Handle .* and /* at end of pattern (full identifier)
+	if strings.HasSuffix(result, ".*") {
+		result = result[:len(result)-2] + dotStarEnd
+	}
+	if strings.HasSuffix(result, "/*") {
+		result = result[:len(result)-2] + slashStarEnd
+	}
+	// Remaining stars are partial matches (can match 0+)
 	result = strings.ReplaceAll(result, "*", singleStar)
 
 	// Escape all regex special chars
@@ -237,7 +260,12 @@ func patternToRegex(pattern string) (*regexp.Regexp, error) {
 	// Replace placeholders with regex patterns
 	result = strings.ReplaceAll(result, doubleStarSlash, `(.*/)?`)
 	result = strings.ReplaceAll(result, slashDoubleStar, `(/.*)?`)
+	result = strings.ReplaceAll(result, doubleStarDot, `(.+[^.]|[^.])\.`)
 	result = strings.ReplaceAll(result, doubleStar, `.*`)
+	result = strings.ReplaceAll(result, starDotStar, `[^./\[\]]+\.[^./\[\]]+`)
+	result = strings.ReplaceAll(result, bracketStarClose, `\[[^./\[\]]+\]`)
+	result = strings.ReplaceAll(result, dotStarEnd, `\.[^./\[\]]+`)
+	result = strings.ReplaceAll(result, slashStarEnd, `/[^./\[\]]+`)
 	result = strings.ReplaceAll(result, singleStar, `[^./\[\]]*`)
 
 	return regexp.Compile("^" + result + "$")

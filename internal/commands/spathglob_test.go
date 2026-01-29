@@ -107,22 +107,22 @@ func TestPatternToRegex(t *testing.T) {
 		{
 			name:    "star only symbol",
 			pattern: "pkg.*",
-			wantRe:  `pkg\.[^./\[\]]*`,
+			wantRe:  `pkg\.[^./\[\]]+`, // at end, needs 1+
 		},
 		{
 			name:    "star in package component",
 			pattern: "internal/*",
-			wantRe:  `internal/[^./\[\]]*`,
+			wantRe:  `internal/[^./\[\]]+`, // at end, needs 1+
 		},
 		{
 			name:    "star in selector",
 			pattern: "pkg.Type/fields[*]",
-			wantRe:  `pkg\.Type/fields\[[^./\[\]]*\]`,
+			wantRe:  `pkg\.Type/fields\[[^./\[\]]+\]`, // complete selector, needs 1+
 		},
 		{
 			name:    "star in category",
 			pattern: "pkg.Func/*",
-			wantRe:  `pkg\.Func/[^./\[\]]*`,
+			wantRe:  `pkg\.Func/[^./\[\]]+`, // at end, needs 1+
 		},
 
 		// === Double star (**) - across segments ===
@@ -134,7 +134,7 @@ func TestPatternToRegex(t *testing.T) {
 		{
 			name:    "doublestar in middle",
 			pattern: "pkg.**.Method",
-			wantRe:  `pkg\..*\.Method`,
+			wantRe:  `pkg\.(.+[^.]|[^.])\.Method`, // **. needs non-empty, non-dot-ending prefix
 		},
 
 		// === Double star with slash (**/  and /**) ===
@@ -163,12 +163,12 @@ func TestPatternToRegex(t *testing.T) {
 		{
 			name:    "star and doublestar",
 			pattern: "**/pkg.*",
-			wantRe:  `(.*/)?pkg\.[^./\[\]]*`,
+			wantRe:  `(.*/)?pkg\.[^./\[\]]+`, // .* at end needs 1+
 		},
 		{
 			name:    "complex pattern",
 			pattern: "internal/**/Type.*/params[*]",
-			wantRe:  `internal/(.*/)?Type\.[^./\[\]]*/params\[[^./\[\]]*\]`,
+			wantRe:  `internal/(.*/)?Type\.[^./\[\]]*/params\[[^./\[\]]+\]`, // [*] needs 1+
 		},
 	}
 
