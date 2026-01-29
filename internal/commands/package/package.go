@@ -190,14 +190,14 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 	for _, sym := range pkg.Symbols {
 		switch sym.Object.(type) {
 		case *gotypes.Const:
-			refs := getSymbolRefs(wc, sym.PkgSymbol())
+			refs := getSymbolRefs(wc, sym)
 			pkgret.Constants = append(pkgret.Constants, output.PackageSymbol{
 				Signature: sym.Signature(),
 				Location:  sym.FileLocation(),
 				Refs:      refs,
 			})
 		case *gotypes.Var:
-			refs := getSymbolRefs(wc, sym.PkgSymbol())
+			refs := getSymbolRefs(wc, sym)
 			pkgret.Variables = append(pkgret.Variables, output.PackageSymbol{
 				Signature: sym.Signature(),
 				Location:  sym.FileLocation(),
@@ -208,11 +208,11 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 			tb.signature = sym.Signature()
 			tb.location = sym.FileLocation()
 			_, tb.isInterface = sym.Object.Type().Underlying().(*gotypes.Interface)
-			tb.refs = getSymbolRefs(wc, sym.PkgSymbol())
+			tb.refs = getSymbolRefs(wc, sym)
 
 			// Add methods
 			for _, m := range sym.Methods {
-				mRefs := getSymbolRefs(wc, m.PkgTypeSymbol())
+				mRefs := getSymbolRefs(wc, m)
 				tb.methods = append(tb.methods, output.PackageSymbol{
 					Signature: m.Signature(),
 					Location:  m.FileLocation(),
@@ -222,7 +222,7 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 
 			// Add constructors
 			for _, c := range sym.Constructors {
-				cRefs := getSymbolRefs(wc, c.PkgSymbol())
+				cRefs := getSymbolRefs(wc, c)
 				tb.functions = append(tb.functions, output.PackageSymbol{
 					Signature: c.Signature(),
 					Location:  c.FileLocation(),
@@ -256,7 +256,7 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 				}
 			}
 			if !isConstructor {
-				refs := getSymbolRefs(wc, sym.PkgSymbol())
+				refs := getSymbolRefs(wc, sym)
 				pkgret.Functions = append(pkgret.Functions, output.PackageSymbol{
 					Signature: sym.Signature(),
 					Location:  sym.FileLocation(),
@@ -378,22 +378,12 @@ func (c *PackageCommand) executeOne(ctx context.Context, wc *commands.Wildcat, p
 	}, nil
 }
 
-// getSymbolRefs looks up a symbol and returns its reference counts.
-// symbolKey should be in format: pkg.Name or pkg.Type.Method
-func getSymbolRefs(wc *commands.Wildcat, symbolKey string) *output.TargetRefs {
-	matches := wc.Index.Lookup(symbolKey)
-	if len(matches) == 0 {
+// getSymbolRefs returns reference counts for a symbol.
+func getSymbolRefs(wc *commands.Wildcat, sym *golang.Symbol) *output.TargetRefs {
+	if sym == nil {
 		return nil
 	}
-	if len(matches) > 1 {
-		var candidates []string
-		for _, m := range matches {
-			candidates = append(candidates, m.PkgPathSymbol())
-		}
-		wc.AddDiagnostic("warning", "", "ambiguous symbol %q matches %v; refs unavailable", symbolKey, candidates)
-		return nil
-	}
-	counts := golang.CountReferences(wc.Project.Packages, matches[0])
+	counts := golang.CountReferences(wc.Project.Packages, sym)
 	return &output.TargetRefs{
 		Internal: counts.Internal,
 		External: counts.External,
@@ -509,6 +499,7 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 		// Group non-make ops by function
 		funcOps := make(map[string][]ChannelOp) // funcKey -> ops
 		funcDecls := make(map[string]*ast.FuncDecl)
+		funcSyms := make(map[string]*golang.Symbol)
 
 		for _, op := range typeOps[elemType] {
 			channelOp := ChannelOp{
@@ -524,6 +515,7 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 				var funcKey string
 				if sym := pkg.SymbolByIdent(op.funcDecl.Name); sym != nil {
 					funcKey = sym.PkgTypeSymbol()
+					funcSyms[funcKey] = sym
 				} else {
 					funcKey = "<lookup-error>"
 				}
@@ -559,7 +551,7 @@ func (c *PackageCommand) collectChannels(wc *commands.Wildcat, pkg *golang.Packa
 				fn.Definition = fmt.Sprintf("%s:%d:%d", filepath.Base(startPos.Filename), startPos.Line, endPos.Line)
 
 				// Get refs for this function
-				fn.Refs = getSymbolRefs(wc, funcKey)
+				fn.Refs = getSymbolRefs(wc, funcSyms[funcKey])
 			}
 
 			group.Functions = append(group.Functions, fn)
