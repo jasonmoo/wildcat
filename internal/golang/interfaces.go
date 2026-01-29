@@ -2,6 +2,7 @@ package golang
 
 import (
 	"go/types"
+	"unicode"
 )
 
 // InterfaceInfo holds information about an interface type.
@@ -141,6 +142,13 @@ type InterfaceIssue struct {
 // Returns any issues encountered during generic interface instantiation.
 func ComputeInterfaceRelations(project []*Package, stdlib []*Package, builtin *Package) []InterfaceIssue {
 	var issues []InterfaceIssue
+
+	// Build set of project package paths for filtering
+	projectPkgs := make(map[string]bool)
+	for _, pkg := range project {
+		projectPkgs[pkg.Identifier.PkgPath] = true
+	}
+
 	// Build a map of all type symbols for quick lookup
 	// key: pkgPath + "." + name -> *Symbol
 	typeSymbols := make(map[string]*Symbol)
@@ -287,6 +295,11 @@ func ComputeInterfaceRelations(project []*Package, stdlib []*Package, builtin *P
 						}
 						// Skip self
 						if otherPkg.Identifier.PkgPath == pkg.Identifier.PkgPath && otherSym.Name == sym.Name {
+							continue
+						}
+						// Skip unexported interfaces from stdlib packages.
+						// Internal interfaces like context.stringer are noise.
+						if !projectPkgs[otherPkg.Identifier.PkgPath] && len(otherSym.Name) > 0 && unicode.IsLower(rune(otherSym.Name[0])) {
 							continue
 						}
 
