@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"go/token"
-	"strings"
 
 	"github.com/jasonmoo/wildcat/internal/commands"
 	"github.com/jasonmoo/wildcat/internal/golang"
@@ -178,22 +177,19 @@ func (c *ReadCommand) readGlob(ctx context.Context, wc *commands.Wildcat, patter
 	return sections
 }
 
-// readPackage renders all source files in a package.
+// readPackage renders a package as unified source code.
 func (c *ReadCommand) readPackage(pkg *golang.Package) ReadSection {
-	var sources []string
-	fset := pkg.Package.Fset
-
-	for _, file := range pkg.Package.Syntax {
-		src, err := golang.RenderSource(file, fset)
-		if err != nil {
-			continue
+	source, err := golang.RenderPackageSource(pkg)
+	if err != nil {
+		return ReadSection{
+			Path:  pkg.Identifier.PkgShortPath,
+			Error: fmt.Sprintf("render error: %v", err),
 		}
-		sources = append(sources, src)
 	}
 
 	return ReadSection{
 		Path:     pkg.Identifier.PkgShortPath,
 		Resolved: pkg.Identifier.PkgPath,
-		Source:   strings.Join(sources, "\n\n"),
+		Source:   source,
 	}
 }
