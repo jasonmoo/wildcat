@@ -145,6 +145,9 @@ func (wc *Wildcat) MatchSpathGlob(pattern string, limit int) (*SpathGlobResult, 
 	// Strip leading ./ since paths are module-relative
 	pattern = strings.TrimPrefix(pattern, "./")
 
+	// Expand short package names to full paths
+	pattern = wc.expandPatternPackage(pattern)
+
 	re, err := patternToRegex(pattern)
 	if err != nil {
 		return nil, err
@@ -169,6 +172,42 @@ func (wc *Wildcat) MatchSpathGlob(pattern string, limit int) (*SpathGlobResult, 
 		Matches: matches,
 		Total:   total,
 	}, nil
+}
+
+// expandPatternPackage expands short package names in patterns to full module-relative paths.
+// For example, "golang.Symbol*" becomes "internal/golang.Symbol*" if "golang" resolves to "internal/golang".
+func (wc *Wildcat) expandPatternPackage(pattern string) string {
+	// If pattern starts with ** or contains /, assume it's already a path pattern
+	if strings.HasPrefix(pattern, "**") || strings.Contains(pattern, "/") {
+		return pattern
+	}
+
+	// Extract the package part (before first .)
+	dotIdx := strings.Index(pattern, ".")
+	if dotIdx == -1 {
+		// No dot - could be a package name pattern like "golang*"
+		// Try to find matching packages
+		return pattern
+	}
+
+	pkgPart := pattern[:dotIdx]
+	rest := pattern[dotIdx:]
+
+	// Skip if package part contains wildcards - can't resolve those
+	if strings.Contains(pkgPart, "*") {
+		return pattern
+	}
+
+	// Try to find a package matching this short name
+	for _, pkg := range wc.Project.Packages {
+		if pkg.Identifier.Name == pkgPart {
+			// Found it - expand to full path
+			return pkg.Identifier.PkgShortPath + rest
+		}
+	}
+
+	// No match found, return original
+	return pattern
 }
 
 // patternToRegex converts a wildcard pattern to a compiled regex.
