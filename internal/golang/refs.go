@@ -73,7 +73,10 @@ func walkPackageRefs(pkg *Package, targetObj types.Object, visitor RefVisitor) b
 						}
 					case *ast.ValueSpec:
 						if s.Type != nil && len(s.Names) > 0 {
-							if sym := pkg.SymbolByIdent(s.Names[0]); sym != nil {
+							firstName := s.Names[0]
+							if firstName.Name == "_" {
+								containing = "_"
+							} else if sym := pkg.SymbolByIdent(firstName); sym != nil {
 								containing = sym.PkgTypeSymbol()
 							} else {
 								containing = "<lookup-error>"
@@ -84,7 +87,9 @@ func walkPackageRefs(pkg *Package, targetObj types.Object, visitor RefVisitor) b
 						}
 						for i, name := range s.Names {
 							if i < len(s.Values) {
-								if sym := pkg.SymbolByIdent(name); sym != nil {
+								if name.Name == "_" {
+									containing = "_"
+								} else if sym := pkg.SymbolByIdent(name); sym != nil {
 									containing = sym.PkgTypeSymbol()
 								} else {
 									containing = "<lookup-error>"
@@ -278,7 +283,10 @@ func walkPackageNonCallRefs(pkg *Package, targetObj types.Object, visitor RefVis
 						}
 					case *ast.ValueSpec:
 						if s.Type != nil && len(s.Names) > 0 {
-							if sym := pkg.SymbolByIdent(s.Names[0]); sym != nil {
+							firstName := s.Names[0]
+							if firstName.Name == "_" {
+								containing = "_"
+							} else if sym := pkg.SymbolByIdent(firstName); sym != nil {
 								containing = sym.PkgTypeSymbol()
 							} else {
 								containing = "<lookup-error>"
@@ -289,7 +297,9 @@ func walkPackageNonCallRefs(pkg *Package, targetObj types.Object, visitor RefVis
 						}
 						for i, name := range s.Names {
 							if i < len(s.Values) {
-								if sym := pkg.SymbolByIdent(name); sym != nil {
+								if name.Name == "_" {
+									containing = "_"
+								} else if sym := pkg.SymbolByIdent(name); sym != nil {
 									containing = sym.PkgTypeSymbol()
 								} else {
 									containing = "<lookup-error>"
@@ -452,7 +462,9 @@ func ComputeDescendants(project []*Package) {
 						case *ast.ValueSpec:
 							for _, name := range s.Names {
 								var symbolName string
-								if sym := pkg.SymbolByIdent(name); sym != nil {
+								if name.Name == "_" {
+									symbolName = "_"
+								} else if sym := pkg.SymbolByIdent(name); sym != nil {
 									symbolName = sym.PkgTypeSymbol()
 								} else {
 									symbolName = "<lookup-error>"
